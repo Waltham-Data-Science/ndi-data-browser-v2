@@ -1,9 +1,13 @@
 # NDI Data Browser v2
 
 [![CI](https://github.com/Waltham-Data-Science/ndi-data-browser-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/Waltham-Data-Science/ndi-data-browser-v2/actions/workflows/ci.yml)
+[![E2E](https://github.com/Waltham-Data-Science/ndi-data-browser-v2/actions/workflows/e2e.yml/badge.svg)](https://github.com/Waltham-Data-Science/ndi-data-browser-v2/actions/workflows/e2e.yml)
+[![Deploy](https://img.shields.io/badge/deploy-Railway-0B0D0E?logo=railway&logoColor=white)](https://ndb-v2-production.up.railway.app)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![React 19](https://img.shields.io/badge/react-19-61dafb.svg)](https://react.dev/)
+
+**Live:** https://ndb-v2-production.up.railway.app
 
 Cloud-first neuroscience data browser for NDI Cloud datasets. No SQLite dataset storage; every read hits the cloud directly.
 
