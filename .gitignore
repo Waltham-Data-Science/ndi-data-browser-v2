@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+.env
+!/.env.example
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+*.egg-info/
+
+# Node / Vite
+node_modules/
+frontend/dist/
+frontend_dist/
+frontend/.vite/
+npm-debug.log*
+*.tsbuildinfo
+
+# Playwright
+frontend/playwright-report/
+frontend/test-results/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local SQLite (ephemeral ontology cache during dev)
+*.db
+*.sqlite
+
+# Railway / deploy artifacts
+.railway/
+
+# Claude Code local launch config
+.claude/

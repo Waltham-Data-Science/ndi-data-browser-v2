@@ -1,0 +1,57 @@
+name: E2E
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      NDI_CLOUD_URL: https://api.ndi-cloud.com/v1
+      REDIS_URL: redis://localhost:6379/0
+      SESSION_ENCRYPTION_KEY: Btm_VUmLOztsh3lqD0jZGNzEkuRzi6UMri-63iOT_4A=
+      CSRF_SIGNING_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      CORS_ORIGINS: http://localhost:5173
+      LOG_FORMAT: console
+      ENVIRONMENT: development
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r backend/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: cd frontend && npm ci --no-audit --no-fund
+      - run: cd frontend && npx playwright install --with-deps chromium
+      - name: Start backend
+        run: |
+          nohup python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000 > backend.log 2>&1 &
+          for i in {1..30}; do
+            curl -fsS http://127.0.0.1:8000/api/health && break
+            sleep 1
+          done
+      - name: Start frontend
+        run: |
+          cd frontend
+          nohup npm run dev -- --port 5173 > frontend.log 2>&1 &
+          for i in {1..30}; do
+            curl -fsS http://127.0.0.1:5173/ && break
+            sleep 1
+          done
+      - run: cd frontend && npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+            backend.log
+            frontend/frontend.log

@@ -1,0 +1,31 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      NDI_CLOUD_URL: ${NDI_CLOUD_URL:-https://api.ndi-cloud.com/v1}
+      REDIS_URL: redis://redis:6379/0
+      SESSION_ENCRYPTION_KEY: ${SESSION_ENCRYPTION_KEY:?set SESSION_ENCRYPTION_KEY (32-byte Fernet key)}
+      CSRF_SIGNING_KEY: ${CSRF_SIGNING_KEY:?set CSRF_SIGNING_KEY (32 bytes hex)}
+      CORS_ORIGINS: http://localhost:5173,http://localhost:8000
+      LOG_FORMAT: console
+      LOG_LEVEL: INFO
+      ENVIRONMENT: development
+      WEB_CONCURRENCY: 2
+    depends_on:
+      redis:
+        condition: service_healthy

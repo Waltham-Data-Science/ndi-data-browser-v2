@@ -1,0 +1,22 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "infra/Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/health/ready"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+numReplicas = 2
+startCommand = "sh -c 'exec uvicorn backend.app:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-4} --timeout-graceful-shutdown 30'"
+
+# Environment is configured in the Railway dashboard, but these are the keys we require.
+# Set as secrets before deploy:
+#   NDI_CLOUD_URL
+#   REDIS_URL                 (auto-provided by Railway Redis add-on as ${{Redis.REDIS_URL}})
+#   SESSION_ENCRYPTION_KEY
+#   CSRF_SIGNING_KEY
+#   CORS_ORIGINS              e.g. https://ndb-v2.up.railway.app
+#   ENVIRONMENT=production
+#   SENTRY_DSN                (optional)
+#   WEB_CONCURRENCY=4

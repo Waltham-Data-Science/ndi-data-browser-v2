@@ -1,0 +1,20 @@
+name: Nightly Contract Tests
+on:
+  schedule:
+    - cron: "0 4 * * *"  # 4 AM UTC
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r backend/requirements.txt pytest pytest-asyncio httpx
+      - name: Contract tests against dev cloud
+        env:
+          NDI_CLOUD_URL: ${{ vars.NDI_CLOUD_DEV_URL }}
+        run: |
+          python -m pytest backend/tests/contract/ -v || exit 1
