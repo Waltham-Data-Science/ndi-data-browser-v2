@@ -167,7 +167,28 @@ def create_app() -> FastAPI:
     # --- Static frontend ---
     dist = Path(__file__).resolve().parent.parent / "frontend_dist"
     if dist.is_dir():
-        app.mount("/", StaticFiles(directory=str(dist), html=True), name="frontend")
+        # Serve built assets (hashed filenames in /assets/*) directly.
+        assets_dir = dist / "assets"
+        if assets_dir.is_dir():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+        # Other root-level static files (favicon, robots.txt, etc.)
+        index_path = dist / "index.html"
+
+        from fastapi.responses import FileResponse
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def spa_fallback(full_path: str) -> FileResponse:
+            """Serve index.html for all non-API client routes so React Router can handle them.
+
+            Paths starting with `api/` or `metrics` are not reached because the routers
+            are registered before this catch-all. Known static files at the root
+            (favicon.ico, robots.txt, etc.) are served if they exist on disk.
+            """
+            candidate = dist / full_path
+            if candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(index_path)
 
     return app
 
