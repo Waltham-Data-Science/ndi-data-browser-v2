@@ -65,14 +65,15 @@ Everything else has sensible defaults.
 
 ## Deployment
 
-- Railway project: `ndi-data-browser` (same as v1)
-- Service: `ndb-v2`
-- Redis: `ndb-v2-redis` (private networking, internal hostname `ndb-v2-redis.railway.internal`)
-- Auto-deploys from `main` branch of `Waltham-Data-Science/ndi-data-browser-v2`
-- Health check: `GET /api/health/ready`
-- 2 replicas configured in `infra/railway.toml`
+- **Railway project:** `ndi-data-browser-v2` (dedicated, separate from v1's project — `81a57456-ae9a-47d0-98ef-2b5463f4815b`)
+- **Service:** `ndb-v2` (`b55c2cb8-c0a8-4a96-a91e-6e7aefec6917`)
+- **Redis:** `Redis` (redis:7-alpine, private networking only, internal `redis.railway.internal:6379`)
+- **Public URL:** https://ndb-v2-production.up.railway.app
+- **Auto-deploys** from `main` branch of `Waltham-Data-Science/ndi-data-browser-v2`
+- **Health check:** `GET /api/health/ready`
+- **Replicas:** 2 (per `infra/railway.toml`)
 
-v1 continues to serve `ndi-data-browser-production.up.railway.app`. v2 gets its own URL; cutover is a future step.
+v1 continues to serve `ndi-data-browser-production.up.railway.app` in its own Railway project (unchanged). v2 runs in parallel; cutover is a future step.
 
 ## Testing
 
