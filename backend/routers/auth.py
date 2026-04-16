@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 from ..auth.dependencies import get_current_session, require_session
 from ..auth.login import do_login, do_logout

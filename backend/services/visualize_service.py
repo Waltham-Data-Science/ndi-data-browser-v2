@@ -43,7 +43,7 @@ class VisualizeService:
         xs = np.linspace(float(arr.min()), float(arr.max()), 200) if len(arr) > 1 else arr
         density = k(xs).tolist() if k is not None else [1.0] * len(xs)
         return {
-            "n": int(len(arr)),
+            "n": len(arr),
             "min": float(arr.min()),
             "max": float(arr.max()),
             "mean": float(arr.mean()),

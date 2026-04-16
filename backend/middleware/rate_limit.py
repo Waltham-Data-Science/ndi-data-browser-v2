@@ -62,7 +62,7 @@ class RateLimiter:
                     oldest = await self.redis.zrange(key, 0, 0, withscores=True)
                     if oldest:
                         retry_after = max(1, int(oldest[0][1] + limit.window_seconds - now))
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 log.warning("rate_limit.redis_error", error=str(e))
                 # Fall through to in-memory.
                 allowed = self._fallback_check(key, now, window_start, limit.max_requests)

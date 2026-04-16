@@ -16,10 +16,10 @@ const TABLES = [
 
 export function DatasetDetailPage() {
   const { id } = useParams();
-  if (!id) return <Navigate to="/datasets" replace />;
+  const ds = useDataset(id ?? '');
+  const cc = useClassCounts(id ?? '');
 
-  const ds = useDataset(id);
-  const cc = useClassCounts(id);
+  if (!id) return <Navigate to="/datasets" replace />;
 
   return (
     <div className="grid gap-4 lg:grid-cols-[320px_1fr]">

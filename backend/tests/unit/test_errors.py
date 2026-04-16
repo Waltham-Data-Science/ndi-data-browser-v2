@@ -15,7 +15,6 @@ from backend.errors import (
     QueryInvalidNegation,
     QueryTimeout,
     Recovery,
-    ValidationFailed,
 )
 
 

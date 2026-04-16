@@ -16,7 +16,7 @@ export function MyDatasetsPage() {
 
   return (
     <div className="space-y-3">
-      <h1 className="text-2xl font-bold">My organization's datasets</h1>
+      <h1 className="text-2xl font-bold">My organization&apos;s datasets</h1>
       {q.isLoading && <CardSkeleton />}
       {q.isError && <ErrorState error={q.error} onRetry={() => q.refetch()} />}
       {q.data && q.data.datasets.length === 0 && (

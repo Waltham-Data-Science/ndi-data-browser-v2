@@ -1,7 +1,6 @@
 """End-to-end FastAPI routing with respx-mocked cloud + fakeredis."""
 from __future__ import annotations
 
-import httpx
 import pytest
 import respx
 from fastapi.testclient import TestClient

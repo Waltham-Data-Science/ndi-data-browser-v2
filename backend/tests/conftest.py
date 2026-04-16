@@ -6,7 +6,6 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import fakeredis.aioredis
-import httpx
 import pytest
 import respx
 from cryptography.fernet import Fernet

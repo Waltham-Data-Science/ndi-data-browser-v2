@@ -42,3 +42,4 @@ frontend/test-results/
 
 # Claude Code local launch config
 .claude/
+.gstack/

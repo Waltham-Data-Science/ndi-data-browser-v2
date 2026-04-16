@@ -76,7 +76,7 @@ class SummaryTableService:
                     pid = (d.get("data") or {}).get("base", {}).get("id")
                     if pid and pid in by_primary:
                         d["_enriched_list"] = by_primary[pid]
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 log.warning("table.enrichment_failed", class_name=class_name, error=str(e))
 
         columns, rows = _project_for_class(class_name, docs)

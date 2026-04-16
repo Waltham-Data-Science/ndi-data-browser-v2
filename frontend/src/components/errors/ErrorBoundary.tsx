@@ -13,7 +13,6 @@ export class ErrorBoundary extends React.Component<React.PropsWithChildren, Stat
   }
 
   componentDidCatch(error: unknown, info: React.ErrorInfo): void {
-    // eslint-disable-next-line no-console
     console.error('React render error', error, info);
   }
 

@@ -46,7 +46,7 @@ class OntologyService:
             return cached
         try:
             fetched = await self._fetch_from_provider(provider, term_id)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.warning("ontology.fetch_failed", provider=provider, term_id=term_id, error=str(e))
             raise OntologyLookupFailed(f"Could not look up {term}") from e
         self.cache.set(fetched)
@@ -63,17 +63,12 @@ class OntologyService:
         except OntologyLookupFailed:
             return None
 
+    _OLS_PROVIDERS = {"CL": "cl", "NCBITaxon": "ncbitaxon", "CHEBI": "chebi", "PATO": "pato", "EFO": "efo"}
+
     async def _fetch_from_provider(self, provider: str, term_id: str) -> OntologyTerm:
-        if provider == "CL":
-            return await self._fetch_ols("cl", f"CL:{term_id}")
-        if provider == "NCBITaxon":
-            return await self._fetch_ols("ncbitaxon", f"NCBITaxon:{term_id}")
-        if provider == "CHEBI":
-            return await self._fetch_ols("chebi", f"CHEBI:{term_id}")
-        if provider == "PATO":
-            return await self._fetch_ols("pato", f"PATO:{term_id}")
-        if provider == "EFO":
-            return await self._fetch_ols("efo", f"EFO:{term_id}")
+        ols = self._OLS_PROVIDERS.get(provider)
+        if ols is not None:
+            return await self._fetch_ols(ols, f"{provider}:{term_id}")
         if provider == "RRID":
             return await self._fetch_scicrunch(term_id)
         if provider == "WBStrain":
@@ -81,19 +76,12 @@ class OntologyService:
         if provider == "PubChem":
             return await self._fetch_pubchem(term_id)
         # Fallback: record a stub so we don't hammer.
-        return OntologyTerm(
-            provider=provider,
-            term_id=term_id,
-            label=None,
-            definition=None,
-            url=None,
-        )
+        return OntologyTerm(provider=provider, term_id=term_id, label=None, definition=None, url=None)
 
     async def _fetch_ols(self, ont: str, iri_id: str) -> OntologyTerm:
         # EBI OLS4 API. Encode IRI via the obolibrary namespace.
         safe = iri_id.replace(":", "_")
         iri = f"http://purl.obolibrary.org/obo/{safe}"
-        url = f"https://www.ebi.ac.uk/ols4/api/ontologies/{ont}/terms/{httpx.URL(iri).raw_path.decode()}"
         r = await self._http.get(
             f"https://www.ebi.ac.uk/ols4/api/ontologies/{ont}/terms",
             params={"iri": iri},

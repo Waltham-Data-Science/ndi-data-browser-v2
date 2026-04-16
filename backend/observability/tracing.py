@@ -6,21 +6,24 @@ means the rest of the code can `from .tracing import span` without conditional i
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
 _tracer: Any | None = None
 
 
 def configure_tracing(service_name: str = "ndi-data-browser-v2") -> None:
     """Set up OpenTelemetry SDK. No-op if the optional deps aren't installed."""
-    global _tracer
+    global _tracer  # noqa: PLW0603  (single-init pattern for optional subsystem)
     try:
         from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,  # type: ignore[import-not-found]
+        )
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter  # type: ignore[import-not-found]
     except ImportError:
         return
 
@@ -36,10 +39,9 @@ def span(name: str, **attributes: Any) -> Iterator[None]:
     if _tracer is None:
         yield
         return
+    from contextlib import suppress
     with _tracer.start_as_current_span(name) as s:
         for k, v in attributes.items():
-            try:
+            with suppress(Exception):
                 s.set_attribute(k, v)
-            except Exception:
-                pass
         yield

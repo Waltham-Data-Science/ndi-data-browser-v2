@@ -9,10 +9,9 @@ Wires:
 """
 from __future__ import annotations
 
-import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -74,7 +73,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log.info("app.shutdown")
 
 
-def create_app() -> FastAPI:
+def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, intentional)
     settings = get_settings()
     app = FastAPI(
         title="NDI Data Browser v2",
@@ -100,7 +99,7 @@ def create_app() -> FastAPI:
 
     # --- Exception handlers ---
     @app.exception_handler(BrowserError)
-    async def handle_browser_error(request: Request, exc: BrowserError) -> JSONResponse:  # noqa: ARG001
+    async def handle_browser_error(request: Request, exc: BrowserError) -> JSONResponse:
         rid = request_id_ctx.get()
         if exc.http_status >= 500:
             log.error("browser_error", code=exc.code.value, **exc.log_context)

@@ -90,7 +90,7 @@ class NdiCloudClient:
 
     # --- Core request plumbing ---
 
-    async def _request(
+    async def _request(  # noqa: PLR0915  (single request-lifecycle state machine)
         self,
         method: str,
         url: str,
@@ -110,7 +110,6 @@ class NdiCloudClient:
             headers["X-Request-ID"] = request_id
 
         attempts = self.settings.CLOUD_MAX_RETRIES if idempotent else 1
-        last_exc: Exception | None = None
         start = time.perf_counter()
         outcome = "unknown"
         response: httpx.Response | None = None
@@ -131,7 +130,6 @@ class NdiCloudClient:
                     continue
                 break
             except httpx.TimeoutException as e:
-                last_exc = e
                 if attempt + 1 < attempts:
                     cloud_retries_total.labels(endpoint=endpoint_label).inc()
                     await asyncio.sleep(self._backoff_seconds(attempt))
@@ -144,7 +142,6 @@ class NdiCloudClient:
                 log.warning("cloud.timeout", endpoint=endpoint_label, attempt=attempt + 1)
                 raise CloudTimeout(log_context={"endpoint": endpoint_label}) from e
             except (httpx.NetworkError, httpx.ConnectError, httpx.RemoteProtocolError) as e:
-                last_exc = e
                 if attempt + 1 < attempts:
                     cloud_retries_total.labels(endpoint=endpoint_label).inc()
                     await asyncio.sleep(self._backoff_seconds(attempt))
@@ -158,7 +155,7 @@ class NdiCloudClient:
                 raise CloudUnreachable(log_context={"endpoint": endpoint_label}) from e
             except CircuitOpen:
                 cloud_call_total.labels(endpoint=endpoint_label, outcome="breaker_open").inc()
-                raise CloudUnreachable("NDI Cloud is temporarily unavailable.")
+                raise CloudUnreachable("NDI Cloud is temporarily unavailable.") from None
 
         assert response is not None, "Unreachable: loop exits with either response or exception"
         elapsed = time.perf_counter() - start

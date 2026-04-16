@@ -14,7 +14,7 @@ import json
 import secrets
 from hashlib import sha256
 
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ..config import get_settings
 from ..errors import CsrfInvalid
@@ -57,7 +57,7 @@ class CsrfMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # noqa: PLR0912
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -73,8 +73,8 @@ class CsrfMiddleware:
         cookie_token = None
         for k, v in scope.get("headers", []):
             if k == b"cookie":
-                for part in v.decode(errors="replace").split(";"):
-                    part = part.strip()
+                for raw_part in v.decode(errors="replace").split(";"):
+                    part = raw_part.strip()
                     if part.startswith(f"{CSRF_COOKIE}="):
                         cookie_token = part.split("=", 1)[1]
                         break
