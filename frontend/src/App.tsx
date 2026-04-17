@@ -4,8 +4,8 @@ import { AppShell } from '@/components/layout/AppShell';
 import { HomePage } from '@/pages/HomePage';
 import { DatasetsPage } from '@/pages/DatasetsPage';
 import { DatasetDetailPage } from '@/pages/DatasetDetailPage';
+import { DocumentExplorerPage } from '@/pages/DocumentExplorerPage';
 import { TableTab } from '@/pages/TableTab';
-import { DocumentsListPage } from '@/pages/DocumentsListPage';
 import { DocumentDetailPage } from '@/pages/DocumentDetailPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { MyDatasetsPage } from '@/pages/MyDatasetsPage';
@@ -47,7 +47,8 @@ export function App() {
                 <Route index element={<Navigate to="tables/subject" replace />} />
                 {/* Legacy class slugs with hyphens/underscores resolved in TableTab */}
                 <Route path="tables/:className" element={<TableTab />} />
-                <Route path="documents" element={<DocumentsListPage />} />
+                {/* M4c: Summary Tables / Raw Documents toggle. */}
+                <Route path="documents" element={<DocumentExplorerPage />} />
               </Route>
               <Route path="datasets/:id/documents/:docId" element={<DocumentDetailPage />} />
               <Route path="my" element={<MyDatasetsPage />} />
