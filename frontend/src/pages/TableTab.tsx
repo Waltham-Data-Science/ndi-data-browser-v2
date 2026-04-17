@@ -13,7 +13,7 @@ import { SummaryTableView } from '@/components/tables/SummaryTableView';
 import { TableSelector } from '@/components/tables/TableSelector';
 import { Card, CardBody } from '@/components/ui/Card';
 import { ErrorState } from '@/components/errors/ErrorState';
-import { TableSkeleton } from '@/components/ui/Skeleton';
+import { TableLoadingPanel } from '@/components/ui/Skeleton';
 import { useState } from 'react';
 
 type AllowedType = TableType;
@@ -143,7 +143,7 @@ function OntologyTablesView({ datasetId }: { datasetId: string | undefined }) {
   const { data, isLoading, isError, error, refetch } = useOntologyTables(datasetId);
   const [groupIdx, setGroupIdx] = useState(0);
 
-  if (isLoading) return <TableSkeleton rows={12} />;
+  if (isLoading) return <TableLoadingPanel tableType="ontology" rows={12} />;
   if (isError) return <ErrorState error={error} onRetry={() => refetch()} />;
   if (!data || data.groups.length === 0) {
     return (
@@ -239,7 +239,7 @@ function TableBody({
   onRowClick?: (row: Record<string, unknown>) => void;
   datasetId?: string;
 }) {
-  if (isLoading) return <TableSkeleton rows={12} />;
+  if (isLoading) return <TableLoadingPanel tableType={tableType} rows={12} />;
   if (isError) return <ErrorState error={error} onRetry={onRetry} />;
   if (!data) return null;
   return (
