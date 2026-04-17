@@ -413,7 +413,8 @@ export function SummaryTableView({
 
 function TableCell({ value }: { value: unknown }) {
   if (value === null || value === undefined) {
-    return <span className="text-slate-400">—</span>;
+    // aria-hidden: the em-dash is a visual null-placeholder, not content.
+    return <span className="text-slate-500 dark:text-slate-400" aria-hidden>—</span>;
   }
   if (typeof value === 'object' && !Array.isArray(value)) {
     return <EpochTimeCell value={value as Record<string, unknown>} />;

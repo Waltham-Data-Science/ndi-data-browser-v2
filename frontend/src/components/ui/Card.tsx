@@ -33,16 +33,28 @@ export function CardBody({ className, children }: PropsWithChildren<{ className?
   return <div className={cn('p-4', className)}>{children}</div>;
 }
 
-export function CardTitle({ className, children }: PropsWithChildren<{ className?: string }>) {
+type HeadingLevel = 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
+
+/** CardTitle defaults to h2 — axe's heading-order rule requires that
+ * headings increase by one. Most of our pages have a page-level h1
+ * (Published datasets / dataset name / Query) and then cards, so the
+ * natural next level is h2. A card inside a card can pass `as="h3"`
+ * explicitly. */
+export function CardTitle({
+  className,
+  children,
+  as = 'h2',
+}: PropsWithChildren<{ className?: string; as?: HeadingLevel }>) {
+  const Tag = as;
   return (
-    <h3
+    <Tag
       className={cn(
         'text-base font-semibold leading-tight text-slate-900 dark:text-slate-100',
         className,
       )}
     >
       {children}
-    </h3>
+    </Tag>
   );
 }
 

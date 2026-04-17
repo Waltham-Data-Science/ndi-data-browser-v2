@@ -69,7 +69,7 @@ export function TableSelector({
             <Icon className="h-3.5 w-3.5" />
             {label}
             {count !== undefined && (
-              <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">
+              <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
                 {count.toLocaleString()}
               </span>
             )}
