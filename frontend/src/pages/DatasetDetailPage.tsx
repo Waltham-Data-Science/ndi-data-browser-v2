@@ -118,9 +118,9 @@ function DatasetOverviewCard({ ds }: { ds: DatasetSummary }) {
 
         {(ds.contributors?.length ?? 0) > 0 && (
           <div className="space-y-1.5">
-            <h3 className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+            <h2 className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
               <Users className="h-3 w-3" /> Contributors
-            </h3>
+            </h2>
             <ul className="space-y-0.5 text-xs">
               {ds.contributors!.map((c, i) => (
                 <ContributorRow key={`${c.firstName}-${c.lastName}-${i}`} c={c} />
@@ -131,9 +131,9 @@ function DatasetOverviewCard({ ds }: { ds: DatasetSummary }) {
 
         {(ds.correspondingAuthors?.length ?? 0) > 0 && (
           <div className="space-y-1.5">
-            <h3 className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <h2 className="text-xs font-semibold text-slate-600 dark:text-slate-300">
               Corresponding authors
-            </h3>
+            </h2>
             <ul className="space-y-0.5 text-xs">
               {ds.correspondingAuthors!.map((c, i) => (
                 <ContributorRow key={`${c.firstName}-${c.lastName}-${i}`} c={c} />
@@ -144,9 +144,9 @@ function DatasetOverviewCard({ ds }: { ds: DatasetSummary }) {
 
         {(ds.funding?.length ?? 0) > 0 && (
           <div className="space-y-1">
-            <h3 className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <h2 className="text-xs font-semibold text-slate-600 dark:text-slate-300">
               Funding
-            </h3>
+            </h2>
             <p className="text-xs text-slate-600 dark:text-slate-400">
               {ds
                 .funding!.map((f) => f.source)
@@ -158,9 +158,9 @@ function DatasetOverviewCard({ ds }: { ds: DatasetSummary }) {
 
         {(ds.associatedPublications?.length ?? 0) > 0 && (
           <div className="space-y-1.5">
-            <h3 className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+            <h2 className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
               <BookOpen className="h-3 w-3" /> Associated publications
-            </h3>
+            </h2>
             <ul className="space-y-1 text-xs">
               {ds.associatedPublications!.map((p, i) => (
                 <PublicationRow key={p.DOI ?? p.PMID ?? i} p={p} />

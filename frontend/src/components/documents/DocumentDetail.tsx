@@ -58,7 +58,7 @@ function JsonTree({
       <div className={depth > 0 ? 'pl-3 border-l border-slate-200 dark:border-slate-700/50' : ''}>
         {items.map((item, i) => (
           <div key={i} className="py-0.5">
-            <span className="text-slate-400 text-[10px] mr-1">[{i}]</span>
+            <span className="text-slate-500 dark:text-slate-400 text-[10px] mr-1">[{i}]</span>
             <JsonTree data={item} depth={depth + 1} />
           </div>
         ))}
@@ -178,7 +178,7 @@ export function DocumentDetailView({ document: doc, datasetId }: DocumentDetailV
                       </span>
                     )
                   ) : (
-                    <span className="text-slate-400 italic">empty</span>
+                    <span className="text-slate-500 dark:text-slate-400 italic">empty</span>
                   )}
                 </div>
               ))}
@@ -206,7 +206,7 @@ export function DocumentDetailView({ document: doc, datasetId }: DocumentDetailV
                   <File className="h-3 w-3 shrink-0" />
                   <span className="truncate">{f.name}</span>
                   {f.uid && (
-                    <span className="text-[10px] text-slate-400 truncate">{f.uid}</span>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate">{f.uid}</span>
                   )}
                 </div>
               ))}

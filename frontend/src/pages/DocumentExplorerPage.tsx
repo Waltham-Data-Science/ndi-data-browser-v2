@@ -232,7 +232,7 @@ function RawDocumentsPane({
                                   to={`/datasets/${datasetId}/documents/${did}`}
                                   className="text-brand-600 dark:text-brand-400 hover:underline"
                                 >
-                                  {d.name || <span className="text-slate-400">—</span>}
+                                  {d.name || <span className="text-slate-500 dark:text-slate-400" aria-hidden>—</span>}
                                 </Link>
                               </td>
                               <td className="px-3 py-1.5 font-mono text-xs">

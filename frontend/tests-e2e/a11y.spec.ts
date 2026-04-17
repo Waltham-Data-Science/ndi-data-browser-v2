@@ -16,13 +16,12 @@ import { test, expect } from './_fixtures/test';
 
 const HALEY_ID = '682e7772cdf3f24938176fac';
 
-// Rule exceptions (empty by default). Add rule IDs here only after a
-// principled judgment that the rule doesn't apply to this codebase.
-const DISABLED_RULES: string[] = [
-  // ex: 'color-contrast',  // Tailwind neutral-400 on neutral-50 used for
-  //                           decorative "—" cells — ratio is 3.8:1, below the
-  //                           4.5:1 threshold, but the content is aria-hidden.
-];
+// Rule exceptions (empty). Add rule IDs here only after a principled
+// judgment that the rule requires a design-system change beyond the scope
+// of a CI fix. Each exception MUST be tracked as a follow-up task — the
+// purpose of the axe gate is to catch *new* violations; old ones should
+// still be actively closed.
+const DISABLED_RULES: string[] = [];
 
 async function expectNoViolations(page: import('@playwright/test').Page): Promise<void> {
   const builder = new AxeBuilder({ page }).withTags([

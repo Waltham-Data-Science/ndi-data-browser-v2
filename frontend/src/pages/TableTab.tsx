@@ -199,7 +199,7 @@ function OntologyGroupPicker({
               {label}
               {g.variableNames.length > 2 && '…'}
             </span>
-            <span className="ml-1.5 text-[10px] text-slate-400">
+            <span className="ml-1.5 text-[10px] text-slate-500 dark:text-slate-400">
               {g.rowCount.toLocaleString()}
             </span>
           </button>

@@ -7,7 +7,18 @@ healthcheckPath = "/api/health/ready"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
-numReplicas = 2
+# Right-sized for current usage (<10 concurrent users): one replica serves
+# all real traffic with headroom. Running two replicas would double the
+# Railway compute bill for zero capacity benefit AND introduce a subtle
+# correctness bug — the rate-limit counters in backend/middleware/rate_limit.py
+# fall back to per-replica in-process state when Redis is unavailable, so 2x
+# replicas = 2x the configured rate-limit ceiling.
+#
+# Bump back to 2 (or higher) when:
+#   - concurrent sessions climb above ~100, or
+#   - true zero-downtime deploys become user-visible (current ~30s health-check
+#     cutover is tolerable for <10 users but not for larger loads).
+numReplicas = 1
 startCommand = "sh -c 'exec uvicorn backend.app:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-4} --timeout-graceful-shutdown 30'"
 
 # Environment is configured in the Railway dashboard, but these are the keys we require.
