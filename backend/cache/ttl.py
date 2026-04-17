@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import Any, Generic, TypeVar, cast
+from typing import Any, Generic, TypeVar
 
 from cachetools import TTLCache
 
@@ -16,21 +16,19 @@ T = TypeVar("T")
 
 class AsyncTTLCache(Generic[T]):
     def __init__(self, maxsize: int, ttl_seconds: float) -> None:
-        # cachetools ships without type stubs in our overrides, so TTLCache is
-        # effectively Any — all reads off _cache must be cast back to T / int.
         self._cache: TTLCache[str, T] = TTLCache(maxsize=maxsize, ttl=ttl_seconds)
         self._locks: dict[str, asyncio.Lock] = {}
         self._lock_for_locks = asyncio.Lock()
 
     async def get_or_compute(self, key: str, producer: Callable[[], Awaitable[T]]) -> T:
         if key in self._cache:
-            return cast(T, self._cache[key])
+            return self._cache[key]
         # Per-key lock to avoid stampede.
         async with self._lock_for_locks:
             lock = self._locks.setdefault(key, asyncio.Lock())
         async with lock:
             if key in self._cache:
-                return cast(T, self._cache[key])
+                return self._cache[key]
             value = await producer()
             self._cache[key] = value
             return value
@@ -43,7 +41,10 @@ class AsyncTTLCache(Generic[T]):
 
     @property
     def currsize(self) -> int:
-        return cast(int, self._cache.currsize)
+        # TTLCache.currsize can be non-integral when a custom getsizeof is set
+        # (the stubs type it as float). We always use the default identity sizer,
+        # so this is integer-valued in practice — coerce to int for callers.
+        return int(self._cache.currsize)
 
 
 # Pre-configured caches used across services. Value type is narrowed to the

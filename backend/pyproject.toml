@@ -31,6 +31,7 @@ dev = [
     "hypothesis>=6.110.0",
     "ruff>=0.6.0",
     "mypy>=1.11.0",
+    "types-cachetools>=5.4.0",
     "fakeredis>=2.24.0",
     "httpx-ws>=0.7.0",
     "freezegun>=1.5.0",
@@ -89,13 +90,11 @@ plugins = ["pydantic.mypy"]
 exclude = ["(^|/)tests/"]
 
 # Optional subsystems: opentelemetry is gated behind the `observability` extra
-# and only imported under `try/except ImportError`; cachetools and scipy don't
-# publish type stubs that track their current APIs. Fall back to implicit Any
-# for these packages only.
+# and only imported under `try/except ImportError`; scipy doesn't publish type
+# stubs that track its current API. Fall back to implicit Any for those.
+# (cachetools: use `types-cachetools` from the dev extra — listed below.)
 [[tool.mypy.overrides]]
 module = [
-    "cachetools",
-    "cachetools.*",
     "scipy",
     "scipy.*",
     "opentelemetry",
