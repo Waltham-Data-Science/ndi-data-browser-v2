@@ -1,0 +1,55 @@
+{
+  "className": "openminds_subject",
+  "data": {
+    "base": {
+      "datestamp": "2025-07-23T13:37:33.601Z",
+      "id": "412693dacd5ac205_c0c80a1d1ee1b30e",
+      "name": "",
+      "session_id": "412693451be731c6_c0dd2b1c81071106"
+    },
+    "depends_on": [
+      {
+        "name": "subject_id",
+        "value": "412693451bea19b2_c0c9ed464110e564"
+      },
+      {
+        "name": "openminds",
+        "value": ""
+      }
+    ],
+    "document_class": {
+      "class_name": "openminds_subject",
+      "class_version": 1,
+      "definition": "$NDIDOCUMENTPATH/metadata/openminds_subject.json",
+      "property_list_name": "openminds_subject",
+      "superclasses": [
+        {
+          "definition": "$NDIDOCUMENTPATH/base.json"
+        },
+        {
+          "definition": "$NDIDOCUMENTPATH/metadata/openminds.json"
+        }
+      ],
+      "validation": "$NDISCHEMAPATH/metadata/openminds_subject.json"
+    },
+    "openminds": {
+      "fields": {
+        "definition": "",
+        "description": "",
+        "interlexIdentifier": "",
+        "knowledgeSpaceLink": "",
+        "name": "female",
+        "preferredOntologyIdentifier": "PATO:0000383",
+        "synonym": ""
+      },
+      "matlab_type": "openminds.controlledterms.BiologicalSex",
+      "openminds_id": "BiologicalSex/7060eb36-d2e3-4a58-96a6-a1dd5485e8b9",
+      "openminds_type": "https://openminds.om-i.org/types/BiologicalSex"
+    },
+    "openminds_subject": {}
+  },
+  "datasetId": "68839b1fbf243809c0800a01",
+  "id": "68853fb05d5ded9f260cf404",
+  "name": "",
+  "ndiId": "412693dacd5ac205_c0c80a1d1ee1b30e"
+}
