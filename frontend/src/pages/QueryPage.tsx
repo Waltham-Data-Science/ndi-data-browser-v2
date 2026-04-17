@@ -1,184 +1,121 @@
 import { useState } from 'react';
-import { useRunQuery, type QueryNode } from '@/api/query';
-import { useMe } from '@/api/auth';
-import { Card, CardBody, CardHeader } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { ErrorState } from '@/components/errors/ErrorState';
+import { Link } from 'react-router-dom';
 
-type Op = 'isa' | 'exact_string' | 'contains_string' | 'hasfield' | 'hasmember' | 'depends_on' | 'regexp';
-const OPS: Op[] = ['isa', 'exact_string', 'contains_string', 'hasfield', 'hasmember', 'depends_on', 'regexp'];
+import type { QueryResponse } from '@/api/query';
+import { QueryBuilder } from '@/components/query/QueryBuilder';
+import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/Card';
+import { formatNumber } from '@/lib/format';
 
-interface Clause {
-  id: number;
-  negated: boolean;
-  operation: Op;
-  field: string;
-  param1: string;
-  param2: string;
-}
-
-type ScopeKind = 'public' | 'my' | 'all' | 'dataset';
-
+/**
+ * Cross-cloud query page — reuses the ported v1 QueryBuilder with URL
+ * pre-load (ontology cross-link drops users here with op+field+param1
+ * hydrated from the OntologyPopover "Find everywhere" link).
+ */
 export function QueryPage() {
-  const me = useMe();
-  const run = useRunQuery();
-  const [scopeKind, setScopeKind] = useState<ScopeKind>('public');
-  const [datasetId, setDatasetId] = useState('');
-  const [clauses, setClauses] = useState<Clause[]>([
-    { id: 1, negated: false, operation: 'isa', field: '', param1: 'subject', param2: '' },
-  ]);
-
-  const canUseMy = me.isSuccess;
-  const scope = (() => {
-    if (scopeKind === 'my') return 'private';
-    if (scopeKind === 'all') return 'all';
-    if (scopeKind === 'public') return 'public';
-    return datasetId.trim();
-  })();
-
-  function addClause() {
-    setClauses((c) => [
-      ...c,
-      { id: Date.now(), negated: false, operation: 'contains_string', field: '', param1: '', param2: '' },
-    ]);
-  }
-  function removeClause(id: number) {
-    setClauses((c) => c.filter((x) => x.id !== id));
-  }
-  function update(id: number, patch: Partial<Clause>) {
-    setClauses((c) => c.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-  }
-
-  function submit() {
-    const searchstructure: QueryNode[] = clauses.map((c) => {
-      const operation = (c.negated ? `~${c.operation}` : c.operation) as string;
-      const node: QueryNode = { operation };
-      if (c.field) node.field = c.field;
-      if (c.param1) node.param1 = c.param1;
-      if (c.param2) node.param2 = c.param2;
-      return node;
-    });
-    run.mutate({ searchstructure, scope });
-  }
+  const [results, setResults] = useState<QueryResponse | null>(null);
 
   return (
     <div className="space-y-4">
       <header>
-        <h1 className="text-2xl font-bold">Query builder</h1>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+          Query builder
+        </h1>
         <p className="text-sm text-slate-600 dark:text-slate-400">
-          Build an NDI query. Every field search auto-narrows to the class, so searches are fast even cross-cloud.
+          Build an NDI query. Every field search auto-narrows to the class, so
+          searches stay fast even across public datasets.
         </p>
       </header>
 
-      <Card>
-        <CardHeader>
-          <h2 className="text-sm font-semibold">Scope</h2>
-        </CardHeader>
-        <CardBody className="flex flex-wrap gap-3 text-sm">
-          <label className="flex items-center gap-1.5">
-            <input type="radio" checked={scopeKind === 'public'} onChange={() => setScopeKind('public')} /> All public
-          </label>
-          <label className={`flex items-center gap-1.5 ${canUseMy ? '' : 'text-slate-400'}`}>
-            <input
-              type="radio"
-              checked={scopeKind === 'my'}
-              onChange={() => setScopeKind('my')}
-              disabled={!canUseMy}
-            />{' '}
-            My org
-          </label>
-          <label className={`flex items-center gap-1.5 ${canUseMy ? '' : 'text-slate-400'}`}>
-            <input
-              type="radio"
-              checked={scopeKind === 'all'}
-              onChange={() => setScopeKind('all')}
-              disabled={!canUseMy}
-            />{' '}
-            Everywhere I can access
-          </label>
-          <label className="flex items-center gap-1.5">
-            <input type="radio" checked={scopeKind === 'dataset'} onChange={() => setScopeKind('dataset')} />
-            Specific dataset
-            {scopeKind === 'dataset' && (
-              <Input
-                className="ml-2 w-64"
-                value={datasetId}
-                placeholder="24-char dataset ID"
-                onChange={(e) => setDatasetId(e.target.value)}
-              />
-            )}
-          </label>
-        </CardBody>
-      </Card>
+      <QueryBuilder onResults={setResults} onClear={() => setResults(null)} />
 
-      <Card>
-        <CardHeader>
-          <h2 className="text-sm font-semibold">Clauses</h2>
-        </CardHeader>
-        <CardBody className="space-y-3">
-          {clauses.map((c) => (
-            <div key={c.id} className="grid grid-cols-[auto_auto_1fr_1fr_1fr_auto] items-center gap-2">
-              <label className="text-xs">
-                <input
-                  type="checkbox"
-                  checked={c.negated}
-                  onChange={(e) => update(c.id, { negated: e.target.checked })}
-                  disabled={c.operation === ('or' as Op)}
-                />{' '}
-                not
-              </label>
-              <select
-                value={c.operation}
-                onChange={(e) => update(c.id, { operation: e.target.value as Op })}
-                className="rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-800"
-              >
-                {OPS.map((o) => <option key={o} value={o}>{o}</option>)}
-              </select>
-              <Input
-                placeholder="field (e.g. subject.species)"
-                value={c.field}
-                onChange={(e) => update(c.id, { field: e.target.value })}
-              />
-              <Input
-                placeholder="param1"
-                value={c.param1}
-                onChange={(e) => update(c.id, { param1: e.target.value })}
-              />
-              <Input
-                placeholder="param2"
-                value={c.param2}
-                onChange={(e) => update(c.id, { param2: e.target.value })}
-              />
-              <Button size="sm" variant="ghost" onClick={() => removeClause(c.id)}>×</Button>
-            </div>
-          ))}
-          <Button size="sm" variant="secondary" onClick={addClause}>+ Add clause</Button>
-        </CardBody>
-      </Card>
-
-      <div className="flex gap-2">
-        <Button onClick={submit} disabled={run.isPending || (scopeKind === 'dataset' && !datasetId)}>
-          {run.isPending ? 'Running…' : 'Run query'}
-        </Button>
-      </div>
-
-      {run.isError && <ErrorState error={run.error} onRetry={submit} />}
-
-      {run.data && (
-        <Card>
-          <CardHeader>
-            <h2 className="text-sm font-semibold">
-              Results — {(run.data.documents?.length ?? run.data.ids?.length ?? 0)} documents
-            </h2>
-          </CardHeader>
-          <CardBody>
-            <pre className="max-h-[50vh] overflow-auto rounded bg-slate-50 p-3 text-xs dark:bg-slate-900">
-              {JSON.stringify(run.data, null, 2)}
-            </pre>
-          </CardBody>
-        </Card>
-      )}
+      {results && <ResultsCard results={results} />}
     </div>
+  );
+}
+
+function ResultsCard({ results }: { results: QueryResponse }) {
+  const docs = results.documents ?? [];
+  const total = results.total ?? results.totalItems ?? results.number_matches ?? docs.length;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">
+          Results — {formatNumber(total)} documents
+        </CardTitle>
+      </CardHeader>
+      <CardBody>
+        {docs.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            No matching documents.
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 dark:bg-slate-900">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium text-slate-500 dark:text-slate-300">
+                    Name
+                  </th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-500 dark:text-slate-300">
+                    Class
+                  </th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-500 dark:text-slate-300">
+                    Dataset
+                  </th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-500 dark:text-slate-300">
+                    ndiId
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {docs.slice(0, 200).map((d, i) => {
+                  const id = String(d.id ?? d.ndiId ?? i);
+                  const dsId = String(d.datasetId ?? '');
+                  return (
+                    <tr
+                      key={id}
+                      className="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                    >
+                      <td className="px-3 py-1.5">
+                        {dsId && d.id ? (
+                          <Link
+                            to={`/datasets/${dsId}/documents/${d.id}`}
+                            className="text-brand-600 dark:text-brand-400 hover:underline"
+                          >
+                            {String(d.name ?? d.id)}
+                          </Link>
+                        ) : (
+                          <span>{String(d.name ?? d.id ?? '')}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-1.5 font-mono text-xs">
+                        {String(d.className ?? '—')}
+                      </td>
+                      <td className="px-3 py-1.5 font-mono text-xs text-slate-500 dark:text-slate-400">
+                        {dsId ? (
+                          <Link to={`/datasets/${dsId}`} className="hover:underline">
+                            {dsId.slice(0, 8)}…
+                          </Link>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="px-3 py-1.5 font-mono text-xs text-slate-500 dark:text-slate-400 truncate max-w-[220px]">
+                        {String(d.ndiId ?? '')}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {docs.length > 200 && (
+              <p className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+                Showing first 200 of {formatNumber(docs.length)} returned documents.
+              </p>
+            )}
+          </div>
+        )}
+      </CardBody>
+    </Card>
   );
 }

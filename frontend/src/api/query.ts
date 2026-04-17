@@ -8,10 +8,17 @@ export interface QueryNode {
   param2?: unknown;
 }
 
+export interface QueryCondition extends QueryNode {
+  /** Same shape as QueryNode — alias kept for readability in the UI. */
+  operation: string;
+}
+
 export interface QueryResponse {
   documents?: Array<Record<string, unknown>>;
   ids?: string[];
   total?: number;
+  totalItems?: number;
+  number_matches?: number;
 }
 
 export function useRunQuery() {
@@ -26,7 +33,10 @@ export interface AppearsElsewhereResponse {
   totalReferences: number;
 }
 
-export function useAppearsElsewhere(documentId: string | undefined, excludeDatasetId: string | undefined) {
+export function useAppearsElsewhere(
+  documentId: string | undefined,
+  excludeDatasetId: string | undefined,
+) {
   return useQuery({
     queryKey: ['appears-elsewhere', documentId, excludeDatasetId],
     queryFn: () =>
@@ -35,5 +45,29 @@ export function useAppearsElsewhere(documentId: string | undefined, excludeDatas
         body: { documentId, excludeDatasetId },
       }),
     enabled: !!documentId,
+  });
+}
+
+export interface QueryOperation {
+  name: string;
+  label: string;
+  description?: string;
+  paramSchema?: {
+    field?: string;
+    param1?: string;
+    param2?: string;
+  };
+  negatable?: boolean;
+}
+
+export interface QueryOperationsResponse {
+  operations: QueryOperation[];
+}
+
+export function useQueryOperations() {
+  return useQuery({
+    queryKey: ['query-operations'],
+    queryFn: () => apiFetch<QueryOperationsResponse>('/api/query/operations'),
+    staleTime: Infinity,
   });
 }

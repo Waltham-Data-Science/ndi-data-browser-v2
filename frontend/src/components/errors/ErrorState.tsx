@@ -48,6 +48,7 @@ export function ErrorState({ error, onRetry }: ErrorStateProps) {
         className="rounded-lg bg-amber-50 p-4 ring-1 ring-amber-200 dark:bg-amber-950 dark:ring-amber-900"
       >
         <p className="text-sm text-amber-800 dark:text-amber-200">{message}</p>
+        {code === 'QUERY_TOO_LARGE' && <QueryTooLargeHint />}
         {onRetry && (
           <Button className="mt-3" size="sm" variant="secondary" onClick={onRetry}>
             Try again
@@ -91,6 +92,33 @@ export function ErrorState({ error, onRetry }: ErrorStateProps) {
       className="rounded-md bg-slate-50 p-3 text-sm text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800"
     >
       {message}
+      {code === 'QUERY_TOO_LARGE' && <QueryTooLargeHint />}
+    </div>
+  );
+}
+
+/** Narrowing hint surfaced alongside the generic "query returned too many
+ * documents" retry message. Plan §M6 risk mitigation #4. */
+function QueryTooLargeHint() {
+  return (
+    <div className="mt-3 rounded border border-amber-300/50 bg-white/60 dark:bg-slate-900/60 p-3 text-xs text-slate-700 dark:text-slate-300 space-y-1">
+      <p className="font-semibold text-slate-900 dark:text-slate-100">
+        Narrow the query to return fewer than 50,000 documents:
+      </p>
+      <ul className="list-disc pl-4 space-y-0.5">
+        <li>
+          Add an <code className="font-mono">isa</code> clause for a specific
+          class (e.g. <code className="font-mono">subject</code>,{' '}
+          <code className="font-mono">element_epoch</code>) instead of querying
+          all <code className="font-mono">ndi_document</code>.
+        </li>
+        <li>Restrict the scope to a single dataset rather than `all` or `public`.</li>
+        <li>
+          Pair filters: combine <code className="font-mono">isa</code> with a{' '}
+          <code className="font-mono">hasfield</code> or{' '}
+          <code className="font-mono">depends_on</code> condition.
+        </li>
+      </ul>
     </div>
   );
 }
