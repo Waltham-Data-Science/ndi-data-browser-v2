@@ -89,7 +89,16 @@ class OntologyCache:
         ontology_cache_hits_total.labels(provider=provider).inc()
         if data is None:
             return OntologyTerm(provider=provider, term_id=term_id, label=None, definition=None, url=None)
-        return OntologyTerm(**data)
+        # Payload was stored via to_dict() which uses camelCase `termId`; the
+        # dataclass ctor takes snake_case `term_id`. Translate, tolerating
+        # legacy rows that might have been stored with snake_case.
+        return OntologyTerm(
+            provider=data.get("provider", provider),
+            term_id=data.get("termId") or data.get("term_id") or term_id,
+            label=data.get("label"),
+            definition=data.get("definition"),
+            url=data.get("url"),
+        )
 
     def set(self, term: OntologyTerm) -> None:
         with self._lock, self._conn() as conn:

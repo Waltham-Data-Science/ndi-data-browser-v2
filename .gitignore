@@ -26,6 +26,10 @@ npm-debug.log*
 # Playwright
 frontend/playwright-report/
 frontend/test-results/
+.playwright-mcp/
+
+# Vitest hot-reload temp snapshots
+frontend/vitest.config.ts.timestamp-*.mjs
 
 # Editor / OS
 .DS_Store
