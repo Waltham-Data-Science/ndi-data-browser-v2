@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
+from fastapi import Request
 from redis.asyncio import Redis
 
 from ..config import Settings, get_settings
@@ -26,6 +27,26 @@ from ..observability.logging import get_logger
 from ..observability.metrics import session_refresh_lock_contention_total
 
 log = get_logger(__name__)
+
+
+def _hash_ip(ip: str) -> str:
+    return hashlib.sha256(ip.encode()).hexdigest()[:32]
+
+
+def _hash_user_agent(user_agent: str) -> str:
+    return hashlib.sha256(user_agent.encode()).hexdigest()[:32]
+
+
+def fingerprint(request: Request) -> tuple[str, str]:
+    """Compute (ip_hash, user_agent_hash) for a request.
+
+    Same hashing as ``SessionStore.create``. Used at both session creation
+    (via ``do_login``) and session validation (via ``get_current_session``)
+    so the two callsites can never drift.
+    """
+    ip = request.client.host if request.client else "unknown"
+    user_agent = request.headers.get("user-agent", "unknown")
+    return _hash_ip(ip), _hash_user_agent(user_agent)
 
 
 def _derive_fernet_key(raw: str) -> bytes:
@@ -124,8 +145,8 @@ class SessionStore:
             access_token_expires_at=now + access_token_expires_in_seconds,
             issued_at=now,
             last_active=now,
-            ip_addr_hash=hashlib.sha256(ip.encode()).hexdigest()[:32],
-            user_agent_hash=hashlib.sha256(user_agent.encode()).hexdigest()[:32],
+            ip_addr_hash=_hash_ip(ip),
+            user_agent_hash=_hash_user_agent(user_agent),
         )
         await self._write(data)
         return data
