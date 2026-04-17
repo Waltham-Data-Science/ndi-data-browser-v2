@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import random
 import time
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from pydantic import BaseModel
@@ -176,8 +176,10 @@ class NdiCloudClient:
 
     @staticmethod
     def _backoff_seconds(attempt: int) -> float:
-        base = 0.25 * (2 ** attempt)
-        return base + random.uniform(0, base)  # full jitter
+        base: float = 0.25 * (2 ** attempt)
+        # random.uniform is typed as float in stubs but mypy infers Any through
+        # the arithmetic; wrap to keep the signature honest.
+        return float(base + random.uniform(0, base))  # full jitter
 
     @staticmethod
     def _raise_for_status(response: httpx.Response, *, endpoint: str) -> None:
@@ -265,7 +267,7 @@ class NdiCloudClient:
             access_token=access_token,
         )
         self._raise_for_status(resp, endpoint="datasets_published")
-        return resp.json()
+        return cast(dict[str, Any], resp.json())
 
     async def get_my_datasets(self, *, access_token: str) -> dict[str, Any]:
         resp = await self._request(
@@ -275,7 +277,7 @@ class NdiCloudClient:
             access_token=access_token,
         )
         self._raise_for_status(resp, endpoint="datasets_mine")
-        return resp.json()
+        return cast(dict[str, Any], resp.json())
 
     async def get_dataset(self, dataset_id: str, *, access_token: str | None = None) -> dict[str, Any]:
         resp = await self._request(
@@ -285,7 +287,7 @@ class NdiCloudClient:
             access_token=access_token,
         )
         self._raise_for_status(resp, endpoint="dataset_detail")
-        return resp.json()
+        return cast(dict[str, Any], resp.json())
 
     async def get_document_class_counts(
         self, dataset_id: str, *, access_token: str | None = None,
@@ -297,7 +299,7 @@ class NdiCloudClient:
             access_token=access_token,
         )
         self._raise_for_status(resp, endpoint="document_class_counts")
-        return resp.json()
+        return cast(dict[str, Any], resp.json())
 
     async def get_document(
         self, dataset_id: str, document_id: str, *, access_token: str | None = None,
@@ -309,7 +311,7 @@ class NdiCloudClient:
             access_token=access_token,
         )
         self._raise_for_status(resp, endpoint="document_detail")
-        return resp.json()
+        return cast(dict[str, Any], resp.json())
 
     async def bulk_fetch(
         self,

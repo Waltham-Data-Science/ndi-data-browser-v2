@@ -1,7 +1,7 @@
 """Distribution visualization."""
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -26,7 +26,7 @@ async def distribution(
     body: DistributionBody,
     svc: Annotated[VisualizeService, Depends(visualize_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
-) -> dict:
+) -> dict[str, Any]:
     return await svc.distribution(
         body.datasetId,
         body.className,

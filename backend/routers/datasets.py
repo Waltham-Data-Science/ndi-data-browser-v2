@@ -1,7 +1,7 @@
 """Dataset list / detail / class-counts."""
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 
@@ -18,7 +18,7 @@ async def published(
     svc: Annotated[DatasetService, Depends(dataset_service)],
     page: int = Query(1, ge=1, le=1000),
     pageSize: int = Query(20, ge=1, le=100),
-) -> dict:
+) -> dict[str, Any]:
     return await svc.list_published(page=page, page_size=pageSize)
 
 
@@ -26,7 +26,7 @@ async def published(
 async def my(
     session: Annotated[SessionData, Depends(require_session)],
     svc: Annotated[DatasetService, Depends(dataset_service)],
-) -> dict:
+) -> dict[str, Any]:
     return await svc.list_mine(access_token=session.access_token, user_id=session.user_id)
 
 
@@ -35,7 +35,7 @@ async def detail(
     dataset_id: str,
     svc: Annotated[DatasetService, Depends(dataset_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
-) -> dict:
+) -> dict[str, Any]:
     return await svc.detail(
         dataset_id,
         access_token=session.access_token if session else None,
@@ -47,7 +47,7 @@ async def class_counts(
     dataset_id: str,
     svc: Annotated[DatasetService, Depends(dataset_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
-) -> dict:
+) -> dict[str, Any]:
     return await svc.class_counts(
         dataset_id,
         access_token=session.access_token if session else None,
@@ -59,7 +59,7 @@ async def doc_types(
     dataset_id: str,
     svc: Annotated[DatasetService, Depends(dataset_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
-) -> dict:
+) -> dict[str, Any]:
     """Alias for /class-counts — matches v1's vocabulary so the ported
     DocumentTypeSelector component keeps working with its existing URL.
     """

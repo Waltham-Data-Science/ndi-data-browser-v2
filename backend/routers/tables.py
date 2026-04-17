@@ -1,7 +1,7 @@
 """Summary tables — single class, combined, and ontologyTableRow grouping."""
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -29,7 +29,7 @@ async def combined(
     dataset_id: str,
     svc: Annotated[SummaryTableService, Depends(summary_table_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
-) -> dict:
+) -> dict[str, Any]:
     return await svc.combined(
         dataset_id, access_token=session.access_token if session else None,
     )
@@ -40,7 +40,7 @@ async def ontology_tables(
     dataset_id: str,
     svc: Annotated[SummaryTableService, Depends(summary_table_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
-) -> dict:
+) -> dict[str, Any]:
     """Group `ontologyTableRow` docs by their `variableNames` schema.
     See `SummaryTableService.ontology_tables` for the response shape.
     """
@@ -55,7 +55,7 @@ async def single(
     class_name: str,
     svc: Annotated[SummaryTableService, Depends(summary_table_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
-) -> dict:
+) -> dict[str, Any]:
     if class_name not in SUPPORTED_CLASSES and class_name != "combined":
         raise HTTPException(status_code=400, detail=f"Unsupported table class: {class_name}")
     return await svc.single_class(

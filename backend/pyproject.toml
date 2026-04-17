@@ -78,14 +78,30 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.12"
-# Start non-strict; tighten incrementally. Strict mode surfaces 11 issues that
-# need real type annotations rather than cosmetic changes. Filed as a separate
-# hardening task. CI runs mypy in non-strict mode.
-strict = false
-ignore_missing_imports = true
-check_untyped_defs = false
+# Strict mode is the enforced bar for source code. Tests are checked in a
+# laxer mode (see override below) — they're allowed to omit return types on
+# pytest fixtures and use untyped `dict` literals for fixture data.
+strict = true
 plugins = ["pydantic.mypy"]
-exclude = ["tests/"]
+# mypy's `exclude` is a regex matched against each candidate file path. CI runs
+# mypy from the repo root as `mypy backend/` (paths look like `backend/tests/…`),
+# but local runs from inside `backend/` see `tests/…`. Match both.
+exclude = ["(^|/)tests/"]
+
+# Optional subsystems: opentelemetry is gated behind the `observability` extra
+# and only imported under `try/except ImportError`; cachetools and scipy don't
+# publish type stubs that track their current APIs. Fall back to implicit Any
+# for these packages only.
+[[tool.mypy.overrides]]
+module = [
+    "cachetools",
+    "cachetools.*",
+    "scipy",
+    "scipy.*",
+    "opentelemetry",
+    "opentelemetry.*",
+]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

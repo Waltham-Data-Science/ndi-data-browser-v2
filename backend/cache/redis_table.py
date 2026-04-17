@@ -81,7 +81,9 @@ class RedisTableCache:
             raw = None
         if raw is not None:
             try:
-                value = json.loads(raw)
+                # json.loads returns Any; callers (and this method) promise a
+                # dict response shape.
+                value: dict[str, Any] = json.loads(raw)
                 log.debug("table_cache.hit", key=key)
                 return value
             except json.JSONDecodeError as e:
@@ -95,7 +97,8 @@ class RedisTableCache:
                 raw = await self.redis.get(key)
                 if raw is not None:
                     try:
-                        return json.loads(raw)
+                        locked_value: dict[str, Any] = json.loads(raw)
+                        return locked_value
                     except json.JSONDecodeError:
                         pass
             except Exception:
