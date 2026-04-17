@@ -39,6 +39,7 @@ import asyncio
 import time
 from typing import Any
 
+from ..cache.redis_table import RedisTableCache
 from ..clients.ndi_cloud import BULK_FETCH_MAX, NdiCloudClient
 from ..observability.logging import get_logger
 from ..observability.metrics import table_build_duration_seconds
@@ -71,10 +72,37 @@ _ENRICHMENTS_FOR: dict[str, list[str]] = {
 
 
 class SummaryTableService:
-    def __init__(self, cloud: NdiCloudClient) -> None:
+    def __init__(
+        self,
+        cloud: NdiCloudClient,
+        *,
+        cache: RedisTableCache | None = None,
+    ) -> None:
         self.cloud = cloud
+        self.cache = cache
 
     async def single_class(
+        self,
+        dataset_id: str,
+        class_name: str,
+        *,
+        access_token: str | None,
+    ) -> dict[str, Any]:
+        if self.cache is not None:
+            key = RedisTableCache.table_key(
+                dataset_id, class_name, authed=access_token is not None,
+            )
+            return await self.cache.get_or_compute(
+                key,
+                lambda: self._build_single_class(
+                    dataset_id, class_name, access_token=access_token,
+                ),
+            )
+        return await self._build_single_class(
+            dataset_id, class_name, access_token=access_token,
+        )
+
+    async def _build_single_class(
         self,
         dataset_id: str,
         class_name: str,
@@ -129,6 +157,22 @@ class SummaryTableService:
         return {"columns": columns, "rows": rows}
 
     async def combined(
+        self,
+        dataset_id: str,
+        *,
+        access_token: str | None,
+    ) -> dict[str, Any]:
+        if self.cache is not None:
+            key = RedisTableCache.table_key(
+                dataset_id, "combined", authed=access_token is not None,
+            )
+            return await self.cache.get_or_compute(
+                key,
+                lambda: self._build_combined(dataset_id, access_token=access_token),
+            )
+        return await self._build_combined(dataset_id, access_token=access_token)
+
+    async def _build_combined(
         self,
         dataset_id: str,
         *,
@@ -237,6 +281,120 @@ class SummaryTableService:
             "rows": rows,
         }
 
+    async def ontology_tables(
+        self,
+        dataset_id: str,
+        *,
+        access_token: str | None,
+    ) -> dict[str, Any]:
+        """Project `ontologyTableRow` docs into one TableResponse per distinct
+        `variableNames` schema.
+
+        Each `ontologyTableRow` carries a CSV of `variableNames`, a matching
+        CSV of human-readable `names`, a matching CSV of `ontologyNodes`
+        (term IDs per column), and a `data` object keyed by variableName
+        holding the row's numeric/string values. Rows with the same
+        variableNames CSV share a table schema.
+
+        Returns
+        -------
+        {
+          "groups": [
+            {
+              "variableNames": [str, ...],
+              "names": [str, ...],
+              "ontologyNodes": [str, ...],
+              "table": {"columns": [{key, label, ontologyTerm?}, ...], "rows": [...]},
+              "docIds": [str, ...],
+              "rowCount": int,
+            },
+            ...
+          ]
+        }
+        """
+        if self.cache is not None:
+            key = RedisTableCache.table_key(
+                dataset_id, "ontology", authed=access_token is not None,
+            )
+            return await self.cache.get_or_compute(
+                key,
+                lambda: self._build_ontology_tables(dataset_id, access_token=access_token),
+            )
+        return await self._build_ontology_tables(dataset_id, access_token=access_token)
+
+    async def _build_ontology_tables(
+        self,
+        dataset_id: str,
+        *,
+        access_token: str | None,
+    ) -> dict[str, Any]:
+        t0 = time.perf_counter()
+        docs = await self._fetch_class(
+            dataset_id, "ontologyTableRow", access_token=access_token,
+        )
+
+        # Group by variableNames CSV — that's the schema identity.
+        groups: dict[str, dict[str, Any]] = {}
+        for doc in docs:
+            otr = (doc.get("data") or {}).get("ontologyTableRow") or {}
+            var_csv = otr.get("variableNames")
+            if not isinstance(var_csv, str) or not var_csv:
+                continue
+            variable_names = [v.strip() for v in var_csv.split(",") if v.strip()]
+            if not variable_names:
+                continue
+            group = groups.setdefault(
+                var_csv,
+                {
+                    "variableNames": variable_names,
+                    "names": _split_csv(otr.get("names"), len(variable_names)),
+                    "ontologyNodes": _split_csv(otr.get("ontologyNodes"), len(variable_names)),
+                    "rows": [],
+                    "docIds": [],
+                },
+            )
+            row_data = otr.get("data") or {}
+            # Project each row as a dict keyed by variableName for frontend
+            # consumption (matches SummaryTableView's Record<string, unknown>).
+            row: dict[str, Any] = {name: row_data.get(name) for name in variable_names}
+            group["rows"].append(row)
+            if doc.get("id"):
+                group["docIds"].append(doc["id"])
+
+        # Build a stable output — sorted by row count desc so the fullest
+        # tables show first in the selector.
+        out_groups: list[dict[str, Any]] = []
+        for g in sorted(groups.values(), key=lambda g: -len(g["rows"])):
+            columns = []
+            for i, var in enumerate(g["variableNames"]):
+                label = g["names"][i] if i < len(g["names"]) else var
+                term = g["ontologyNodes"][i] if i < len(g["ontologyNodes"]) else None
+                columns.append({
+                    "key": var,
+                    "label": label or var,
+                    "ontologyTerm": term or None,
+                })
+            out_groups.append({
+                "variableNames": g["variableNames"],
+                "names": g["names"],
+                "ontologyNodes": g["ontologyNodes"],
+                "table": {"columns": columns, "rows": g["rows"]},
+                "docIds": g["docIds"],
+                "rowCount": len(g["rows"]),
+            })
+
+        table_build_duration_seconds.labels(class_name="ontology").observe(
+            time.perf_counter() - t0,
+        )
+        log.info(
+            "table.build.ontology",
+            dataset_id=dataset_id,
+            groups=len(out_groups),
+            total_rows=sum(g["rowCount"] for g in out_groups),
+            ms=int((time.perf_counter() - t0) * 1000),
+        )
+        return {"groups": out_groups}
+
     # --- Internal ---
 
     async def _fetch_class(
@@ -294,6 +452,21 @@ class SummaryTableService:
 # ---------------------------------------------------------------------------
 # Generic extraction helpers
 # ---------------------------------------------------------------------------
+
+def _split_csv(value: Any, expected_len: int) -> list[str]:
+    """Split a CSV string and pad/truncate to `expected_len` entries.
+
+    ontologyTableRow carries three parallel CSVs (variableNames, names,
+    ontologyNodes); if one is shorter we backfill with empties, if longer
+    we truncate so column indices stay aligned.
+    """
+    if not isinstance(value, str):
+        return [""] * expected_len
+    parts = [v.strip() for v in value.split(",")]
+    if len(parts) < expected_len:
+        parts = parts + [""] * (expected_len - len(parts))
+    return parts[:expected_len]
+
 
 def _extract_ids(query_body: dict[str, Any]) -> list[str]:
     docs = query_body.get("documents") or query_body.get("ids") or []

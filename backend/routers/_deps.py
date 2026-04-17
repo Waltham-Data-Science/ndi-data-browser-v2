@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import Request
 
 from ..auth.session import SessionStore
+from ..cache.redis_table import RedisTableCache
 from ..clients.ndi_cloud import NdiCloudClient
 from ..middleware.rate_limit import Limit, RateLimiter
 from ..services.binary_service import BinaryService
@@ -39,8 +40,12 @@ def query_service(request: Request) -> QueryService:
     return QueryService(cloud(request))
 
 
+def table_cache(request: Request) -> RedisTableCache | None:
+    return getattr(request.app.state, "table_cache", None)
+
+
 def summary_table_service(request: Request) -> SummaryTableService:
-    return SummaryTableService(cloud(request))
+    return SummaryTableService(cloud(request), cache=table_cache(request))
 
 
 def binary_service(request: Request) -> BinaryService:
