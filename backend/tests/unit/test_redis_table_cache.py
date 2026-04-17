@@ -10,9 +10,14 @@ from backend.cache.redis_table import DEFAULT_TTL_SECONDS, RedisTableCache
 
 def test_table_key_shape() -> None:
     k = RedisTableCache.table_key("DS1", "subject", authed=False)
-    assert k == "table:DS1:subject:public"
+    assert k == f"table:{RedisTableCache.SCHEMA_VERSION}:DS1:subject:public"
     k2 = RedisTableCache.table_key("DS1", "subject", authed=True)
-    assert k2 == "table:DS1:subject:authed"
+    assert k2 == f"table:{RedisTableCache.SCHEMA_VERSION}:DS1:subject:authed"
+
+
+def test_table_key_schema_version_is_v2() -> None:
+    """Pinned so any projection-shape change forces a conscious bump."""
+    assert RedisTableCache.SCHEMA_VERSION == "v2"
 
 
 def test_default_ttl_is_one_hour() -> None:
