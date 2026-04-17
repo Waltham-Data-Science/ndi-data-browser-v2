@@ -102,6 +102,7 @@ function SingleClassTableView({
       onRetry={() => refetch()}
       tableType={className}
       title={className}
+      datasetId={datasetId}
       onRowClick={
         datasetId
           ? (row) => {
@@ -226,6 +227,7 @@ function TableBody({
   tableType,
   title,
   onRowClick,
+  datasetId,
 }: {
   data: TableResponse | undefined;
   isLoading: boolean;
@@ -235,6 +237,7 @@ function TableBody({
   tableType: string;
   title: string;
   onRowClick?: (row: Record<string, unknown>) => void;
+  datasetId?: string;
 }) {
   if (isLoading) return <TableSkeleton rows={12} />;
   if (isError) return <ErrorState error={error} onRetry={onRetry} />;
@@ -245,6 +248,7 @@ function TableBody({
       title={title}
       tableType={tableType}
       onRowClick={onRowClick}
+      datasetId={datasetId}
     />
   );
 }

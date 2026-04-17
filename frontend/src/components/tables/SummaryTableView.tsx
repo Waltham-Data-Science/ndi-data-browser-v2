@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/Input';
 import { OntologyPopover } from '@/components/ontology/OntologyPopover';
 import { isOntologyTerm } from '@/components/ontology/ontology-utils';
 import { useBatchOntologyLookup } from '@/api/ontology';
+import { QuickPlot } from '@/components/visualization/QuickPlot';
 import { getColumnDefinition } from '@/data/table-column-definitions';
 import { cn } from '@/lib/cn';
 
@@ -33,6 +34,9 @@ interface SummaryTableViewProps {
   /** Optional override — used by the ontology-table path where per-column
    * ontologyTerm comes from the backend, not our static definitions. */
   columnOntologyPrefixes?: Record<string, string | null>;
+  /** When the page knows which dataset backs this table, pass it in to
+   * enable the QuickPlot card (calls /api/visualize/distribution). */
+  datasetId?: string;
 }
 
 const ROW_HEIGHT = 32;
@@ -57,6 +61,7 @@ export function SummaryTableView({
   tableType,
   onRowClick,
   columnOntologyPrefixes,
+  datasetId,
 }: SummaryTableViewProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -319,6 +324,13 @@ export function SummaryTableView({
 
       {/* Virtualized scrolling table */}
       <VirtualizedTable table={table} onRowClick={onRowClick} />
+
+      {/* M6: QuickPlot embedded below the table. Renders only when the
+          page passes a datasetId + tableType (i.e. not the ontology-table
+          path, which has no class_name). */}
+      {datasetId && tableType && tableType !== 'ontology' && tableType !== 'combined' && (
+        <QuickPlot datasetId={datasetId} className={tableType} table={data} />
+      )}
     </div>
   );
 }
@@ -327,7 +339,6 @@ function TableCell({ value }: { value: unknown }) {
   if (value === null || value === undefined) {
     return <span className="text-slate-400">—</span>;
   }
-  // epochStart / epochStop structured objects.
   if (typeof value === 'object' && !Array.isArray(value)) {
     return <EpochTimeCell value={value as Record<string, unknown>} />;
   }
@@ -338,7 +349,13 @@ function TableCell({ value }: { value: unknown }) {
   }
   const str = String(value);
   if (typeof value === 'string' && isOntologyTerm(str)) {
-    return <OntologyPopover termId={str.trim()} />;
+    const trimmed = str.trim();
+    // M6: "Find everywhere" cross-link. We pre-load the QueryBuilder with
+    // `contains_string` on ontology-shaped fields (covers openminds
+    // preferredOntologyIdentifier / ontologyIdentifier, probe_location
+    // ontology_name, treatment ontologyName, and ontologyTableRow nodes).
+    const findEverywherePath = `/query?op=contains_string&field=openminds.fields.preferredOntologyIdentifier&param1=${encodeURIComponent(trimmed)}`;
+    return <OntologyPopover termId={trimmed} findEverywherePath={findEverywherePath} />;
   }
   return (
     <span className="font-mono text-xs truncate max-w-[300px] block">

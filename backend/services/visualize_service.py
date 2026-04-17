@@ -1,7 +1,9 @@
-"""Distribution visualizations (violin / box) computed server-side.
+"""Distribution visualizations (violin / box / grouped) computed server-side.
 
-Reuses summary tables as source-of-truth; given a dataset, class, and numeric field,
-returns quartiles + kernel-density-estimate for a violin plot.
+Reuses summary tables as source-of-truth; given a dataset, class, a
+numeric field, and an optional categorical `group_by` field, returns
+per-group quartiles + kernel-density-estimate values ready for the
+frontend ViolinPlot.
 """
 from __future__ import annotations
 
@@ -25,22 +27,68 @@ class VisualizeService:
         class_name: str,
         field: str,
         *,
+        group_by: str | None = None,
         access_token: str | None,
     ) -> dict[str, Any]:
-        table = await self.tables.single_class(dataset_id, class_name, access_token=access_token)
+        """Return a distribution payload for a numeric `field` in the
+        given class, optionally grouped by a categorical `group_by` key.
+
+        With group_by:
+            {
+              field, group_by, n,
+              groups: [
+                {name, count, min, max, mean, std, median, q1, q3, values},
+                ...
+              ]
+            }
+
+        Without group_by (back-compat with pre-M6 callers):
+            {n, min, max, mean, std, quartiles, kde, raw}
+        """
+        table = await self.tables.single_class(
+            dataset_id, class_name, access_token=access_token,
+        )
+        rows = table.get("rows") or []
+
+        if group_by:
+            grouped: dict[str, list[float]] = {}
+            for row in rows:
+                raw_key = row.get(group_by)
+                key = _coerce_group_key(raw_key)
+                if key is None:
+                    continue
+                value = _coerce_float(row.get(field))
+                if value is None:
+                    continue
+                grouped.setdefault(key, []).append(value)
+            group_payloads: list[dict[str, Any]] = []
+            for name, vals in grouped.items():
+                if not vals:
+                    continue
+                group_payloads.append(_summarize_group(name, vals))
+            group_payloads.sort(key=lambda g: -g["count"])
+            return {
+                "field": field,
+                "groupBy": group_by,
+                "n": sum(g["count"] for g in group_payloads),
+                "groups": group_payloads,
+            }
+
         values: list[float] = []
-        for row in table["rows"]:
-            v = row.get(field)
-            try:
-                values.append(float(v))
-            except (TypeError, ValueError):
-                continue
+        for row in rows:
+            v = _coerce_float(row.get(field))
+            if v is not None:
+                values.append(v)
         if not values:
             return {"n": 0, "quartiles": None, "kde": None, "raw": []}
         arr = np.asarray(values)
         q = np.percentile(arr, [25, 50, 75])
         k = stats.gaussian_kde(arr) if len(arr) > 1 else None
-        xs = np.linspace(float(arr.min()), float(arr.max()), 200) if len(arr) > 1 else arr
+        xs = (
+            np.linspace(float(arr.min()), float(arr.max()), 200)
+            if len(arr) > 1
+            else arr
+        )
         density = k(xs).tolist() if k is not None else [1.0] * len(xs)
         return {
             "n": len(arr),
@@ -52,3 +100,49 @@ class VisualizeService:
             "kde": {"x": xs.tolist(), "density": density},
             "raw": arr.tolist(),
         }
+
+
+def _coerce_float(v: Any) -> float | None:
+    if v is None:
+        return None
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v)
+    if isinstance(v, str):
+        try:
+            return float(v)
+        except ValueError:
+            return None
+    if isinstance(v, dict):
+        # Accept the {devTime, globalTime} epoch shape — use devTime.
+        if "devTime" in v:
+            return _coerce_float(v["devTime"])
+    return None
+
+
+def _coerce_group_key(v: Any) -> str | None:
+    if v is None:
+        return None
+    if isinstance(v, str):
+        trimmed = v.strip()
+        return trimmed or None
+    if isinstance(v, (int, float, bool)):
+        return str(v)
+    return None
+
+
+def _summarize_group(name: str, vals: list[float]) -> dict[str, Any]:
+    arr = np.asarray(vals, dtype=float)
+    q = np.percentile(arr, [25, 50, 75])
+    return {
+        "name": name,
+        "count": len(arr),
+        "min": float(arr.min()),
+        "max": float(arr.max()),
+        "mean": float(arr.mean()),
+        "std": float(arr.std()),
+        "median": float(q[1]),
+        "q1": float(q[0]),
+        "q3": float(q[2]),
+        # Cap jitter-points to 500 per group to keep payload small.
+        "values": arr[: min(500, len(arr))].tolist(),
+    }

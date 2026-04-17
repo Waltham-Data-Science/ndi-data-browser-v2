@@ -18,6 +18,7 @@ class DistributionBody(BaseModel):
     datasetId: str = Field(..., min_length=1, max_length=64)
     className: str = Field(..., min_length=1, max_length=64)
     field: str = Field(..., min_length=1, max_length=128)
+    groupBy: str | None = Field(default=None, max_length=128)
 
 
 @router.post("/distribution")
@@ -27,6 +28,9 @@ async def distribution(
     session: Annotated[SessionData | None, Depends(get_current_session)],
 ) -> dict:
     return await svc.distribution(
-        body.datasetId, body.className, body.field,
+        body.datasetId,
+        body.className,
+        body.field,
+        group_by=body.groupBy,
         access_token=session.access_token if session else None,
     )
