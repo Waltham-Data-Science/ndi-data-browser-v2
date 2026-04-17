@@ -243,3 +243,51 @@ def test_ontology_endpoint_is_redis_cached(app_and_cloud) -> None:  # type: igno
     r2 = client.get("/api/datasets/DS1/tables/ontology")
     assert r2.status_code == 200
     assert ndiquery_route.call_count == first_count  # served from cache
+
+
+def test_list_by_class_paginates_at_cloud_layer(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
+    """Regression for the `list_by_class` query-all-then-slice perf bug.
+
+    Haley's openminds_subject class has 9,032 docs. Before the fix, a
+    /documents?class=X&pageSize=50 request would pull all 9,032 IDs via
+    ndiquery, slice client-side to 50, then bulk-fetch. This test pins
+    the post-fix behavior: ndiquery receives the page+pageSize params
+    and only the requested slice is bulk-fetched.
+    """
+    client, router = app_and_cloud
+
+    # Track the query params ndiquery was called with.
+    captured: list[dict] = []
+
+    def _ndiquery_handler(request, route):  # type: ignore[no-untyped-def]
+        captured.append(dict(request.url.params))
+        import httpx
+        return httpx.Response(
+            200,
+            json={
+                "number_matches": 9032,
+                "pageSize": int(request.url.params.get("pageSize", "1000")),
+                "page": int(request.url.params.get("page", "1")),
+                "documents": [{"id": "m1"}, {"id": "m2"}],  # just the slice
+            },
+        )
+
+    router.post("/ndiquery").mock(side_effect=_ndiquery_handler)
+    router.post("/datasets/DS1/documents/bulk-fetch").respond(
+        200,
+        json={"documents": [{"id": "m1", "name": "doc1", "data": {}}]},
+    )
+
+    r = client.get("/api/datasets/DS1/documents?class=openminds_subject&pageSize=50&page=3")
+    assert r.status_code == 200
+    body = r.json()
+    # Total reflects the cloud's number_matches, not len(ids) from a
+    # full pull. This is the bug fix.
+    assert body["total"] == 9032
+    assert body["page"] == 3
+    assert body["pageSize"] == 50
+    # Exactly one ndiquery call — no extra "count" call — with the page
+    # params forwarded.
+    assert len(captured) == 1, f"expected 1 ndiquery call, got {len(captured)}"
+    assert captured[0]["page"] == "3"
+    assert captured[0]["pageSize"] == "50"

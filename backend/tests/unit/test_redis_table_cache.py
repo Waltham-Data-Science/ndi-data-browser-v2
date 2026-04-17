@@ -82,10 +82,10 @@ async def test_redis_unavailable_falls_through_to_producer() -> None:
     and try to write (write may fail silently; both are non-fatal).
     """
     class ExplodingRedis:
-        async def get(self, key: str) -> None:
+        async def get(self, key: str) -> None:  # noqa: ARG002 — test stub matches redis API
             raise ConnectionError("redis down")
 
-        async def set(self, key: str, value: str, ex: int | None = None) -> None:
+        async def set(self, key: str, value: str, ex: int | None = None) -> None:  # noqa: ARG002
             raise ConnectionError("redis down")
 
     cache = RedisTableCache(ExplodingRedis())  # type: ignore[arg-type]

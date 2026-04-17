@@ -84,7 +84,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                         log.warning("ontology.warmup_failed", error=str(e))
 
                 # Fire-and-forget; don't block startup on external HTTP.
-                _asyncio.create_task(_warmup())
+                # Task reference stored on app.state so asyncio doesn't GC it
+                # mid-flight (per RUF006).
+                app.state.ontology_warmup_task = _asyncio.create_task(_warmup())
         except Exception as e:
             log.warning("ontology.warmup_config_failed", error=str(e))
 

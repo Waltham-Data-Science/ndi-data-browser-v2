@@ -101,6 +101,8 @@ test.describe('M4a — tutorial-parity subject table', () => {
   });
 });
 
+test.describe.configure({ mode: 'serial' });
+
 test.describe('M4a — table selector', () => {
   test('Haley can switch between table tabs', async ({ page }) => {
     // Cold-cache Haley tables can take 20-40s each. Outer test timeout must

@@ -116,7 +116,7 @@ export function AboutPage() {
         <CardHeader>
           <CardTitle className="text-base">Ontology providers</CardTitle>
           <CardDescription>
-            Term IDs you'll see — click any in a table to open its definition.
+            Term IDs you&apos;ll see — click any in a table to open its definition.
           </CardDescription>
         </CardHeader>
         <CardBody className="flex flex-wrap gap-1.5">

@@ -32,30 +32,46 @@ class DocumentService:
     ) -> dict[str, Any]:
         """List documents in a dataset, optionally filtered by class.
 
-        Uses indexed ndiquery. Returns first `page_size * page` docs and
-        paginates client-side; the cloud doesn't currently paginate ndiquery
-        results, so we fetch IDs then bulk-fetch the slice needed for this page.
+        Paginates at the cloud layer. We ask ndiquery for just the page we
+        need (plus a cheap second pass on page 1 to learn the total for
+        pagination controls). Previously this fetched every matching ID,
+        which on Haley's 9,032 openminds_subject path meant a 9k-ID round
+        trip for a 50-doc page. Now we only transfer what we render.
+
+        The cloud's ndiquery returns `number_matches` (or `totalItems`)
+        in the body so we don't need a separate count call.
         """
         structure: list[dict[str, Any]] = []
         if class_name:
             structure.append({"operation": "isa", "param1": class_name})
         else:
-            # Everything — fetch via explicit isa of the root "ndi_document" in future;
-            # for now, the cloud supports empty searchstructure as "match all by class".
             structure = [{"operation": "isa", "param1": "ndi_document"}]
 
+        # Single-page ndiquery. fetch_all=False stops the auto-paginator.
         body = await self.cloud.ndiquery(
             searchstructure=structure,
             scope=dataset_id,
             access_token=access_token,
+            page=page,
+            page_size=page_size,
+            fetch_all=False,
         )
-        ids: list[str] = [
-            d.get("id") or d.get("ndiId") for d in body.get("documents", []) if d.get("id") or d.get("ndiId")
+        raw_docs = body.get("documents", [])
+        slice_ids: list[str] = [
+            d.get("id") or d.get("ndiId")
+            for d in raw_docs
+            if d.get("id") or d.get("ndiId")
         ]
-        total = len(ids)
-        offset = (page - 1) * page_size
-        slice_ids = ids[offset : offset + page_size]
-        docs = await self.cloud.bulk_fetch(dataset_id, slice_ids, access_token=access_token) if slice_ids else []
+        total = int(
+            body.get("number_matches") or body.get("totalItems") or len(slice_ids),
+        )
+        docs = (
+            await self.cloud.bulk_fetch(
+                dataset_id, slice_ids, access_token=access_token,
+            )
+            if slice_ids
+            else []
+        )
         return {
             "total": total,
             "page": page,

@@ -57,29 +57,16 @@ class BinaryService:
         (e.g. Haley's `imageStack` has no `.png` suffix on its file_info.name).
         """
         class_name = _class_name(document)
-        if class_name in ("ndi_document_fitcurve", "fitcurve"):
-            return "fitcurve"
-        if class_name in ("imageStack", "image", "imageMovie", "thumbnail"):
-            return "image"
-        if class_name in ("video", "videoClip"):
-            return "video"
-        if class_name in ("element_epoch", "epoch", "session_reference", "session.reference"):
-            return "timeseries"
+        by_class = _kind_from_class_name(class_name)
+        if by_class is not None:
+            return by_class
         file_refs = _file_refs(document)
         if not file_refs:
             return "unknown"
         first = file_refs[0]
-        name = (first.filename or "").lower()
-        ct = (first.content_type or "").lower()
-        if any(name.endswith(ext) for ext in (".nbf", ".vhsb", ".bin")) or "octet-stream" in ct:
-            return "timeseries"
-        if any(name.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".gif")) or ct.startswith("image/"):
-            return "image"
-        if any(name.endswith(ext) for ext in (".mp4", ".webm", ".mov")) or ct.startswith("video/"):
-            return "video"
-        return "unknown"
+        return _kind_from_file_meta(first.filename, first.content_type)
 
-    async def get_timeseries(
+    async def get_timeseries(  # noqa: PLR0911
         self, document: dict[str, Any], *, access_token: str | None,
     ) -> dict[str, Any]:
         """Return v1-compatible TimeseriesData.
@@ -88,6 +75,8 @@ class BinaryService:
         populate `error` instead of raising so the frontend can surface a
         friendly message without an error-boundary crash. Hard errors
         (partial decode with irrecoverable data) still raise BinaryDecodeFailed.
+        The multi-return shape follows the error/success branches; collapsing
+        via a single accumulator would fight the code's narrative.
         """
         refs = _file_refs(document)
         if not refs:
@@ -182,6 +171,42 @@ class BinaryService:
         except Exception as e:
             log.warning("binary.decode_failed", kind="fitcurve", error=str(e))
             raise BinaryDecodeFailed() from e
+
+
+# ---------------------------------------------------------------------------
+# detect_kind helpers
+# ---------------------------------------------------------------------------
+
+_CLASS_KIND_MAP: dict[str, BinaryKind] = {
+    "ndi_document_fitcurve": "fitcurve",
+    "fitcurve": "fitcurve",
+    "imageStack": "image",
+    "image": "image",
+    "imageMovie": "image",
+    "thumbnail": "image",
+    "video": "video",
+    "videoClip": "video",
+    "element_epoch": "timeseries",
+    "epoch": "timeseries",
+    "session_reference": "timeseries",
+    "session.reference": "timeseries",
+}
+
+
+def _kind_from_class_name(class_name: str) -> BinaryKind | None:
+    return _CLASS_KIND_MAP.get(class_name)
+
+
+def _kind_from_file_meta(filename: str | None, content_type: str | None) -> BinaryKind:
+    name = (filename or "").lower()
+    ct = (content_type or "").lower()
+    if any(name.endswith(ext) for ext in (".nbf", ".vhsb", ".bin")) or "octet-stream" in ct:
+        return "timeseries"
+    if any(name.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".gif")) or ct.startswith("image/"):
+        return "image"
+    if any(name.endswith(ext) for ext in (".mp4", ".webm", ".mov")) or ct.startswith("video/"):
+        return "video"
+    return "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -353,9 +378,10 @@ def _to_nullable_list(arr: np.ndarray) -> list[Any]:
     """Convert a numpy array to a list, replacing NaN with None so the
     frontend's uPlot sees explicit `null` gaps (v1 convention for sweep
     detection)."""
+    import math
     out: list[Any] = []
     for v in arr.tolist():
-        if v != v:  # NaN check without importing math
+        if isinstance(v, float) and math.isnan(v):
             out.append(None)
         else:
             out.append(float(v))

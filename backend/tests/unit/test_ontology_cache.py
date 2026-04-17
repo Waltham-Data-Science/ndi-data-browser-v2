@@ -1,8 +1,8 @@
 """Ontology cache round-trip — catches set()/get() encoding mismatches."""
 from __future__ import annotations
 
-import os
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -12,12 +12,12 @@ from backend.services.ontology_cache import OntologyCache, OntologyTerm
 @pytest.fixture
 def cache():
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        path = f.name
-    c = OntologyCache(db_path=path, ttl_days=30)
+        path = Path(f.name)
+    c = OntologyCache(db_path=str(path), ttl_days=30)
     try:
         yield c
     finally:
-        os.unlink(path)
+        path.unlink(missing_ok=True)
 
 
 def test_roundtrip_preserves_all_fields(cache: OntologyCache) -> None:

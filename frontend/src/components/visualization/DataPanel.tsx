@@ -35,7 +35,10 @@ interface DataPanelProps {
  * shows the type-detection skeleton.
  */
 export function DataPanel({ datasetId, documentId }: DataPanelProps) {
-  const [_imageFrame, setImageFrame] = useState<number | undefined>(undefined);
+  // setImageFrame is wired so the page can eventually refetch specific
+  // frames from the backend; we hold the setter but don't need the value
+  // at the parent level (ImageViewer tracks it internally).
+  const [, setImageFrame] = useState<number | undefined>(undefined);
   const { data: kindInfo, isLoading: kindLoading } = useBinaryKind(datasetId, documentId);
   const kind = kindInfo?.kind ?? 'unknown';
 

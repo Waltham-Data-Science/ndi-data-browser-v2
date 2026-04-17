@@ -112,10 +112,9 @@ def _coerce_float(v: Any) -> float | None:
             return float(v)
         except ValueError:
             return None
-    if isinstance(v, dict):
-        # Accept the {devTime, globalTime} epoch shape — use devTime.
-        if "devTime" in v:
-            return _coerce_float(v["devTime"])
+    # Accept the {devTime, globalTime} epoch shape — use devTime.
+    if isinstance(v, dict) and "devTime" in v:
+        return _coerce_float(v["devTime"])
     return None
 
 

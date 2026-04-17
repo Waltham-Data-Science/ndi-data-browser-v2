@@ -70,7 +70,7 @@ class DependencyGraphService:
             dataset_id, document_id, depth, access_token=access_token,
         )
 
-    async def _build_graph(
+    async def _build_graph(  # noqa: PLR0912, PLR0915 — single BFS orchestrator; splitting would obscure the frontier bookkeeping
         self,
         dataset_id: str,
         document_id: str,
