@@ -1,16 +1,40 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from './client';
 
+export interface Contributor {
+  firstName?: string;
+  lastName?: string;
+  contact?: string;
+  /** ORCID URL, e.g. `https://orcid.org/0000-0001-6282-7124`. */
+  orcid?: string;
+}
+
+export interface AssociatedPublication {
+  title?: string;
+  /** DOI URL, e.g. `https://doi.org/10.7554/eLife.103191.4`. */
+  DOI?: string;
+  PMID?: string;
+  PMCID?: string;
+}
+
 export interface DatasetSummary {
   id: string;
+  /** Mongo _id returned as `_id` on detail; v2 exposes it as `id` across hooks. */
+  _id?: string;
   name: string;
   description?: string;
   abstract?: string;
   className?: string;
-  contributors?: Array<{ firstName?: string; lastName?: string; contact?: string }>;
-  correspondingAuthors?: Array<{ firstName?: string; lastName?: string; contact?: string }>;
+  affiliation?: string;
+  /** Comma-separated species list — e.g. "Caenorhabditis elegans, Escherichia coli". */
+  species?: string;
+  brainRegions?: string;
+  numberOfSubjects?: number;
+  neurons?: number;
+  contributors?: Contributor[];
+  correspondingAuthors?: Contributor[];
   funding?: Array<{ source?: string }>;
-  associatedPublications?: string[];
+  associatedPublications?: AssociatedPublication[];
   pubMedId?: string;
   doi?: string;
   license?: string;
