@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './_fixtures/test';
 
 /**
  * M5 document detail — TimeseriesData shape migration, dependencies endpoint,

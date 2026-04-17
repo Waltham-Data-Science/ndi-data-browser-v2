@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './_fixtures/test';
 
 /**
  * M7 polish + brand + cutover. Focused on visible brand changes and the

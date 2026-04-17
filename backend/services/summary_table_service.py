@@ -246,7 +246,7 @@ class SummaryTableService:
         rows: list[dict[str, Any]] = []
         for epoch in element_epochs:
             element_ndi = _epoch_element_ndi(epoch)
-            element = element_by_ndi.get(element_ndi)
+            element = element_by_ndi.get(element_ndi) if element_ndi else None
             subject_ndi = _element_subject_ndi(element) if element else None
             subject = subject_by_ndi.get(subject_ndi) if subject_ndi else None
 
@@ -582,7 +582,7 @@ def _clean(v: Any) -> Any:
     if v is None:
         return None
     if isinstance(v, str):
-        s = v.strip()
+        s: str = v.strip()
         return s if s else None
     return v
 
@@ -884,7 +884,9 @@ def _treatment_by_ontology_prefix(
 def _project_name(doc: dict[str, Any] | None) -> str | None:
     if not doc:
         return None
-    return _clean(doc.get("name")) or _clean((doc.get("data") or {}).get("name"))
+    v = _clean(doc.get("name")) or _clean((doc.get("data") or {}).get("name"))
+    # _clean returns Any (pass-through for non-str); narrow here.
+    return v if isinstance(v, str) else None
 
 
 def _subject_display_name(d: dict[str, Any]) -> str | None:

@@ -71,17 +71,17 @@ class RateLimiter:
 
         if not allowed:
             rate_limit_rejections_total.labels(bucket=limit.bucket).inc()
+            # Don't bind to a single name — mypy narrows on first assignment,
+            # which would reject the else-branch widening.
             if limit.auth_bucket:
-                err = AuthRateLimited(
+                raise AuthRateLimited(
                     f"Too many attempts. Please wait {retry_after} seconds.",
                     details={"retry_after_seconds": retry_after},
                 )
-            else:
-                err = RateLimited(
-                    f"Rate limit exceeded. Please wait {retry_after} seconds.",
-                    details={"retry_after_seconds": retry_after},
-                )
-            raise err
+            raise RateLimited(
+                f"Rate limit exceeded. Please wait {retry_after} seconds.",
+                details={"retry_after_seconds": retry_after},
+            )
 
     def _fallback_check(self, key: str, now: float, window_start: float, cap: int) -> bool:
         buf = self._fallback[key]

@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   flexRender,
   getCoreRowModel,
@@ -63,10 +64,61 @@ export function SummaryTableView({
   columnOntologyPrefixes,
   datasetId,
 }: SummaryTableViewProps) {
-  const [sorting, setSorting] = useState<SortingState>([]);
+  // URL-persisted table state (M7 §5). Three params, deliberately short
+  // names to keep deep-link URLs readable:
+  //   ?tq=<global-filter>
+  //   ?tsort=<columnKey>:<asc|desc>
+  //   ?thide=<comma-separated column keys to FORCE-hide>
+  // The prefix `t` scopes these under the SummaryTableView namespace so they
+  // don't collide with page-level params (DocumentExplorerPage uses `mode`
+  // `class` `page`; DatasetsPage uses `q` `page`; QueryBuilder owns `op`
+  // `field` `param1` `scope`). Per-column filters are intentionally NOT
+  // serialized — the table UI currently exposes only the global filter, and
+  // serializing per-column state would multiply URL noise for a feature
+  // nobody can trigger from the UI.
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const initialGlobalFilter = searchParams.get('tq') ?? '';
+  const initialSorting = useMemo<SortingState>(() => {
+    const raw = searchParams.get('tsort');
+    if (!raw) return [];
+    const [col, dir] = raw.split(':');
+    if (!col) return [];
+    return [{ id: col, desc: dir === 'desc' }];
+  }, [searchParams]);
+  const initialHidden = useMemo<VisibilityState>(() => {
+    const raw = searchParams.get('thide');
+    if (!raw) return {};
+    const out: VisibilityState = {};
+    for (const k of raw.split(',')) {
+      const trimmed = k.trim();
+      if (trimmed) out[trimmed] = false;
+    }
+    return out;
+  }, [searchParams]);
+
+  const [sorting, setSorting] = useState<SortingState>(initialSorting);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-  const [globalFilter, setGlobalFilter] = useState('');
+  const [globalFilter, setGlobalFilter] = useState(initialGlobalFilter);
   const [showColumnPicker, setShowColumnPicker] = useState(false);
+
+  /** Write a single param to the URL, deleting when falsy to keep the URL
+   * clean on the default/empty case. `replace: true` to avoid stacking
+   * history entries on every keystroke. */
+  const updateParam = useCallback(
+    (key: string, value: string | null) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (value == null || value === '') next.delete(key);
+          else next.set(key, value);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   // Collect every ontology-shaped value in the current rows and fire a
   // batch lookup so the popovers open instantly.
@@ -106,12 +158,36 @@ export function SummaryTableView({
     return hidden;
   }, [data.columns, data.rows]);
 
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(initialHidden);
 
   const mergedVisibility = useMemo(
     () => ({ ...autoHiddenColumns, ...columnVisibility }),
     [autoHiddenColumns, columnVisibility],
   );
+
+  // Push state -> URL whenever the user changes filter/sort/visibility.
+  // Read-back-from-URL uses useState initializers above; from here on the
+  // URL is a projection of component state, not the source of truth.
+  useEffect(() => {
+    updateParam('tq', globalFilter);
+  }, [globalFilter, updateParam]);
+
+  useEffect(() => {
+    if (sorting.length === 0) {
+      updateParam('tsort', null);
+    } else {
+      const s = sorting[0];
+      updateParam('tsort', `${s.id}:${s.desc ? 'desc' : 'asc'}`);
+    }
+  }, [sorting, updateParam]);
+
+  useEffect(() => {
+    // Only serialize user-forced hides, not auto-hidden-empty columns.
+    const hidden = Object.entries(columnVisibility)
+      .filter(([, visible]) => visible === false)
+      .map(([k]) => k);
+    updateParam('thide', hidden.length ? hidden.join(',') : null);
+  }, [columnVisibility, updateParam]);
 
   const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(
     () =>

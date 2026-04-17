@@ -1,7 +1,7 @@
 """Binary data endpoints: type detection + typed accessors."""
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 
@@ -23,7 +23,7 @@ async def _document(
     document_id: str,
     svc: DocumentService,
     session: SessionData | None,
-) -> dict:
+) -> dict[str, Any]:
     return await svc.detail(
         dataset_id, document_id, access_token=session.access_token if session else None,
     )
@@ -36,7 +36,7 @@ async def detect_type(
     docs: Annotated[DocumentService, Depends(document_service)],
     bs: Annotated[BinaryService, Depends(binary_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
-) -> dict:
+) -> dict[str, Any]:
     doc = await _document(dataset_id, document_id, docs, session)
     return {"kind": bs.detect_kind(doc)}
 
@@ -48,7 +48,7 @@ async def timeseries(
     docs: Annotated[DocumentService, Depends(document_service)],
     bs: Annotated[BinaryService, Depends(binary_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
-) -> dict:
+) -> dict[str, Any]:
     doc = await _document(dataset_id, document_id, docs, session)
     return await bs.get_timeseries(doc, access_token=session.access_token if session else None)
 
@@ -60,7 +60,7 @@ async def image(
     docs: Annotated[DocumentService, Depends(document_service)],
     bs: Annotated[BinaryService, Depends(binary_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
-) -> dict:
+) -> dict[str, Any]:
     doc = await _document(dataset_id, document_id, docs, session)
     return await bs.get_image(doc, access_token=session.access_token if session else None)
 
@@ -72,7 +72,7 @@ async def video(
     docs: Annotated[DocumentService, Depends(document_service)],
     bs: Annotated[BinaryService, Depends(binary_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
-) -> dict:
+) -> dict[str, Any]:
     doc = await _document(dataset_id, document_id, docs, session)
     return await bs.get_video_url(doc)
 
@@ -84,6 +84,6 @@ async def fitcurve(
     docs: Annotated[DocumentService, Depends(document_service)],
     bs: Annotated[BinaryService, Depends(binary_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
-) -> dict:
+) -> dict[str, Any]:
     doc = await _document(dataset_id, document_id, docs, session)
     return bs.evaluate_fitcurve(doc)

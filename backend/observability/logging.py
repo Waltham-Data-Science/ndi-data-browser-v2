@@ -8,7 +8,7 @@ from __future__ import annotations
 import contextvars
 import logging
 import sys
-from typing import Any
+from typing import Any, cast
 
 import structlog
 
@@ -69,4 +69,5 @@ def configure_logging() -> None:
 
 
 def get_logger(name: str = "ndb") -> structlog.stdlib.BoundLogger:
-    return structlog.get_logger(name)
+    # structlog.get_logger is typed as Any; narrow to our concrete BoundLogger.
+    return cast(structlog.stdlib.BoundLogger, structlog.get_logger(name))

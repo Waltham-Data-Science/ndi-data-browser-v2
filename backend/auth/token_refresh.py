@@ -53,10 +53,18 @@ async def ensure_fresh_access_token(
         # Fall through to try refreshing ourselves now.
         session = fresh
 
+    # After the re-read on a contested lock, `session` may have been rebound
+    # to `fresh`. Narrow the token here rather than trusting the earlier None
+    # check, which mypy can't propagate across the reassignment.
+    refresh_token = session.refresh_token
+    if refresh_token is None:
+        await store.delete(session.session_id)
+        raise AuthExpired("Session expired. Please log in again.")
+
     try:
         t0 = time.perf_counter()
         try:
-            auth = await cloud.refresh(session.refresh_token)
+            auth = await cloud.refresh(refresh_token)
             await store.update_tokens(
                 session,
                 access_token=auth.access_token,

@@ -19,7 +19,7 @@ def configure_tracing(service_name: str = "ndi-data-browser-v2") -> None:
     try:
         from opentelemetry import trace
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
-            OTLPSpanExporter,  # type: ignore[import-not-found]
+            OTLPSpanExporter,
         )
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider

@@ -1,0 +1,101 @@
+{
+  "publishProgress": {
+    "total": 0,
+    "completed": 0,
+    "failed": 0
+  },
+  "unpublishProgress": {
+    "total": 0,
+    "completed": 0,
+    "failed": 0
+  },
+  "isPublishing": false,
+  "isUnpublishing": false,
+  "isDeleted": false,
+  "_id": "682e7772cdf3f24938176fac",
+  "createdAt": "2025-05-22T01:01:38.906Z",
+  "updatedAt": "2025-09-29T23:50:50.140Z",
+  "name": "Dataset: Accept-reject decision-making revealed via a quantitative and ethological study of C. elegans foraging",
+  "branchName": "main",
+  "isSubmitted": false,
+  "isPublished": true,
+  "documents": [],
+  "organizationId": "649b1b1bea20f31db68d4f9f",
+  "totalSize": 25791282762,
+  "contributors": [
+    {
+      "firstName": "Jessica A",
+      "lastName": "Haley",
+      "orcid": "https://orcid.org/0000-0001-6282-7124",
+      "contact": ""
+    },
+    {
+      "firstName": "Tianyi",
+      "lastName": "Chen",
+      "orcid": "https://orcid.org/0009-0003-7572-2155",
+      "contact": ""
+    },
+    {
+      "firstName": "Mikio",
+      "lastName": "Aoi",
+      "orcid": "https://orcid.org/0000-0002-7052-880X",
+      "contact": "maoi@ucsd.edu"
+    },
+    {
+      "firstName": "Sreekanth H",
+      "lastName": "Chalasani",
+      "orcid": "https://orcid.org/0000-0003-2522-8338",
+      "contact": "schalasani@salk.edu"
+    }
+  ],
+  "funding": [
+    {
+      "source": "National Science Foundation"
+    },
+    {
+      "source": "UCSD Undergraduate Summer Research Award"
+    },
+    {
+      "source": "NIH RO1 MH096881"
+    },
+    {
+      "source": "Dorsett Brown Foundation"
+    },
+    {
+      "source": "Salk Innovation Grant"
+    }
+  ],
+  "files": [],
+  "correspondingAuthors": [
+    {
+      "firstName": "Mikio",
+      "lastName": "Aoi",
+      "orcid": "https://orcid.org/0000-0002-7052-880X"
+    },
+    {
+      "firstName": "Sreekanth H",
+      "lastName": "Chalasani",
+      "orcid": "https://orcid.org/0000-0003-2522-8338"
+    }
+  ],
+  "associatedPublications": [
+    {
+      "DOI": "https://doi.org/10.7554/eLife.103191.4",
+      "title": "Accept-reject decision-making revealed via a quantitative and ethological study of C. elegans foraging",
+      "PMID": "40929174",
+      "PMCID": "PMC12422737"
+    }
+  ],
+  "__v": 0,
+  "abstract": "Decision-making is a ubiquitous component of animal behavior that is often studied in the context of foraging. Foragers make a series of decisions while locating food (food search), choosing between food types (diet or patch choice), and allocating time spent within patches of food (patch-leaving). Here, we introduce a framework for investigating foraging decisions using detailed analysis of individual behavior and quantitative modeling in the nematode Caenorhabditis elegans. We demonstrate that C. elegans make accept-reject patch choice decisions upon encounter with food. Specifically, we show that when foraging amongst small, dispersed, and dilute patches of bacteria, C. elegans initially reject several bacterial patches, opting to prioritize exploration of the environment, before switching to a more exploitatory foraging strategy during subsequent encounters. Observed across a range of bacterial patch densities, sizes, and distributions, we use a quantitative model to show that this decision to explore or exploit is guided by available sensory information, internal satiety signals, and learned environmental statistics related to the bacterial density of recently encountered and exploited patches. We behaviorally validated model predictions on animals that had been food-deprived, animals foraging in environments with multiple patch densities, and null mutants with defective sensory modalities. Broadly, we present a framework to study ecologically relevant foraging decisions that could guide future investigations into the cellular and molecular mechanisms underlying decision-making.",
+  "affiliation": "University of California San Diego, Salk Institute for Biological Studies",
+  "brainRegions": "whole nervous system",
+  "doi": "https://doi.org/10.63884/ndic.2025.pb77mj2s",
+  "license": "CC-BY-4.0",
+  "neurons": 0,
+  "numberOfSubjects": 1656,
+  "pubMedId": "40929174",
+  "species": "Caenorhabditis elegans, Escherichia coli",
+  "uploadedAt": "2025-08-01T19:28:56.131Z",
+  "documentCount": 78687
+}

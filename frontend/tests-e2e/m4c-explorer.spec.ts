@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './_fixtures/test';
 
 /**
  * M4c DocumentExplorerPage — Summary Tables / Raw Documents toggle.

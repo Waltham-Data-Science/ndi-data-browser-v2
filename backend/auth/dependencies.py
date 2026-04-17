@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import Depends, Request
 
@@ -19,17 +19,18 @@ SESSION_COOKIE = "session"
 
 
 def _get_session_store(request: Request) -> SessionStore:
+    # getattr on Starlette's State returns Any; narrow to the concrete type.
     store = getattr(request.app.state, "session_store", None)
     if store is None:
         raise RuntimeError("SessionStore not initialized on app.state")
-    return store
+    return cast(SessionStore, store)
 
 
 def _get_cloud_client(request: Request) -> NdiCloudClient:
     client = getattr(request.app.state, "cloud_client", None)
     if client is None:
         raise RuntimeError("NdiCloudClient not initialized on app.state")
-    return client
+    return cast(NdiCloudClient, client)
 
 
 async def get_current_session(

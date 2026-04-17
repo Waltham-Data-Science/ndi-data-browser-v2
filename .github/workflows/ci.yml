@@ -22,12 +22,11 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: backend/requirements.txt
-      - run: pip install -r backend/requirements.txt ruff mypy
+      - run: pip install -r backend/requirements.txt ruff mypy pydantic types-cachetools
       - run: ruff check backend/
-      # mypy is run in --no-strict mode via pyproject.toml and is non-blocking
-      # for now (11 real type mismatches surface in strict mode — filed as a
-      # hardening task). The goal is to tighten back to strict before M7.
-      - run: mypy backend/ || true
+      # mypy runs in strict mode, gated by CI. Config lives in
+      # backend/pyproject.toml; tests/ are laxer via an exclude regex.
+      - run: mypy --config-file backend/pyproject.toml backend/
 
   backend-test:
     runs-on: ubuntu-latest
@@ -69,6 +68,9 @@ jobs:
       - run: npm run lint --if-present
       - run: npm test --if-present
       - run: npm run build
+      # Bundle-size gate (plan §M7-8). Fails if JS+CSS gzip > 200 KB.
+      # Run from the repo root so relative `frontend/dist` resolves.
+      - run: node ../scripts/check-bundle-size.mjs --dist=dist
       - uses: actions/upload-artifact@v4
         with:
           name: frontend-dist

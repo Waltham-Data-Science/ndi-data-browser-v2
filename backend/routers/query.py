@@ -1,7 +1,7 @@
 """Query endpoints — general NDI query and cross-cloud appears-elsewhere."""
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -24,7 +24,7 @@ async def run(
     body: QueryRequest,
     svc: Annotated[QueryService, Depends(query_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
-) -> dict:
+) -> dict[str, Any]:
     return await svc.execute(
         body, access_token=session.access_token if session else None,
     )
@@ -33,7 +33,7 @@ async def run(
 @router.get("/operations")
 async def operations(
     session: Annotated[SessionData | None, Depends(get_current_session)],
-) -> dict:
+) -> dict[str, Any]:
     """Describe the supported ndiquery operations so the frontend builder
     renders the right input widgets per op. Plan §M6 backend step 1.
     """
@@ -141,7 +141,7 @@ async def appears_elsewhere(
     body: AppearsElsewhereBody,
     svc: Annotated[QueryService, Depends(query_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
-) -> dict:
+) -> dict[str, Any]:
     results = await svc.appears_elsewhere(
         document_id=body.documentId,
         exclude_dataset_id=body.excludeDatasetId,

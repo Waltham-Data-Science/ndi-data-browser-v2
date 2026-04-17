@@ -12,7 +12,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r backend/requirements.txt pytest pytest-asyncio httpx
+      # conftest.py imports fakeredis + respx at module top, so they must be
+      # present or collection aborts before any contract test runs.
+      - run: pip install -r backend/requirements.txt pytest pytest-asyncio pytest-cov httpx respx fakeredis freezegun hypothesis
       - name: Contract tests against dev cloud
         env:
           NDI_CLOUD_URL: ${{ vars.NDI_CLOUD_DEV_URL }}
