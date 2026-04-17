@@ -46,11 +46,24 @@ jobs:
             sleep 1
           done
       - run: cd frontend && npx playwright test
-      # Lighthouse gate (plan §M7-8). Runs after the e2e suite so the
-      # backend+frontend are still up. Assertions live in lighthouserc.json:
-      # accessibility + best-practices ≥ 90 (error), performance ≥ 80 (warn).
-      # The `|| true` guard on lhci-install is there because npx can flake
-      # on a cold cache; the subsequent `lhci autorun` step is the real gate.
+      # Lighthouse gate (plan §M7-8). Runs against a production build served
+      # by `vite preview` — dev-server Lighthouse runs flake with
+      # CHROME_INTERSTITIAL_ERROR in GHA (observed 2026-04-17 PR #10). The
+      # preview build is also closer to prod perf than the dev HMR server.
+      #
+      # We kill the dev-server frontend first (port 5173) so preview can
+      # bind the same port that lighthouserc.json hardcodes.
+      - name: Build + preview-serve frontend for Lighthouse
+        run: |
+          # Stop the dev server from the earlier step.
+          pkill -f "vite" || true
+          sleep 2
+          cd frontend && npm run build
+          nohup npx vite preview --port 5173 --host 127.0.0.1 > preview.log 2>&1 &
+          for i in {1..30}; do
+            curl -fsS http://127.0.0.1:5173/ && break
+            sleep 1
+          done
       - name: Lighthouse CI
         run: |
           npm i -g @lhci/cli@0.14.x
