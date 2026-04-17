@@ -100,8 +100,16 @@ class TestDeduplicateEdges:
 
 class TestCacheKey:
     def test_key_shape(self) -> None:
-        assert _dep_graph_key("DS1", "DOC1", 3, authed=False) == "depgraph:DS1:DOC1:3:public"
-        assert _dep_graph_key("DS1", "DOC1", 3, authed=True) == "depgraph:DS1:DOC1:3:authed"
+        from backend.cache.redis_table import RedisTableCache
+        v = RedisTableCache.SCHEMA_VERSION
+        assert (
+            _dep_graph_key("DS1", "DOC1", 3, authed=False)
+            == f"depgraph:{v}:DS1:DOC1:3:public"
+        )
+        assert (
+            _dep_graph_key("DS1", "DOC1", 3, authed=True)
+            == f"depgraph:{v}:DS1:DOC1:3:authed"
+        )
 
 
 class TestEmptyGraph:

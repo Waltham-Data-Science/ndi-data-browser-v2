@@ -429,9 +429,13 @@ def _empty_graph(document_id: str, *, reason: str) -> dict[str, Any]:
 def _dep_graph_key(
     dataset_id: str, doc_id: str, depth: int, *, authed: bool,
 ) -> str:
-    """Namespaced separately from table cache. 10-min TTL."""
+    """Namespaced separately from table cache. 10-min TTL.
+
+    Includes `RedisTableCache.SCHEMA_VERSION` so shape changes invalidate
+    stale blobs immediately on deploy rather than waiting for TTL.
+    """
     mode = "authed" if authed else "public"
-    return f"depgraph:{dataset_id}:{doc_id}:{depth}:{mode}"
+    return f"depgraph:{RedisTableCache.SCHEMA_VERSION}:{dataset_id}:{doc_id}:{depth}:{mode}"
 
 
 # Ensure RedisTableCache TTL is 10 min for this key-space. Keep the cache

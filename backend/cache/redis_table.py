@@ -42,10 +42,20 @@ class RedisTableCache:
         self._locks: dict[str, asyncio.Lock] = {}
         self._locks_guard = asyncio.Lock()
 
+    # Schema version for cached blobs. Bump whenever the response shape
+    # changes so stale blobs in Redis are invalidated by key-name change
+    # rather than waiting for TTL. Cheaper than flushing Redis on every deploy.
+    #
+    # v1 = pre-M4a projection (6-col subject row, no ontology pairs).
+    # v2 = M4a+ projection (15-col subject row, Schema-A/B dispatch,
+    #      {devTime, globalTime} epoch objects, probe_location + treatment
+    #      enrichment).
+    SCHEMA_VERSION = "v2"
+
     @staticmethod
     def table_key(dataset_id: str, class_name: str, *, authed: bool) -> str:
         mode = "authed" if authed else "public"
-        return f"table:{dataset_id}:{class_name}:{mode}"
+        return f"table:{RedisTableCache.SCHEMA_VERSION}:{dataset_id}:{class_name}:{mode}"
 
     async def _get_lock(self, key: str) -> asyncio.Lock:
         async with self._locks_guard:
