@@ -32,7 +32,7 @@ async def run(
 
 @router.get("/operations")
 async def operations(
-    session: Annotated[SessionData | None, Depends(get_current_session)],  # noqa: ARG001 — uniform dependency shape
+    session: Annotated[SessionData | None, Depends(get_current_session)],
 ) -> dict:
     """Describe the supported ndiquery operations so the frontend builder
     renders the right input widgets per op. Plan §M6 backend step 1.

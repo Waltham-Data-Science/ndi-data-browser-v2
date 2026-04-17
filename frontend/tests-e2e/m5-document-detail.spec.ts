@@ -12,6 +12,10 @@ import { expect, test, type Page } from '@playwright/test';
 const HALEY = '682e7772cdf3f24938176fac';
 const VANHOOSER = '68839b1fbf243809c0800a01';
 
+// Dep-graph builds share a VH cache slot — serial runs within this file
+// avoid parallel-worker races on the ~15s cold build.
+test.describe.configure({ mode: 'serial' });
+
 async function firstDocIdOfClass(
   page: Page,
   dataset: string,

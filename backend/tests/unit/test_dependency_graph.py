@@ -5,9 +5,9 @@ from backend.services.dependency_graph_service import (
     MAX_DEPTH_HARD_CAP,
     _add_node,
     _class_name,
+    _deduplicate_edges,
     _dep_graph_key,
     _depends_on_edges,
-    _deduplicate_edges,
     _doc_name,
     _empty_graph,
     _ndi_id,
@@ -62,7 +62,7 @@ class TestAddNode:
             "id": "m1", "ndiId": "A", "name": "NodeA", "className": "subject", "isTarget": False,
         }
 
-    def test_preserves_isTarget_on_revisit(self) -> None:
+    def test_preserves_is_target_on_revisit(self) -> None:
         nodes: dict = {}
         _add_node(nodes, ndi_id="A", mongo_id="m1", name="", class_name="subject", is_target=True)
         _add_node(nodes, ndi_id="A", mongo_id="m1", name="fuller", class_name="")

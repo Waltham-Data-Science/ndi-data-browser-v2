@@ -47,3 +47,4 @@ frontend/vitest.config.ts.timestamp-*.mjs
 # Claude Code local launch config
 .claude/
 .gstack/
+*.png

@@ -37,11 +37,15 @@ function JsonTree({
     if (data.length > 200) {
       return (
         <span className="text-amber-700 dark:text-amber-300">
-          "{data.slice(0, 200)}…"
+          &quot;{data.slice(0, 200)}…&quot;
         </span>
       );
     }
-    return <span className="text-amber-700 dark:text-amber-300">"{data}"</span>;
+    return (
+      <span className="text-amber-700 dark:text-amber-300">
+        &quot;{data}&quot;
+      </span>
+    );
   }
   if (Array.isArray(data)) {
     if (data.length === 0) {

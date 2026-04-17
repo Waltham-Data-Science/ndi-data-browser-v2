@@ -3,7 +3,7 @@
 Shared across replicas so table builds are paid once per dataset/class/auth
 tuple per TTL window. Plain JSON blob under a single key, no partitioning,
 no eviction beyond TTL — tables are kilobytes, and the working set is small
-(datasets × ~6 class views × 2 auth modes).
+(datasets x ~6 class views x 2 auth modes).
 
 Plan §M4a step 3: "Redis-backed table cache is mandatory". Keys follow
 `table:{datasetId}:{className}:{authed|public}` with a 1-hour TTL. Cache
@@ -84,7 +84,7 @@ class RedisTableCache:
                         return json.loads(raw)
                     except json.JSONDecodeError:
                         pass
-            except Exception:  # noqa: S110 — same degrade-gracefully policy
+            except Exception:
                 pass
 
             value = await producer()

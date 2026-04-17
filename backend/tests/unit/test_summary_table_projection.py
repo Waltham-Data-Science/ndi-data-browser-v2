@@ -113,10 +113,10 @@ class TestOpenmindsDispatch:
         assert _openminds_type_suffix(HALEY_SEX) == "BiologicalSex"
         assert _openminds_type_suffix(HALEY_GST) == "GeneticStrainType"
 
-    def test_ontology_key_for_strain_is_ontologyIdentifier(self) -> None:
+    def test_ontology_key_for_strain_uses_ontology_identifier(self) -> None:
         assert _openminds_ontology_key_for("Strain") == "ontologyIdentifier"
 
-    def test_ontology_key_for_schema_a_is_preferredOntologyIdentifier(self) -> None:
+    def test_ontology_key_for_schema_a_uses_preferred_identifier(self) -> None:
         for t in ("Species", "BiologicalSex", "GeneticStrainType", "AgeCategory"):
             assert _openminds_ontology_key_for(t) == "preferredOntologyIdentifier"
 

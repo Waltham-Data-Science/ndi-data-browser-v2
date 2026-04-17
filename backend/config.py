@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     SENTRY_DSN: str = ""
     ENVIRONMENT: Literal["development", "staging", "production"] = "development"
 
+    # --- Cutover feature flag (plan §M7 step 9) ---
+    # Percentage of traffic that should see v2 content on the public URL.
+    # 0 = 100% v1 (bypass). 100 = full cutover. Intermediate values ramp via
+    # hash(session_id + IP) % 100 < ROLLOUT_PCT in the reverse proxy; v2
+    # itself just emits its current rollout via the /api/health/version
+    # route so dashboards can observe. Value is a percentage 0-100.
+    ROLLOUT_PCT: int = Field(default=100, ge=0, le=100)
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]

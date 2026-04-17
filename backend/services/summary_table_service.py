@@ -742,9 +742,8 @@ def _probe_location_split(
         if ontology and ontology.upper().startswith("CL:"):
             if cell == (None, None):
                 cell = (name, ontology)
-        else:
-            if loc == (None, None):
-                loc = (name, ontology)
+        elif loc == (None, None):
+            loc = (name, ontology)
     return loc, cell
 
 

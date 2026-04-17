@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppShell } from '@/components/layout/AppShell';
+import { AboutPage } from '@/pages/AboutPage';
 import { HomePage } from '@/pages/HomePage';
 import { DatasetsPage } from '@/pages/DatasetsPage';
 import { DatasetDetailPage } from '@/pages/DatasetDetailPage';
@@ -53,6 +54,7 @@ export function App() {
               <Route path="datasets/:id/documents/:docId" element={<DocumentDetailPage />} />
               <Route path="my" element={<MyDatasetsPage />} />
               <Route path="query" element={<QueryPage />} />
+              <Route path="about" element={<AboutPage />} />
               <Route path="login" element={<LoginPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Route>
