@@ -70,6 +70,21 @@ _ENRICHMENTS_FOR: dict[str, list[str]] = {
     "openminds":      [],
 }
 
+# Enrichments whose failure should abort the table build (and skip caching).
+# Non-required enrichments can return empty if the cloud is flaky — the
+# table still renders with SummaryTableView's auto-hide-empty-column falloff
+# for those columns. Required ones, if empty, mean the row shape is
+# incomplete and we'd rather serve a retry-able error than cache a broken
+# table for the full TTL window (plan §M4a step 3).
+_REQUIRED_ENRICHMENTS: dict[str, set[str]] = {
+    "subject":        {"openminds_subject"},
+    "element":        {"subject"},
+    "probe":          {"subject"},
+    "element_epoch":  {"element", "subject"},
+    "epoch":          {"element", "subject"},
+    # treatment + probe_location are optional context — empty is acceptable.
+}
+
 
 class SummaryTableService:
     def __init__(
@@ -118,8 +133,11 @@ class SummaryTableService:
         ids = _extract_ids(body)
         docs = await self._bulk_fetch_all(dataset_id, ids, access_token=access_token)
 
-        # Fetch all enrichment classes in parallel. Each produces a list of
-        # docs; we join later via depends_on.
+        # Fetch all enrichment classes in parallel. If any REQUIRED enrichment
+        # fails, raise — the cache layer skips writes on exceptions, so a
+        # transient cloud failure doesn't pin a broken empty-enrichment table
+        # into Redis for the full TTL window. Plan §M4a step 3: "Skip cache
+        # if cloud call fails."
         enrich_classes = _ENRICHMENTS_FOR.get(class_name, [])
         enriched: dict[str, list[dict[str, Any]]] = {}
         if enrich_classes and docs:
@@ -138,6 +156,14 @@ class SummaryTableService:
                         enrichment=ec,
                         error=str(r),
                     )
+                    # Required enrichment failed — propagate so the cache
+                    # doesn't pin a broken build. The caller re-tries on the
+                    # next request, which may succeed against a healthy cloud.
+                    if ec in _REQUIRED_ENRICHMENTS.get(class_name, set()):
+                        raise RuntimeError(
+                            f"Required enrichment {ec!r} failed while building "
+                            f"{class_name} table: {r}",
+                        )
                     enriched[ec] = []
                 else:
                     enriched[ec] = r

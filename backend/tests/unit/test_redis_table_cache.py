@@ -15,9 +15,10 @@ def test_table_key_shape() -> None:
     assert k2 == f"table:{RedisTableCache.SCHEMA_VERSION}:DS1:subject:authed"
 
 
-def test_table_key_schema_version_is_v2() -> None:
-    """Pinned so any projection-shape change forces a conscious bump."""
-    assert RedisTableCache.SCHEMA_VERSION == "v2"
+def test_table_key_schema_version_is_v3() -> None:
+    """Pinned so any projection-shape or cache-semantics change forces a
+    conscious bump. Current = v3 (post-empty-enrichment-fix)."""
+    assert RedisTableCache.SCHEMA_VERSION == "v3"
 
 
 def test_default_ttl_is_one_hour() -> None:
