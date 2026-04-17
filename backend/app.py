@@ -35,6 +35,7 @@ from .observability.logging import configure_logging, get_logger, request_id_ctx
 from .routers import auth, binary, datasets, documents, health, ontology, query, tables, visualize
 from .services.ontology_cache import OntologyCache
 from .services.ontology_service import OntologyService
+from .static_files import safe_static_path
 
 log = get_logger(__name__)
 
@@ -225,10 +226,15 @@ def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, i
             Paths starting with `api/` or `metrics` are not reached because the routers
             are registered before this catch-all. Known static files at the root
             (favicon.ico, robots.txt, etc.) are served if they exist on disk.
+
+            Path traversal attempts (``../`` / decoded ``%2e%2e%2f``) are rejected
+            by :func:`safe_static_path`'s containment check; traversal requests
+            fall through to ``index.html`` so the React Router client can render
+            its own not-found state.
             """
-            candidate = dist / full_path
-            if candidate.is_file():
-                return FileResponse(candidate)
+            target = safe_static_path(dist, full_path)
+            if target is not None:
+                return FileResponse(target)
             return FileResponse(index_path)
 
     return app
