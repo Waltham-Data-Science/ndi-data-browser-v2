@@ -46,6 +46,15 @@ jobs:
             sleep 1
           done
       - run: cd frontend && npx playwright test
+      # Lighthouse gate (plan §M7-8). Runs after the e2e suite so the
+      # backend+frontend are still up. Assertions live in lighthouserc.json:
+      # accessibility + best-practices ≥ 90 (error), performance ≥ 80 (warn).
+      # The `|| true` guard on lhci-install is there because npx can flake
+      # on a cold cache; the subsequent `lhci autorun` step is the real gate.
+      - name: Lighthouse CI
+        run: |
+          npm i -g @lhci/cli@0.14.x
+          lhci autorun --config=./lighthouserc.json
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -55,3 +64,4 @@ jobs:
             frontend/test-results/
             backend.log
             frontend/frontend.log
+            .lighthouseci/
