@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -45,23 +46,39 @@ class RateLimiter:
         now = time.time()
         window_start = now - limit.window_seconds
 
+        # NOTE: two-pipeline check-then-add is non-atomic. Acceptable at 1-2
+        # replicas. If scale grows or per-user bucket precision matters, move
+        # to a single Lua script (see backend/middleware/rate_limit_lua.py
+        # TODO — not yet written).
         allowed = True
         retry_after = 1
 
         if self.redis is not None:
             try:
-                # Trim, count, add, expire — in a pipeline for atomicity.
-                pipe = self.redis.pipeline()
-                pipe.zremrangebyscore(key, 0, window_start)
-                pipe.zcard(key)
-                pipe.zadd(key, {str(now): now})
-                pipe.expire(key, limit.window_seconds + 1)
-                _, count, _, _ = await pipe.execute()
+                # Step 1: trim expired entries + read current count.
+                check_pipe = self.redis.pipeline()
+                check_pipe.zremrangebyscore(key, 0, window_start)
+                check_pipe.zcard(key)
+                _, count = await check_pipe.execute()
+
                 if count >= limit.max_requests:
+                    # Reject WITHOUT adding — prevents rejected requests from
+                    # inflating the sorted set and enabling a memory-exhaustion
+                    # DoS via fabricated subjects.
                     allowed = False
                     oldest = await self.redis.zrange(key, 0, 0, withscores=True)
                     if oldest:
                         retry_after = max(1, int(oldest[0][1] + limit.window_seconds - now))
+                else:
+                    # Step 2: only admitted requests add a member. Nonce avoids
+                    # the duplicate-score silent-overwrite bug when multiple
+                    # requests arrive at identical time.time() (sorted-set
+                    # members are unique — same member == no new entry).
+                    member = f"{now}:{uuid.uuid4().hex[:8]}"
+                    add_pipe = self.redis.pipeline()
+                    add_pipe.zadd(key, {member: now})
+                    add_pipe.expire(key, limit.window_seconds + 1)
+                    await add_pipe.execute()
             except Exception as e:
                 log.warning("rate_limit.redis_error", error=str(e))
                 # Fall through to in-memory.
@@ -88,6 +105,7 @@ class RateLimiter:
         # Purge.
         while buf and buf[0] < window_start:
             buf.pop(0)
+        # Count BEFORE appending so rejected requests don't inflate the buffer.
         if len(buf) >= cap:
             return False
         buf.append(now)
