@@ -245,6 +245,74 @@ def test_ontology_endpoint_is_redis_cached(app_and_cloud) -> None:  # type: igno
     assert ndiquery_route.call_count == first_count  # served from cache
 
 
+def test_required_enrichment_failure_skips_cache(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
+    """Plan §M4a step 3: "Skip cache if cloud call fails."
+
+    Required enrichments (e.g. openminds_subject for the subject table) must
+    propagate failures so the cache layer skips writes. Otherwise a transient
+    cloud blip pins an empty-ontology table into Redis for the full 1h TTL —
+    exactly the bug observed on Haley's first post-M7 prod deploy.
+    """
+    import httpx
+
+    client, router = app_and_cloud
+
+    ndiquery_calls: list[dict] = []
+
+    def _ndiquery(request, route):  # type: ignore[no-untyped-def]
+        body = request.content.decode() if request.content else ""
+        ndiquery_calls.append({"body": body})
+        # First call = subject class (succeeds with 1 doc).
+        # Second call = openminds_subject enrichment (500s — simulating a
+        # transient cloud failure).
+        if "openminds_subject" in body:
+            return httpx.Response(500, json={"message": "cloud exploded"})
+        return httpx.Response(
+            200,
+            json={
+                "number_matches": 1, "pageSize": 1000, "page": 1,
+                "documents": [{"id": "sub1"}],
+            },
+        )
+
+    router.post("/ndiquery").mock(side_effect=_ndiquery)
+    router.post("/datasets/DS1/documents/bulk-fetch").respond(
+        200,
+        json={"documents": [{
+            "id": "sub1", "ndiId": "ndi-sub1",
+            "data": {
+                "base": {"id": "ndi-sub1", "session_id": "s"},
+                "subject": {"local_identifier": "A"},
+                "document_class": {"class_name": "subject"},
+            },
+        }]},
+    )
+    # First attempt: subject succeeds, openminds_subject fails → build raises
+    # RuntimeError, which FastAPI's unhandled-exception handler converts to a
+    # typed INTERNAL 500. TestClient default raises server exceptions, so we
+    # catch directly to assert on the propagation.
+    import pytest
+    with pytest.raises(RuntimeError, match="Required enrichment 'openminds_subject'"):
+        client.get("/api/datasets/DS1/tables/subject")
+
+    # Second attempt after cloud "recovers": openminds_subject now succeeds.
+    # If the failure had been cached under v3 key, this would silently return
+    # the empty-enrichment response from attempt #1. Because we refused to
+    # cache, the second attempt rebuilds and succeeds.
+    def _ndiquery_healthy(request, route):  # type: ignore[no-untyped-def]
+        return httpx.Response(
+            200,
+            json={
+                "number_matches": 1, "pageSize": 1000, "page": 1,
+                "documents": [{"id": "sub1"}],
+            },
+        )
+
+    router.post("/ndiquery").mock(side_effect=_ndiquery_healthy)
+    r2 = client.get("/api/datasets/DS1/tables/subject")
+    assert r2.status_code == 200, r2.json()
+
+
 def test_list_by_class_paginates_at_cloud_layer(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
     """Regression for the `list_by_class` query-all-then-slice perf bug.
 

@@ -43,14 +43,18 @@ class RedisTableCache:
         self._locks_guard = asyncio.Lock()
 
     # Schema version for cached blobs. Bump whenever the response shape
-    # changes so stale blobs in Redis are invalidated by key-name change
-    # rather than waiting for TTL. Cheaper than flushing Redis on every deploy.
+    # changes or the projection's failure semantics change, so stale blobs
+    # in Redis are invalidated by key-name change rather than waiting for
+    # TTL. Cheaper than flushing Redis on every deploy.
     #
     # v1 = pre-M4a projection (6-col subject row, no ontology pairs).
     # v2 = M4a+ projection (15-col subject row, Schema-A/B dispatch,
     #      {devTime, globalTime} epoch objects, probe_location + treatment
     #      enrichment).
-    SCHEMA_VERSION = "v2"
+    # v3 = same projection as v2 but enrichment failures now raise instead
+    #      of silently returning empty enrichment (which got cached). Fixes
+    #      the Haley-subject-table empty-ontology blob observed post-M7 deploy.
+    SCHEMA_VERSION = "v3"
 
     @staticmethod
     def table_key(dataset_id: str, class_name: str, *, authed: bool) -> str:
