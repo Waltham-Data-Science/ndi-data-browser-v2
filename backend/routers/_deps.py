@@ -9,6 +9,7 @@ from ..clients.ndi_cloud import NdiCloudClient
 from ..middleware.rate_limit import Limit, RateLimiter
 from ..services.binary_service import BinaryService
 from ..services.dataset_service import DatasetService
+from ..services.dependency_graph_service import DependencyGraphService
 from ..services.document_service import DocumentService
 from ..services.ontology_service import OntologyService
 from ..services.query_service import QueryService
@@ -44,8 +45,16 @@ def table_cache(request: Request) -> RedisTableCache | None:
     return getattr(request.app.state, "table_cache", None)
 
 
+def dep_graph_cache(request: Request) -> RedisTableCache | None:
+    return getattr(request.app.state, "dep_graph_cache", None)
+
+
 def summary_table_service(request: Request) -> SummaryTableService:
     return SummaryTableService(cloud(request), cache=table_cache(request))
+
+
+def dependency_graph_service(request: Request) -> DependencyGraphService:
+    return DependencyGraphService(cloud(request), cache=dep_graph_cache(request))
 
 
 def binary_service(request: Request) -> BinaryService:

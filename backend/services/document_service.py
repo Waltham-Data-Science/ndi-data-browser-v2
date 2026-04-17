@@ -5,6 +5,9 @@ from typing import Any
 
 from ..clients.ndi_cloud import NdiCloudClient
 
+# Keys that live OUTSIDE `data` on either detail or bulk-fetch responses.
+_DOC_METADATA_KEYS = {"id", "_id", "ndiId", "name", "className", "datasetId"}
+
 
 class DocumentService:
     def __init__(self, cloud: NdiCloudClient) -> None:
@@ -13,7 +16,10 @@ class DocumentService:
     async def detail(
         self, dataset_id: str, document_id: str, *, access_token: str | None,
     ) -> dict[str, Any]:
-        return await self.cloud.get_document(dataset_id, document_id, access_token=access_token)
+        raw = await self.cloud.get_document(
+            dataset_id, document_id, access_token=access_token,
+        )
+        return _normalize_document(raw)
 
     async def list_by_class(
         self,
@@ -56,3 +62,31 @@ class DocumentService:
             "pageSize": page_size,
             "documents": docs,
         }
+
+
+def _normalize_document(raw: dict[str, Any]) -> dict[str, Any]:
+    """Reconcile the cloud's two document shapes.
+
+    `POST /bulk-fetch` wraps doc body under `data.*`:
+        {id, ndiId, name, className, datasetId, data: {base, ...}}
+
+    `GET /datasets/:id/documents/:docId` HOISTS body fields to top-level:
+        {id, base, depends_on, document_class, element_epoch, files, ...}
+
+    Downstream services (binary_service, dependency_graph_service,
+    summary_table_service) all read via `doc.data.*`. This helper
+    materializes the bulk-fetch shape from a single-doc response so the
+    rest of the codebase stays on one shape.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    if "data" in raw and isinstance(raw["data"], dict) and raw["data"]:
+        # Already bulk-fetch shape.
+        return raw
+    # Extract metadata keys; everything else goes under `data`.
+    metadata = {k: raw[k] for k in _DOC_METADATA_KEYS if k in raw}
+    data = {k: v for k, v in raw.items() if k not in _DOC_METADATA_KEYS and k != "data"}
+    # id may live under _id on the cloud response.
+    if "id" not in metadata and "_id" in metadata:
+        metadata["id"] = metadata["_id"]
+    return {**metadata, "data": data}

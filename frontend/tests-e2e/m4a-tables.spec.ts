@@ -103,8 +103,10 @@ test.describe('M4a — tutorial-parity subject table', () => {
 
 test.describe('M4a — table selector', () => {
   test('Haley can switch between table tabs', async ({ page }) => {
+    // Cold-cache Haley tables can take 20-40s each. Outer test timeout must
+    // cover both probe + epoch tab builds.
+    test.setTimeout(180_000);
     await gotoSubject(page, HALEY);
-    // Tabs render counts beside the label; use regex to match.
     await page.getByRole('tab', { name: /Probes/ }).click();
     await expect(page).toHaveURL(/\/tables\/element$/);
     await expect(page.locator('text=/\\d+ \\/ \\d+ rows/').first()).toBeVisible({
@@ -119,6 +121,8 @@ test.describe('M4a — table selector', () => {
   });
 
   test('Haley ontology tab groups rows by schema', async ({ page }) => {
+    // Cold ontology build for Haley is ~60s (41k docs, 9 groups).
+    test.setTimeout(180_000);
     await page.goto(`/datasets/${HALEY}/tables/ontology`);
     await expect(page.getByRole('tab', { name: /Ontology/ })).toBeVisible({
       timeout: 20_000,
