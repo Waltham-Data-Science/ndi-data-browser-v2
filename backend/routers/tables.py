@@ -1,4 +1,4 @@
-"""Summary tables — single class and combined."""
+"""Summary tables — single class, combined, and ontologyTableRow grouping."""
 from __future__ import annotations
 
 from typing import Annotated
@@ -16,6 +16,8 @@ router = APIRouter(
     dependencies=[Depends(limit_reads)],
 )
 
+# Classes accepted by single_class. `ontologyTableRow` is handled by a
+# dedicated endpoint (`/tables/ontology`) because its shape differs.
 SUPPORTED_CLASSES = {
     "subject", "probe", "epoch", "element", "element_epoch",
     "treatment", "openminds", "openminds_subject", "probe_location",
@@ -29,6 +31,20 @@ async def combined(
     session: Annotated[SessionData | None, Depends(get_current_session)],
 ) -> dict:
     return await svc.combined(
+        dataset_id, access_token=session.access_token if session else None,
+    )
+
+
+@router.get("/ontology")
+async def ontology_tables(
+    dataset_id: str,
+    svc: Annotated[SummaryTableService, Depends(summary_table_service)],
+    session: Annotated[SessionData | None, Depends(get_current_session)],
+) -> dict:
+    """Group `ontologyTableRow` docs by their `variableNames` schema.
+    See `SummaryTableService.ontology_tables` for the response shape.
+    """
+    return await svc.ontology_tables(
         dataset_id, access_token=session.access_token if session else None,
     )
 

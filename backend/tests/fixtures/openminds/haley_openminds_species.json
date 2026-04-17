@@ -1,0 +1,55 @@
+{
+  "className": "openminds_subject",
+  "data": {
+    "base": {
+      "datestamp": "2025-09-04T16:21:36.470Z",
+      "id": "41269430c7aec5c5_409315eb01882783",
+      "name": "",
+      "session_id": "41269430c597c3e6_c0c9895d35d19b54"
+    },
+    "depends_on": [
+      {
+        "name": "subject_id",
+        "value": "41269430c7aec337_c0ca12e25b36c956"
+      },
+      {
+        "name": "openminds",
+        "value": ""
+      }
+    ],
+    "document_class": {
+      "class_name": "openminds_subject",
+      "class_version": 1,
+      "definition": "$NDIDOCUMENTPATH/metadata/openminds_subject.json",
+      "property_list_name": "openminds_subject",
+      "superclasses": [
+        {
+          "definition": "$NDIDOCUMENTPATH/base.json"
+        },
+        {
+          "definition": "$NDIDOCUMENTPATH/metadata/openminds.json"
+        }
+      ],
+      "validation": "$NDISCHEMAPATH/metadata/openminds_subject.json"
+    },
+    "openminds": {
+      "fields": {
+        "definition": "Caenorhabditis elegans is a species of nematode in the family Rhabditidae that is widely used as an experimental model organism.",
+        "description": "",
+        "interlexIdentifier": "",
+        "knowledgeSpaceLink": "",
+        "name": "Caenorhabditis elegans",
+        "preferredOntologyIdentifier": "NCBITaxon:6239",
+        "synonym": "C. elegans"
+      },
+      "matlab_type": "openminds.controlledterms.Species",
+      "openminds_id": "",
+      "openminds_type": "https://openminds.om-i.org/types/Species"
+    },
+    "openminds_subject": {}
+  },
+  "datasetId": "682e7772cdf3f24938176fac",
+  "id": "68c05864f81ed200dc9a7e5c",
+  "name": "",
+  "ndiId": "41269430c7aec5c5_409315eb01882783"
+}

@@ -1,135 +1,267 @@
-import { useMemo, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { useSummaryTable } from '@/api/tables';
-import { TableSkeleton } from '@/components/ui/Skeleton';
-import { ErrorState } from '@/components/errors/ErrorState';
-import { Input } from '@/components/ui/Input';
+import { useMemo } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import {
+  useCombinedTable,
+  useOntologyTables,
+  useSummaryTable,
+  type OntologyTableGroup,
+  type TableResponse,
+  type TableType,
+} from '@/api/tables';
+import { useClassCounts } from '@/api/datasets';
+import { SummaryTableView } from '@/components/tables/SummaryTableView';
+import { TableSelector } from '@/components/tables/TableSelector';
 import { Card, CardBody } from '@/components/ui/Card';
-import { formatNumber } from '@/lib/format';
-import { useNavigate } from 'react-router-dom';
+import { ErrorState } from '@/components/errors/ErrorState';
+import { TableSkeleton } from '@/components/ui/Skeleton';
+import { useState } from 'react';
+
+type AllowedType = TableType;
+
+function coerceTableType(raw: string | undefined): AllowedType {
+  const allowed: AllowedType[] = [
+    'combined', 'subject', 'element', 'element_epoch',
+    'treatment', 'probe_location', 'openminds_subject', 'ontology',
+  ];
+  if (!raw) return 'subject';
+  // Legacy slug compatibility: "subjects" -> "subject", "probes" -> "element".
+  const normalized = raw.toLowerCase();
+  const aliasMap: Record<string, AllowedType> = {
+    subjects: 'subject',
+    probes: 'element',
+    epochs: 'element_epoch',
+    epoch: 'element_epoch',
+    elements: 'element',
+    probe: 'element',
+    treatments: 'treatment',
+    locations: 'probe_location',
+    openminds: 'openminds_subject',
+  };
+  const resolved = (aliasMap[normalized] ?? normalized) as AllowedType;
+  return allowed.includes(resolved) ? resolved : 'subject';
+}
 
 export function TableTab() {
   const { id, className } = useParams();
-  const [filter, setFilter] = useState('');
-  const [sortKey, setSortKey] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const navigate = useNavigate();
+  const active = coerceTableType(className);
 
-  const { data, isLoading, isError, error, refetch } = useSummaryTable(id, className ?? 'subject');
+  const classCounts = useClassCounts(id);
+  const counts = useMemo<Partial<Record<TableType, number>>>(() => {
+    if (!classCounts.data) return {};
+    const c = classCounts.data.classCounts;
+    return {
+      subject: c.subject ?? 0,
+      element: c.element ?? c.probe ?? 0,
+      element_epoch: c.element_epoch ?? c.epoch ?? 0,
+      treatment: c.treatment ?? 0,
+      probe_location: c.probe_location ?? 0,
+      openminds_subject: c.openminds_subject ?? 0,
+    };
+  }, [classCounts.data]);
 
-  const rows = useMemo(() => {
-    if (!data) return [];
-    let r = data.rows;
-    if (filter.trim()) {
-      const needle = filter.toLowerCase();
-      r = r.filter((row) => Object.values(row).some((v) => String(v ?? '').toLowerCase().includes(needle)));
-    }
-    if (sortKey) {
-      const s = sortKey;
-      r = [...r].sort((a, b) => {
-        const av = a[s];
-        const bv = b[s];
-        if (av == null && bv == null) return 0;
-        if (av == null) return 1;
-        if (bv == null) return -1;
-        const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true });
-        return sortDir === 'asc' ? cmp : -cmp;
-      });
-    }
-    return r;
-  }, [data, filter, sortKey, sortDir]);
+  const handleChange = (next: TableType) => {
+    if (!id) return;
+    navigate(`/datasets/${id}/tables/${next}`);
+  };
 
   return (
-    <Card>
-      <CardBody className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold capitalize">{className}</h2>
-          <Input
-            placeholder="Filter rows…"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="max-w-xs"
-          />
-        </div>
-        {isLoading && <TableSkeleton rows={12} />}
-        {isError && <ErrorState error={error} onRetry={() => refetch()} />}
-        {data && (
-          <>
-            <p className="text-xs text-slate-500">
-              {formatNumber(rows.length)} of {formatNumber(data.rows.length)} rows
-            </p>
-            <div className="overflow-auto max-h-[65vh] rounded border border-slate-200 dark:border-slate-800">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800">
-                  <tr>
-                    {data.columns.map((c) => (
-                      <th
-                        key={c.key}
-                        className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-200 cursor-pointer select-none"
-                        onClick={() => {
-                          if (sortKey === c.key) {
-                            setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-                          } else {
-                            setSortKey(c.key);
-                            setSortDir('asc');
-                          }
-                        }}
-                      >
-                        {c.label}
-                        {sortKey === c.key && <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, i) => (
-                    <Row key={i} row={row} columns={data.columns} datasetId={id!} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-      </CardBody>
-    </Card>
+    <div className="space-y-3">
+      <TableSelector active={active} onChange={handleChange} counts={counts} />
+      <Card>
+        <CardBody>
+          {active === 'ontology' ? (
+            <OntologyTablesView datasetId={id} />
+          ) : active === 'combined' ? (
+            <CombinedTableView datasetId={id} />
+          ) : (
+            <SingleClassTableView datasetId={id} className={active} />
+          )}
+        </CardBody>
+      </Card>
+    </div>
   );
 }
 
-function Row({
-  row,
-  columns,
+function SingleClassTableView({
   datasetId,
+  className,
 }: {
-  row: Record<string, unknown>;
-  columns: { key: string; label: string }[];
-  datasetId: string;
+  datasetId: string | undefined;
+  className: Exclude<TableType, 'combined' | 'ontology'>;
 }) {
   const navigate = useNavigate();
-  const docId = row.subjectId ?? row.probeId ?? row.epochId ?? row.id ?? row._id;
-  const clickable = typeof docId === 'string';
+  const { data, isLoading, isError, error, refetch } = useSummaryTable(datasetId, className);
+
   return (
-    <tr
-      className={`border-t border-slate-100 dark:border-slate-800 ${clickable ? 'hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer' : ''}`}
-      onClick={() => {
-        if (clickable) navigate(`/datasets/${datasetId}/documents/${docId}`);
-      }}
-    >
-      {columns.map((c) => (
-        <td key={c.key} className="px-3 py-1.5 align-top text-slate-800 dark:text-slate-200">
-          {formatCell(row[c.key])}
-        </td>
-      ))}
-    </tr>
+    <TableBody
+      data={data}
+      isLoading={isLoading}
+      isError={isError}
+      error={error}
+      onRetry={() => refetch()}
+      tableType={className}
+      title={className}
+      onRowClick={
+        datasetId
+          ? (row) => {
+              const docId = pickDocId(row);
+              if (docId) navigate(`/datasets/${datasetId}/documents/${docId}`);
+            }
+          : undefined
+      }
+    />
   );
 }
 
-function formatCell(v: unknown): React.ReactNode {
-  if (v == null) return <span className="text-slate-400">—</span>;
-  if (typeof v === 'object') return <span className="font-mono text-xs">{JSON.stringify(v)}</span>;
-  const s = String(v);
-  // Looks like an ontology term? Render as link.
-  const m = s.match(/^([A-Za-z]+):([A-Za-z0-9_.-]+)$/);
-  if (m && ['CL', 'NCBITaxon', 'CHEBI', 'PATO', 'EFO', 'RRID', 'WBStrain', 'PubChem'].includes(m[1])) {
-    return <Link to={`/query?term=${encodeURIComponent(s)}`} className="underline decoration-dotted hover:text-brand-600">{s}</Link>;
+function CombinedTableView({ datasetId }: { datasetId: string | undefined }) {
+  const navigate = useNavigate();
+  const { data, isLoading, isError, error, refetch } = useCombinedTable(datasetId);
+  return (
+    <TableBody
+      data={data}
+      isLoading={isLoading}
+      isError={isError}
+      error={error}
+      onRetry={() => refetch()}
+      tableType="combined"
+      title="combined"
+      onRowClick={
+        datasetId
+          ? (row) => {
+              const docId = pickDocId(row);
+              if (docId) navigate(`/datasets/${datasetId}/documents/${docId}`);
+            }
+          : undefined
+      }
+    />
+  );
+}
+
+function OntologyTablesView({ datasetId }: { datasetId: string | undefined }) {
+  const { data, isLoading, isError, error, refetch } = useOntologyTables(datasetId);
+  const [groupIdx, setGroupIdx] = useState(0);
+
+  if (isLoading) return <TableSkeleton rows={12} />;
+  if (isError) return <ErrorState error={error} onRetry={() => refetch()} />;
+  if (!data || data.groups.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        This dataset has no ontology table rows.
+      </p>
+    );
   }
-  return s;
+  const active = data.groups[Math.min(groupIdx, data.groups.length - 1)];
+  return (
+    <div className="space-y-3">
+      <OntologyGroupPicker
+        groups={data.groups}
+        active={groupIdx}
+        onChange={setGroupIdx}
+      />
+      <SummaryTableView
+        data={active.table}
+        title={`ontology-${groupIdx}`}
+        tableType="ontology"
+        columnOntologyPrefixes={buildColumnOntology(active)}
+      />
+    </div>
+  );
+}
+
+function OntologyGroupPicker({
+  groups,
+  active,
+  onChange,
+}: {
+  groups: OntologyTableGroup[];
+  active: number;
+  onChange: (n: number) => void;
+}) {
+  if (groups.length <= 1) return null;
+  return (
+    <div className="flex flex-wrap gap-1 border-b border-slate-200 dark:border-slate-700 pb-px">
+      {groups.map((g, i) => {
+        const label = g.variableNames.slice(0, 2).join(' + ');
+        return (
+          <button
+            key={i}
+            type="button"
+            onClick={() => onChange(i)}
+            className={
+              i === active
+                ? 'px-2 py-1 text-xs font-medium rounded-t-md bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 border-b-white dark:border-b-slate-900 -mb-px'
+                : 'px-2 py-1 text-xs font-medium rounded-t-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+            }
+          >
+            <span className="font-mono truncate max-w-[200px] inline-block align-bottom">
+              {label}
+              {g.variableNames.length > 2 && '…'}
+            </span>
+            <span className="ml-1.5 text-[10px] text-slate-400">
+              {g.rowCount.toLocaleString()}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function buildColumnOntology(group: OntologyTableGroup): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (let i = 0; i < group.variableNames.length; i++) {
+    const key = group.variableNames[i];
+    out[key] = group.ontologyNodes[i] ?? null;
+  }
+  return out;
+}
+
+function TableBody({
+  data,
+  isLoading,
+  isError,
+  error,
+  onRetry,
+  tableType,
+  title,
+  onRowClick,
+}: {
+  data: TableResponse | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+  onRetry: () => void;
+  tableType: string;
+  title: string;
+  onRowClick?: (row: Record<string, unknown>) => void;
+}) {
+  if (isLoading) return <TableSkeleton rows={12} />;
+  if (isError) return <ErrorState error={error} onRetry={onRetry} />;
+  if (!data) return null;
+  return (
+    <SummaryTableView
+      data={data}
+      title={title}
+      tableType={tableType}
+      onRowClick={onRowClick}
+    />
+  );
+}
+
+function pickDocId(row: Record<string, unknown>): string | undefined {
+  const candidates = [
+    row.subjectDocumentIdentifier,
+    row.probeDocumentIdentifier,
+    row.epochDocumentIdentifier,
+    row.subjectId,
+    row.probeId,
+    row.epochId,
+    row.documentIdentifier,
+    row.id,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c) return c;
+  }
+  return undefined;
 }

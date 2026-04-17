@@ -1,0 +1,55 @@
+{
+  "className": "openminds_subject",
+  "data": {
+    "base": {
+      "datestamp": "2025-07-23T13:38:02.791Z",
+      "id": "412693dacd8710a6_c0cbeeab2e28be95",
+      "name": "",
+      "session_id": "412693451dfa3521_40d2deb0fe3a2069"
+    },
+    "depends_on": [
+      {
+        "name": "subject_id",
+        "value": "412693451e036d32_40d1e9a80a226e87"
+      },
+      {
+        "name": "openminds",
+        "value": ""
+      }
+    ],
+    "document_class": {
+      "class_name": "openminds_subject",
+      "class_version": 1,
+      "definition": "$NDIDOCUMENTPATH/metadata/openminds_subject.json",
+      "property_list_name": "openminds_subject",
+      "superclasses": [
+        {
+          "definition": "$NDIDOCUMENTPATH/base.json"
+        },
+        {
+          "definition": "$NDIDOCUMENTPATH/metadata/openminds.json"
+        }
+      ],
+      "validation": "$NDISCHEMAPATH/metadata/openminds_subject.json"
+    },
+    "openminds": {
+      "fields": {
+        "definition": "",
+        "description": "",
+        "interlexIdentifier": "",
+        "knowledgeSpaceLink": "",
+        "name": "Mustela putorius furo",
+        "preferredOntologyIdentifier": "9669",
+        "synonym": ""
+      },
+      "matlab_type": "openminds.controlledterms.Species",
+      "openminds_id": "Species/e7e03f34-36e5-4e3a-86c5-7d39a28c0961",
+      "openminds_type": "https://openminds.om-i.org/types/Species"
+    },
+    "openminds_subject": {}
+  },
+  "datasetId": "68839b1fbf243809c0800a01",
+  "id": "68853fb35d5ded9f260cf41c",
+  "name": "",
+  "ndiId": "412693dacd8710a6_c0cbeeab2e28be95"
+}

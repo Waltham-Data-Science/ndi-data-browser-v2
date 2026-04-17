@@ -1,18 +1,9 @@
-import { useParams, Link, Outlet, useLocation, Navigate } from 'react-router-dom';
-import { useDataset, useClassCounts } from '@/api/datasets';
+import { Link, Navigate, Outlet, useParams } from 'react-router-dom';
+import { useClassCounts, useDataset } from '@/api/datasets';
 import { CardSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/errors/ErrorState';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
-import { formatNumber, formatDate } from '@/lib/format';
-import { cn } from '@/lib/cn';
-
-const TABLES = [
-  { slug: 'subject', label: 'Subjects' },
-  { slug: 'element', label: 'Elements' },
-  { slug: 'element_epoch', label: 'Epochs' },
-  { slug: 'combined', label: 'Combined' },
-  { slug: 'treatment', label: 'Treatments' },
-];
+import { formatDate, formatNumber } from '@/lib/format';
 
 export function DatasetDetailPage() {
   const { id } = useParams();
@@ -114,43 +105,8 @@ export function DatasetDetailPage() {
       </aside>
 
       <section className="space-y-3">
-        <TableTabs datasetId={id} />
         <Outlet />
       </section>
     </div>
-  );
-}
-
-function TableTabs({ datasetId }: { datasetId: string }) {
-  const loc = useLocation();
-  const activeSlug = loc.pathname.split('/').pop();
-  return (
-    <nav className="flex gap-1 border-b border-slate-200 dark:border-slate-800" aria-label="Tables">
-      {TABLES.map((t) => (
-        <Link
-          key={t.slug}
-          to={`/datasets/${datasetId}/tables/${t.slug}`}
-          className={cn(
-            'px-3 py-2 text-sm font-medium border-b-2 transition-colors',
-            activeSlug === t.slug
-              ? 'border-brand-500 text-brand-600'
-              : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100',
-          )}
-        >
-          {t.label}
-        </Link>
-      ))}
-      <Link
-        to={`/datasets/${datasetId}/documents`}
-        className={cn(
-          'px-3 py-2 text-sm font-medium border-b-2 transition-colors ml-auto',
-          activeSlug === 'documents' || loc.pathname.includes('/documents')
-            ? 'border-brand-500 text-brand-600'
-            : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100',
-        )}
-      >
-        All documents
-      </Link>
-    </nav>
   );
 }

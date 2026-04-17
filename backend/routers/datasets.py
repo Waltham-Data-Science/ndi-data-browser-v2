@@ -52,3 +52,18 @@ async def class_counts(
         dataset_id,
         access_token=session.access_token if session else None,
     )
+
+
+@router.get("/{dataset_id}/doc-types")
+async def doc_types(
+    dataset_id: str,
+    svc: Annotated[DatasetService, Depends(dataset_service)],
+    session: Annotated[SessionData | None, Depends(get_current_session)],
+) -> dict:
+    """Alias for /class-counts — matches v1's vocabulary so the ported
+    DocumentTypeSelector component keeps working with its existing URL.
+    """
+    return await svc.class_counts(
+        dataset_id,
+        access_token=session.access_token if session else None,
+    )

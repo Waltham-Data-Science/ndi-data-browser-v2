@@ -22,6 +22,7 @@ from redis.asyncio import Redis
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .auth.session import SessionStore
+from .cache.redis_table import RedisTableCache
 from .clients.ndi_cloud import NdiCloudClient
 from .config import get_settings
 from .errors import BrowserError, Internal, NotFound, ValidationFailed
@@ -59,6 +60,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     ontology_cache = OntologyCache()
     ontology_service = OntologyService(ontology_cache)
     app.state.ontology_service = ontology_service
+
+    # Redis-backed summary-table response cache (1-hour TTL).
+    # Shared across replicas so table builds amortize. Plan §M4a step 3.
+    app.state.table_cache = RedisTableCache(redis=redis)
 
     log.info("app.startup", environment=settings.ENVIRONMENT)
     try:

@@ -1,0 +1,55 @@
+{
+  "className": "openminds_subject",
+  "data": {
+    "base": {
+      "datestamp": "2025-09-04T16:21:36.499Z",
+      "id": "41269430c7aed0fa_c0a01e590ed61dc8",
+      "name": "",
+      "session_id": "41269430c597c3e6_c0c9895d35d19b54"
+    },
+    "depends_on": [
+      {
+        "name": "subject_id",
+        "value": "41269430c7aece37_40a0c675929cea61"
+      },
+      {
+        "name": "openminds",
+        "value": ""
+      }
+    ],
+    "document_class": {
+      "class_name": "openminds_subject",
+      "class_version": 1,
+      "definition": "$NDIDOCUMENTPATH/metadata/openminds_subject.json",
+      "property_list_name": "openminds_subject",
+      "superclasses": [
+        {
+          "definition": "$NDIDOCUMENTPATH/base.json"
+        },
+        {
+          "definition": "$NDIDOCUMENTPATH/metadata/openminds.json"
+        }
+      ],
+      "validation": "$NDISCHEMAPATH/metadata/openminds_subject.json"
+    },
+    "openminds": {
+      "fields": {
+        "definition": "",
+        "description": "",
+        "interlexIdentifier": "",
+        "knowledgeSpaceLink": "",
+        "name": "transgenic",
+        "preferredOntologyIdentifier": "",
+        "synonym": ""
+      },
+      "matlab_type": "openminds.controlledterms.GeneticStrainType",
+      "openminds_id": "https://openminds.om-i.org/instances/geneticStrainType/transgenic",
+      "openminds_type": "https://openminds.om-i.org/types/GeneticStrainType"
+    },
+    "openminds_subject": {}
+  },
+  "datasetId": "682e7772cdf3f24938176fac",
+  "id": "68c05867f81ed200dc9a7ea4",
+  "name": "",
+  "ndiId": "41269430c7aed0fa_c0a01e590ed61dc8"
+}
