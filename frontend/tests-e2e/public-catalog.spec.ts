@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './_fixtures/test';
 
 test.describe('Public catalog browsing (W1)', () => {
   test('lists published datasets and paginates', async ({ page }) => {

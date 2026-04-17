@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './_fixtures/test';
 
 test.describe('Error catalog UI mapping', () => {
   test('unknown dataset shows NOT_FOUND inline', async ({ page }) => {

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './_fixtures/test';
 
 test.describe('Authentication (W13, W15)', () => {
   test('login page renders', async ({ page }) => {

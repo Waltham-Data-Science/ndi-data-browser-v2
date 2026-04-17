@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './_fixtures/test';
 
 /**
  * M4a tutorial-parity table specs — runs against live Haley + Van Hooser.

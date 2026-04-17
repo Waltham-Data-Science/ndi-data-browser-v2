@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './_fixtures/test';
 
 /**
  * M6 query + viz — QueryBuilder (simple + advanced + scope + negation),

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './_fixtures/test';
 
 /**
  * M4b dataset chrome — verifies the catalog grid, the rich card details,
