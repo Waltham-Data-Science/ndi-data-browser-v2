@@ -1,0 +1,32 @@
+{
+  "_comment": "Seeded ontology terms pre-fetched on app startup so the first summary table render in a fresh Redis doesn't stall on 100+ cold lookups. Plan §M7 step 7. Keep entries minimal (provider + termId only); the warmup fetches full definitions async from each provider and writes them to the SQLite ontology_cache.",
+  "terms": [
+    "NCBITaxon:10090",
+    "NCBITaxon:10116",
+    "NCBITaxon:6239",
+    "NCBITaxon:9669",
+    "NCBITaxon:7955",
+    "NCBITaxon:9606",
+    "NCBITaxon:9361",
+    "PATO:0000383",
+    "PATO:0000384",
+    "PATO:0001340",
+    "UBERON:0000955",
+    "UBERON:0002436",
+    "UBERON:0002616",
+    "UBERON:0002813",
+    "UBERON:0001891",
+    "UBERON:0001869",
+    "CL:0000540",
+    "CL:0000598",
+    "CL:0000117",
+    "CL:0000121",
+    "WBStrain:00000001",
+    "WBStrain:00030796",
+    "CHEBI:73328",
+    "CHEBI:16236",
+    "CHEBI:27732",
+    "RRID:RGD_70508",
+    "RRID:MGI_3838480"
+  ]
+}

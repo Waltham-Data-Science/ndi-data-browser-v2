@@ -61,6 +61,33 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     ontology_service = OntologyService(ontology_cache)
     app.state.ontology_service = ontology_service
 
+    # Ontology cache warmup — plan §M7 step 7. Async-prefetch ~25 high-
+    # frequency terms (NCBITaxon mouse/rat/C.elegans, PATO sex, UBERON
+    # V1/hippocampus, CL pyramidal, WBStrain N2…) so the first table
+    # render in a fresh deploy doesn't stall on cold ontology lookups.
+    import asyncio as _asyncio
+    import json as _json
+    from pathlib import Path as _Path
+    warmup_path = _Path(__file__).parent / "data" / "ontology_warmup.json"
+    if warmup_path.exists():
+        try:
+            warmup = _json.loads(warmup_path.read_text())
+            terms = [t for t in warmup.get("terms", []) if isinstance(t, str)]
+            if terms:
+                log.info("ontology.warmup_start", count=len(terms))
+
+                async def _warmup() -> None:
+                    try:
+                        await ontology_service.batch_lookup(terms)
+                        log.info("ontology.warmup_done", count=len(terms))
+                    except Exception as e:
+                        log.warning("ontology.warmup_failed", error=str(e))
+
+                # Fire-and-forget; don't block startup on external HTTP.
+                _asyncio.create_task(_warmup())
+        except Exception as e:
+            log.warning("ontology.warmup_config_failed", error=str(e))
+
     # Redis-backed summary-table response cache (1-hour TTL).
     # Shared across replicas so table builds amortize. Plan §M4a step 3.
     app.state.table_cache = RedisTableCache(redis=redis)

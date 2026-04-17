@@ -35,3 +35,18 @@ async def ready(request: Request) -> dict[str, object]:
 async def metrics() -> object:
     from fastapi import Response as FastAPIResponse
     return FastAPIResponse(content=metrics_bytes(), media_type=CONTENT_TYPE)
+
+
+@router.get("/api/health/version")
+async def version() -> dict[str, object]:
+    """Expose app version + cutover rollout %. Plan §M7 step 9 — the
+    reverse proxy splits traffic via hash % 100 < ROLLOUT_PCT; this
+    endpoint lets dashboards observe the configured target.
+    """
+    from ..config import get_settings
+    s = get_settings()
+    return {
+        "version": "2.0.0",
+        "environment": s.ENVIRONMENT,
+        "rolloutPct": s.ROLLOUT_PCT,
+    }
