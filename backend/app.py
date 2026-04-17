@@ -65,6 +65,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Shared across replicas so table builds amortize. Plan §M4a step 3.
     app.state.table_cache = RedisTableCache(redis=redis)
 
+    # Separate cache for dependency graphs, 10-minute TTL per plan §M5.
+    # Same Redis connection, different TTL so graph invalidation propagates
+    # faster than table invalidation.
+    from .services.dependency_graph_service import DEP_GRAPH_TTL_SECONDS
+    app.state.dep_graph_cache = RedisTableCache(
+        redis=redis, ttl_seconds=DEP_GRAPH_TTL_SECONDS,
+    )
+
     log.info("app.startup", environment=settings.ENVIRONMENT)
     try:
         yield

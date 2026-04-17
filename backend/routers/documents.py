@@ -1,4 +1,4 @@
-"""Document list / detail."""
+"""Document list / detail / dependency graph."""
 from __future__ import annotations
 
 from typing import Annotated
@@ -7,8 +7,12 @@ from fastapi import APIRouter, Depends, Query
 
 from ..auth.dependencies import get_current_session
 from ..auth.session import SessionData
+from ..services.dependency_graph_service import (
+    MAX_DEPTH_HARD_CAP,
+    DependencyGraphService,
+)
 from ..services.document_service import DocumentService
-from ._deps import document_service, limit_reads
+from ._deps import dependency_graph_service, document_service, limit_reads
 
 router = APIRouter(prefix="/api/datasets/{dataset_id}/documents", tags=["documents"], dependencies=[Depends(limit_reads)])
 
@@ -40,4 +44,25 @@ async def detail(
 ) -> dict:
     return await svc.detail(
         dataset_id, document_id, access_token=session.access_token if session else None,
+    )
+
+
+@router.get("/{document_id}/dependencies")
+async def dependencies(
+    dataset_id: str,
+    document_id: str,
+    svc: Annotated[DependencyGraphService, Depends(dependency_graph_service)],
+    session: Annotated[SessionData | None, Depends(get_current_session)],
+    max_depth: int = Query(3, ge=1, le=MAX_DEPTH_HARD_CAP, alias="max_depth"),
+) -> dict:
+    """Walk `depends_on` up to `max_depth` levels in both directions.
+    Returns `{target_id, target_ndi_id, nodes, edges, node_count,
+    edge_count, truncated, max_depth}`. See
+    `services/dependency_graph_service.py` for shape details.
+    """
+    return await svc.get_graph(
+        dataset_id,
+        document_id,
+        max_depth=max_depth,
+        access_token=session.access_token if session else None,
     )
