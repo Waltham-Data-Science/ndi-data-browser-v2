@@ -91,7 +91,11 @@ export function DatasetCard({ dataset }: DatasetCardProps) {
             )}
           </div>
 
-          <div className="flex items-center gap-2 text-[10px] text-slate-400 dark:text-slate-500">
+          {/* Date metadata uses slate-500 on white (ratio 4.78:1) rather
+              than slate-400 (2.63:1) to satisfy WCAG AA; darker dark-mode
+              pairing kept as slate-400 since the contrast ratio against
+              slate-900 is already fine. */}
+          <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
             {dataset.createdAt && <span>Created {formatDate(dataset.createdAt)}</span>}
             {dataset.updatedAt && dataset.updatedAt !== dataset.createdAt && (
               <span>Updated {formatDate(dataset.updatedAt)}</span>
