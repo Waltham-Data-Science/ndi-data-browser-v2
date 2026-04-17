@@ -1,0 +1,48 @@
+name: Load test (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Base URL to load-test against"
+        required: true
+        default: "https://ndb-v2-production.up.railway.app"
+      users:
+        description: "Concurrent simulated users"
+        required: true
+        default: "200"
+      run_time:
+        description: "How long to run (e.g. 5m, 10m)"
+        required: true
+        default: "5m"
+
+# Manual-only — never scheduled. Launching 200 concurrent users against
+# prod shouldn't be part of the default CI loop, and nightly is covered
+# by the contract tests instead.
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install locust
+      - name: Run Locust (headless)
+        run: |
+          locust -f backend/tests/load/locustfile.py \
+            --host "${{ inputs.target }}" \
+            --users "${{ inputs.users }}" \
+            --spawn-rate 20 \
+            --run-time "${{ inputs.run_time }}" \
+            --headless \
+            --csv load-run
+      - name: Check p95 + 5xx gates
+        run: python backend/tests/load/assert_gates.py load-run_stats.csv
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: locust-results
+          path: |
+            load-run_*.csv
+            load-run_exceptions.csv
+            load-run_failures.csv
