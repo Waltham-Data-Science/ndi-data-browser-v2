@@ -20,6 +20,51 @@ Required Railway env vars (see [config](../backend/config.py)):
 - `CORS_ORIGINS`
 - `SENTRY_DSN` (optional)
 
+### Replica count
+
+`infra/railway.toml` sets `numReplicas = 1`. This is deliberate at the
+current load (<10 concurrent users). Trade-offs:
+
+- **Cost**: one replica = 1× Railway compute bill. Two would be 2×.
+- **Rate-limit correctness**: `backend/middleware/rate_limit.py` falls
+  back to per-replica in-process counters when Redis is unavailable.
+  Multiple replicas multiply the effective rate-limit ceiling by that
+  count; a single replica is the correct model until Redis-backed
+  counters become the single source of truth.
+- **Deploy blip**: a deploy on one replica takes the service offline
+  for ~30s (healthcheck on new → cutover). Tolerable for <10 users;
+  not for larger loads.
+
+Scale `numReplicas` back to 2+ when:
+- Concurrent sessions climb above ~100, or
+- A deploy blip of 30s becomes user-visible churn.
+
+### CI scope
+
+The repo has four CI workflows — three of them run unattended:
+
+| Workflow | Trigger | What it gates |
+|---|---|---|
+| `ci.yml` | every PR + push to `main` | ruff, mypy strict, pytest 212, vitest, typecheck, frontend build, bundle-size ≤ 200 KB gzip, Docker build, security audit |
+| `nightly-contract.yml` | daily cron (04:00 UTC) | contract tests against live dev cloud |
+| `load-test.yml` | `workflow_dispatch` only | Locust p95 + 5xx gates |
+| `rollout-health.yml` | `workflow_dispatch` only (schedule intentionally off) | prod /metrics probe during a staged cutover |
+
+Playwright + Lighthouse do **not** run in CI. The specs + fixtures +
+lighthouserc.json live under `frontend/tests-e2e/` and the repo root
+for on-demand local use. Run via:
+
+```sh
+make test-e2e         # mocked fixtures (fast, drift-safe)
+make test-e2e-live    # hits prod cloud (catches live-data drift)
+npx lhci autorun      # Lighthouse against a local preview build
+```
+
+Rationale: CI-gated E2E + Lighthouse against a GHA-hosted dev server
+was flaky (Chrome interstitial against Vite) and slow (5–10 min per
+PR). For a <10-user project the maintenance cost exceeded the signal.
+When the project grows or staging/preview envs are added, revisit.
+
 ## Rollback
 
 1. **Feature-flag rollback (during cutover):** flip `ROLLOUT_PCT` env var to 0. v1 continues serving 100%.
