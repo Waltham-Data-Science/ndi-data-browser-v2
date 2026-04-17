@@ -1,104 +1,154 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { usePublishedDatasets, type DatasetSummary } from '@/api/datasets';
-import { Input } from '@/components/ui/Input';
+import { useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
+
+import { usePublishedDatasets } from '@/api/datasets';
 import { Button } from '@/components/ui/Button';
 import { CardSkeleton } from '@/components/ui/Skeleton';
+import { DatasetCard } from '@/components/datasets/DatasetCard';
+import { DatasetSearch } from '@/components/datasets/DatasetSearch';
 import { ErrorState } from '@/components/errors/ErrorState';
-import { Card, CardBody } from '@/components/ui/Card';
-import { truncate } from '@/lib/format';
+import { formatNumber } from '@/lib/format';
 
+const PAGE_SIZE = 20;
+
+/**
+ * Catalog grid — home page for v2. Hero text on top, search input beside
+ * the count, responsive grid of DatasetCard below, manual pagination at
+ * the bottom. Client-side filter narrows results within the currently
+ * loaded page; deep search spans pages via the backend later (M6/M7).
+ *
+ * URL state: ?q=… for filter, ?page=N for pagination. Makes card
+ * positions deep-linkable.
+ */
 export function DatasetsPage() {
-  const [page, setPage] = useState(1);
-  const pageSize = 20;
-  const { data, isLoading, isError, error, refetch } = usePublishedDatasets(page, pageSize);
-  const [q, setQ] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1);
+  const q = searchParams.get('q') ?? '';
+
+  const setPage = (n: number) => {
+    const next = new URLSearchParams(searchParams);
+    if (n <= 1) next.delete('page');
+    else next.set('page', String(n));
+    setSearchParams(next, { replace: false });
+  };
+  const setQ = (v: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (!v) next.delete('q');
+    else next.set('q', v);
+    // Reset pagination on new search.
+    next.delete('page');
+    setSearchParams(next, { replace: true });
+  };
+
+  const { data, isLoading, isError, error, refetch } = usePublishedDatasets(page, PAGE_SIZE);
 
   const visible = useMemo(() => {
     const all = data?.datasets ?? [];
     if (!q.trim()) return all;
     const needle = q.toLowerCase();
     return all.filter((d) =>
-      [d.name, d.description ?? d.abstract, ...(d.contributors?.map((c) => `${c.firstName ?? ''} ${c.lastName ?? ''}`) ?? [])]
+      [
+        d.name,
+        d.abstract,
+        d.description,
+        d.doi,
+        d.pubMedId,
+        ...(d.contributors?.map((c) => `${c.firstName ?? ''} ${c.lastName ?? ''}`) ?? []),
+      ]
         .filter(Boolean)
         .some((x) => String(x).toLowerCase().includes(needle)),
     );
   }, [data, q]);
 
+  const total = data?.totalNumber ?? 0;
+  const pageCount = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1;
+
   return (
-    <div className="space-y-4">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Published datasets</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            {data?.totalNumber ?? '—'} total
-          </p>
+    <div className="space-y-5">
+      <header className="space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+              Published datasets
+            </h1>
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Browse the NDI Cloud catalog. Click any card for full detail — subjects, probes,
+              epochs, and raw documents.
+            </p>
+          </div>
+          <div className="w-full max-w-sm">
+            <DatasetSearch
+              value={q}
+              onChange={setQ}
+              placeholder="Search name, abstract, contributor…"
+            />
+          </div>
         </div>
-        <div className="w-full max-w-sm">
-          <label className="sr-only" htmlFor="search">Search datasets</label>
-          <Input
-            id="search"
-            placeholder="Search by name, description, contributor…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-        </div>
+        <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+          {q ? `${visible.length} of ${formatNumber(total)}` : `${formatNumber(total)} total`}
+        </p>
       </header>
 
       {isLoading && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <CardSkeleton key={i} />
+          ))}
         </div>
       )}
+
       {isError && <ErrorState error={error} onRetry={() => refetch()} />}
+
       {!isLoading && !isError && visible.length === 0 && (
-        <p className="text-sm text-slate-600 dark:text-slate-400">No datasets match your search.</p>
+        <div className="rounded-lg border border-dashed border-slate-200 dark:border-slate-700 p-10 text-center">
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            No datasets match your search.
+          </p>
+          {q && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2"
+              onClick={() => setQ('')}
+            >
+              Clear filter
+            </Button>
+          )}
+        </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {visible.map((d) => <DatasetCard key={d.id} d={d} />)}
-      </div>
+      {!isLoading && visible.length > 0 && (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {visible.map((d) => (
+            <DatasetCard key={d.id} dataset={d} />
+          ))}
+        </div>
+      )}
 
-      <div className="flex items-center justify-center gap-3">
-        <Button variant="secondary" size="sm" disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-          Previous
-        </Button>
-        <span className="text-sm text-slate-600 dark:text-slate-300">Page {page}</span>
+      <nav
+        className="flex items-center justify-center gap-3 pt-2"
+        aria-label="Pagination"
+      >
         <Button
           variant="secondary"
           size="sm"
-          disabled={!data || page * pageSize >= data.totalNumber}
-          onClick={() => setPage((p) => p + 1)}
+          disabled={page === 1}
+          onClick={() => setPage(page - 1)}
+        >
+          Previous
+        </Button>
+        <span className="text-sm text-slate-600 dark:text-slate-300 font-mono">
+          Page {page} of {pageCount}
+        </span>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={!data || page >= pageCount}
+          onClick={() => setPage(page + 1)}
         >
           Next
         </Button>
-      </div>
+      </nav>
     </div>
-  );
-}
-
-function DatasetCard({ d }: { d: DatasetSummary }) {
-  const authors =
-    d.contributors
-      ?.map((c) => [c.firstName, c.lastName].filter(Boolean).join(' '))
-      .filter(Boolean)
-      .slice(0, 3)
-      .join(', ') ?? '';
-  const desc = d.description ?? d.abstract;
-  return (
-    <Link to={`/datasets/${d.id}`}>
-      <Card className="h-full hover:ring-brand-500 transition-shadow hover:shadow-md">
-        <CardBody className="space-y-2">
-          <h3 className="font-semibold text-slate-900 dark:text-slate-100">{d.name}</h3>
-          {desc && (
-            <p className="text-sm text-slate-600 dark:text-slate-300">{truncate(desc, 180)}</p>
-          )}
-          {authors && <p className="text-xs text-slate-500 dark:text-slate-400">{authors}</p>}
-          {d.documentCount != null && (
-            <p className="text-xs text-slate-500">{d.documentCount.toLocaleString()} documents</p>
-          )}
-        </CardBody>
-      </Card>
-    </Link>
   );
 }
