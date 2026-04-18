@@ -400,15 +400,31 @@ async def test_element_grain_projects_location_and_cell_type(
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bad_grain",
+    [
+        "quark",          # Obvious nonsense
+        "experiment",     # The deliberately-rejected term (amendment §4.B6e)
+        "",               # Empty string — falsy in Python but must still reject
+        "SUBJECT",        # Case sensitivity — the Literal is lowercase-only
+        "probe",          # A real class name but not a pivot grain
+        "session ",       # Trailing whitespace — no implicit normalization
+    ],
+)
 async def test_invalid_grain_raises_validation_failed(
-    cloud: NdiCloudClient,
+    bad_grain: str, cloud: NdiCloudClient,
 ) -> None:
+    """SUPPORTED_GRAINS is a closed Literal — anything outside it (including
+    empty string, case variants, whitespace-padded, and rejected vocabulary
+    like ``'experiment'``) must surface as ValidationFailed with the bad
+    grain echoed in details. The router uses this to return a typed 400.
+    """
     svc = PivotService(cloud)
     with pytest.raises(ValidationFailed) as exc:
-        await svc.pivot_by_grain("DSX", "quark", session=None)
+        await svc.pivot_by_grain("DSX", bad_grain, session=None)
     assert "Unsupported pivot grain" in exc.value.final_message
     assert exc.value.details is not None
-    assert exc.value.details["grain"] == "quark"
+    assert exc.value.details["grain"] == bad_grain
 
 
 # ---------------------------------------------------------------------------

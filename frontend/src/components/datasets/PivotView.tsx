@@ -297,8 +297,12 @@ function coerceGrain(raw: string | undefined): PivotGrain {
 /**
  * A 503 from /api/datasets/:id/pivot/:grain is exactly the signal that the
  * backend flag is off — the router raises an HTTPException with the
- * feature-flag message. The error code comes through as ``INTERNAL`` per
- * app.py's generic 5xx handler.
+ * feature-flag message. We detect the disabled state by HTTP status only
+ * (503 from the feature-flag gate); the ``error.code`` field is not
+ * authoritative here — today it surfaces as ``INTERNAL`` via app.py's
+ * generic 5xx handler, but that's an implementation detail of the handler
+ * chain that may evolve. Status 503 from this specific endpoint is the
+ * stable contract.
  */
 function isFeatureDisabled(err: unknown): boolean {
   if (err instanceof ApiError && err.status === 503) {
