@@ -87,6 +87,27 @@ class SessionData:
         )
 
 
+def user_scope_for(session: SessionData | None) -> str:
+    """Stable, opaque cache-key scope derived from the session.
+
+    Replaces the 1-bit ``authed: bool`` cache-key dimension used prior to
+    PR-3. Per-user scoping prevents two authenticated users from sharing
+    a cached entry — a latent false-sharing hazard that was previously
+    safe by construction (the cloud returned user-invariant bodies for
+    all cached endpoints) but would become exploitable the moment the
+    cloud shipped any per-user variation.
+
+    Returns ``"public"`` for unauthenticated reads, and
+    ``f"u:{sha256(user_id)[:16]}"`` for authenticated reads. Truncated to
+    16 hex chars (64 bits) — collision-resistant for the scale we care
+    about and ~20 bytes per Redis key versus ~72 for a full SHA-256.
+    """
+    if session is None:
+        return "public"
+    digest = hashlib.sha256(session.user_id.encode()).hexdigest()
+    return f"u:{digest[:16]}"
+
+
 class CorruptSession(Exception):
     pass
 

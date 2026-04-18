@@ -32,5 +32,5 @@ async def distribution(
         body.className,
         body.field,
         group_by=body.groupBy,
-        access_token=session.access_token if session else None,
+        session=session,
     )

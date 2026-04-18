@@ -9,16 +9,18 @@ from backend.cache.redis_table import DEFAULT_TTL_SECONDS, RedisTableCache
 
 
 def test_table_key_shape() -> None:
-    k = RedisTableCache.table_key("DS1", "subject", authed=False)
+    # Public scope — unauthenticated reads.
+    k = RedisTableCache.table_key("DS1", "subject", user_scope="public")
     assert k == f"table:{RedisTableCache.SCHEMA_VERSION}:DS1:subject:public"
-    k2 = RedisTableCache.table_key("DS1", "subject", authed=True)
-    assert k2 == f"table:{RedisTableCache.SCHEMA_VERSION}:DS1:subject:authed"
+    # Per-user scope — authenticated reads.
+    k2 = RedisTableCache.table_key("DS1", "subject", user_scope="u:deadbeefdeadbeef")
+    assert k2 == f"table:{RedisTableCache.SCHEMA_VERSION}:DS1:subject:u:deadbeefdeadbeef"
 
 
-def test_table_key_schema_version_is_v3() -> None:
+def test_table_key_schema_version_is_v4() -> None:
     """Pinned so any projection-shape or cache-semantics change forces a
-    conscious bump. Current = v3 (post-empty-enrichment-fix)."""
-    assert RedisTableCache.SCHEMA_VERSION == "v3"
+    conscious bump. Current = v4 (post-PR-3: per-user cache scoping)."""
+    assert RedisTableCache.SCHEMA_VERSION == "v4"
 
 
 def test_default_ttl_is_one_hour() -> None:
