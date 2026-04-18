@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 
+import type { DatasetProvenance } from '@/types/dataset-provenance';
 import type {
   CompactDatasetSummary,
   DatasetSummary,
@@ -135,6 +136,25 @@ export function useDatasetSummary(datasetId: string | undefined) {
     queryKey: ['dataset', datasetId, 'summary'],
     queryFn: () =>
       apiFetch<DatasetSummary>(`/api/datasets/${datasetId}/summary`),
+    enabled: !!datasetId,
+  });
+}
+
+/**
+ * Dataset provenance / derivation graph — Plan B B5. Backed by
+ * `GET /api/datasets/:id/provenance`, produced by the backend
+ * :class:`DatasetProvenanceService` from ``branchOf`` + ``/branches`` +
+ * cross-dataset ``depends_on`` aggregation.
+ *
+ * Vocabulary lock: "dataset provenance" / "derivation graph" — NOT
+ * "lineage" (which in the cloud means class-ISA lineage, a different
+ * concept). See `@/types/dataset-provenance` for the shape.
+ */
+export function useDatasetProvenance(datasetId: string | undefined) {
+  return useQuery({
+    queryKey: ['dataset', datasetId, 'provenance'],
+    queryFn: () =>
+      apiFetch<DatasetProvenance>(`/api/datasets/${datasetId}/provenance`),
     enabled: !!datasetId,
   });
 }

@@ -288,6 +288,37 @@ class NdiCloudClient:
         self._raise_for_status(resp, endpoint="dataset_detail")
         return cast(dict[str, Any], resp.json())
 
+    async def get_dataset_branches(
+        self, dataset_id: str, *, access_token: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """GET /datasets/:datasetId/branches — children datasets forked from
+        this dataset via ``IDataset.branchOf``.
+
+        The cloud's dataset.controller.ts:290-309 returns the list shape:
+        ``{ datasets: [{ id, name, branchName, ... }, ...] }``. Some older
+        deployments return the list directly; we tolerate both and always
+        return ``list[dict]`` to callers.
+
+        A missing dataset (404) propagates as :class:`NotFound`. An empty
+        branches list is a normal response (``[]``) — the dataset simply
+        has no forks.
+        """
+        resp = await self._request(
+            "GET",
+            f"/datasets/{dataset_id}/branches",
+            endpoint_label="dataset_branches",
+            access_token=access_token,
+        )
+        self._raise_for_status(resp, endpoint="dataset_branches")
+        body = resp.json()
+        if isinstance(body, list):
+            return cast(list[dict[str, Any]], body)
+        if isinstance(body, dict):
+            datasets = body.get("datasets")
+            if isinstance(datasets, list):
+                return cast(list[dict[str, Any]], datasets)
+        return []
+
     async def get_document_class_counts(
         self, dataset_id: str, *, access_token: str | None = None,
     ) -> dict[str, Any]:
