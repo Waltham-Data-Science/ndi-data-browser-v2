@@ -30,8 +30,7 @@
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.0.0",
     "tailwind-merge": "^2.5.0",
-    "uplot": "^1.6.31",
-    "uplot-react": "^1.2.2"
+    "uplot": "^1.6.31"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
@@ -39,7 +38,6 @@
     "@tailwindcss/postcss": "^4.0.0-beta.4",
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.1.0",
-    "@testing-library/user-event": "^14.5.2",
     "@types/node": "^25.6.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

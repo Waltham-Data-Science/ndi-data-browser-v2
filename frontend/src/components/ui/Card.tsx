@@ -63,16 +63,3 @@ export function CardDescription({ className, children }: PropsWithChildren<{ cla
     <p className={cn('text-sm text-slate-500 dark:text-slate-400', className)}>{children}</p>
   );
 }
-
-export function CardFooter({ className, children }: PropsWithChildren<{ className?: string }>) {
-  return (
-    <div
-      className={cn(
-        'flex items-center gap-2 px-4 py-3 border-t border-slate-200 dark:border-slate-800',
-        className,
-      )}
-    >
-      {children}
-    </div>
-  );
-}

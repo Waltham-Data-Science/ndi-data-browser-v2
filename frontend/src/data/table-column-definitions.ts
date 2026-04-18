@@ -227,7 +227,3 @@ export function getColumnDefinition(
   const resolved = combinedAliases[rawKey] ?? rawKey;
   return definitions[resolved];
 }
-
-export function getAllDefinitions(): Readonly<Record<string, ColumnDefinition>> {
-  return definitions;
-}

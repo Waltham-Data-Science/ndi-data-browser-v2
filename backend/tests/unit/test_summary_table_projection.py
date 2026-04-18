@@ -295,7 +295,7 @@ class TestRowSubjectFullShape:
             "SUBJ_HALEY", "PR811_4144@chalasani-lab.salk.edu", "SESSION_HALEY",
             [HALEY_SPECIES, HALEY_STRAIN, HALEY_SEX, HALEY_GST],
         )
-        row = _row_subject(subject, {"treatment": []})
+        row = _row_subject(subject)
         assert row["subjectIdentifier"] == "PR811_4144@chalasani-lab.salk.edu"
         assert row["subjectLocalIdentifier"] == "PR811_4144@chalasani-lab.salk.edu"
         assert row["subjectDocumentIdentifier"] == "SUBJ_HALEY"
@@ -318,7 +318,7 @@ class TestRowSubjectFullShape:
             "SUBJ_VH", "ferret_395.1664@vhlab.org", "SESSION_VH",
             [VH_SPECIES, VH_SEX],
         )
-        row = _row_subject(subject, {"treatment": []})
+        row = _row_subject(subject)
         assert row["speciesName"] == "Mustela putorius furo"
         assert row["speciesOntology"] == "9669"  # unprefixed, not normalized
         assert row["biologicalSexName"] == "female"
@@ -330,7 +330,7 @@ class TestRowSubjectFullShape:
 
     def test_row_subject_tolerates_no_enrichment(self) -> None:
         subject = _subject_with_companions("s", "worm-42", "sess-x", [])
-        row = _row_subject(subject, {"treatment": []})
+        row = _row_subject(subject)
         assert row["subjectIdentifier"] == "worm-42"
         for k in (
             "speciesName", "speciesOntology", "strainName", "strainOntology",
@@ -342,7 +342,7 @@ class TestRowSubjectFullShape:
 
     def test_row_subject_returns_exactly_subject_columns(self) -> None:
         subject = _subject_with_companions("s", "worm-1", "sess", [HALEY_SPECIES])
-        row = _row_subject(subject, {"treatment": []})
+        row = _row_subject(subject)
         assert set(row.keys()) == {c["key"] for c in SUBJECT_COLUMNS}
 
 

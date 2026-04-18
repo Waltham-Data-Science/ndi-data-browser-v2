@@ -1,5 +1,7 @@
 # v2 Cutover Plan
 
+> ⚠️ Status: speculative — the Cloudflare LB, ndb-v2-preview environment, and reverse-proxy splitter described below do not exist in current infra/. Kept as reference for a future cutover if/when that infrastructure is provisioned.
+
 Playbook for moving production traffic from v1 (ndi-data-browser) to v2 (ndi-data-browser-v2).
 
 ## Pre-cutover readiness checklist
