@@ -143,9 +143,13 @@ function RawDocumentsPane({
       .sort((a, b) => b.count - a.count);
   }, [counts.data]);
 
+  // `min-w-0` on the grid children so the 1fr track can shrink below its
+  // min-content and the inner table's `overflow-x-auto` wrapper actually
+  // scrolls horizontally instead of forcing the whole page wider. Matches
+  // the fix in DatasetDetailPage.
   return (
     <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
-      <aside>
+      <aside className="min-w-0">
         <Card>
           <CardHeader className="py-3">
             <CardTitle className="text-xs">Document classes</CardTitle>
@@ -167,7 +171,7 @@ function RawDocumentsPane({
         </Card>
       </aside>
 
-      <section>
+      <section className="min-w-0">
         <Card>
           <CardBody>
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">

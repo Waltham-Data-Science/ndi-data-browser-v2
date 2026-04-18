@@ -53,9 +53,15 @@ export function DatasetDetailPage() {
 
   if (!id) return <Navigate to="/datasets" replace />;
 
+  // `min-w-0` on both grid children is essential: CSS Grid items default to
+  // `min-width: auto`, which resolves to min-content. A child containing a
+  // wide table (whitespace-nowrap cells) would then force the 1fr track to
+  // expand past the viewport, breaking `overflow-x-auto` on the inner
+  // scroller and causing page-level horizontal scroll. `min-w-0` lets the
+  // track shrink so the inner table scroller actually scrolls.
   return (
     <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
-      <aside className="space-y-3">
+      <aside className="space-y-3 min-w-0">
         {summary.isLoading && <CardSkeleton />}
         {summary.isError && (
           <ErrorState error={summary.error} onRetry={() => summary.refetch()} />
@@ -95,7 +101,7 @@ export function DatasetDetailPage() {
         </Card>
       </aside>
 
-      <section className="space-y-3">
+      <section className="space-y-3 min-w-0">
         <Outlet />
       </section>
     </div>

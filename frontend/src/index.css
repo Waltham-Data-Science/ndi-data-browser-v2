@@ -31,6 +31,23 @@ body {
   background: var(--color-brand-bg);
   color: #0f172a;
   -webkit-font-smoothing: antialiased;
+  /*
+   * Belt-and-suspenders guard against page-level horizontal scroll.
+   *
+   * This app should never scroll the whole page horizontally — wide tables
+   * live inside scoped `overflow-x-auto` wrappers so only the table body
+   * scrolls. The structural fix is `min-w-0` on grid 1fr tracks (see
+   * DatasetDetailPage + DocumentExplorerPage); this rule is the
+   * safety net that keeps any future missed case from breaking the whole
+   * layout.
+   *
+   * `overflow-x: clip` (not `hidden`) so the body does NOT become a new
+   * scrolling context. That preserves `position: sticky` semantics for any
+   * future sticky header and avoids the "clipped ancestor" pitfall of
+   * `hidden`. Supported in all current browsers (Safari 16+, Chrome 90+,
+   * Firefox 81+).
+   */
+  overflow-x: clip;
 }
 
 @media (prefers-color-scheme: dark) {
