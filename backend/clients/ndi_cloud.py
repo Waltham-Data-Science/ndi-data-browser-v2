@@ -36,6 +36,12 @@ from ..observability.metrics import (
     cloud_retries_total,
     query_timeout_total,
 )
+from ._url_allowlist import (
+    build_runtime_allowlist,
+    extract_host,
+    host_matches_allowlist,
+    url_pattern_for_log,
+)
 from .circuit_breaker import CircuitBreaker, CircuitOpen
 
 log = get_logger(__name__)
@@ -408,13 +414,46 @@ class NdiCloudClient:
             "pageSize": page_size,
         }
 
+    def _runtime_download_allowlist(self) -> list[str]:
+        """Effective allowlist = configured static + cloud host."""
+        return build_runtime_allowlist(
+            self.settings.download_host_allowlist_list,
+            self.settings.cloud_base_url,
+        )
+
     async def download_file(
         self, url: str, *, access_token: str | None = None,
     ) -> bytes:
-        """Download a signed file URL (S3 or similar). Returns raw bytes."""
+        """Download a signed file URL (S3 or similar). Returns raw bytes.
+
+        Security (PR-6): before forwarding the user's Bearer token we check the
+        target host against a static allowlist (+ the cloud host). If the host
+        is NOT on the allowlist:
+          - Always log `cloud.download.off_allowlist_host` (phase-1 observation).
+          - If `DOWNLOAD_ALLOWLIST_ENFORCE=True`, strip the Authorization header
+            so we don't exfiltrate the token to an attacker-controlled host.
+          - Else (phase-1 default): still forward. We'll flip the flag after
+            reviewing 1 week of logs.
+        """
         headers = {"Accept-Encoding": "gzip"}
-        if access_token:
+        host = extract_host(url)
+        allowlist = self._runtime_download_allowlist()
+        on_allowlist = bool(host) and host_matches_allowlist(host, allowlist)
+
+        forward_bearer = access_token is not None
+        if not on_allowlist:
+            log.warning(
+                "cloud.download.off_allowlist_host",
+                host=host,
+                url_pattern=url_pattern_for_log(url),
+                enforce=self.settings.DOWNLOAD_ALLOWLIST_ENFORCE,
+            )
+            if self.settings.DOWNLOAD_ALLOWLIST_ENFORCE:
+                forward_bearer = False
+
+        if forward_bearer and access_token:
             headers["Authorization"] = f"Bearer {access_token}"
+
         try:
             resp = await self.client.get(url, headers=headers, timeout=60.0)
         except httpx.TimeoutException as e:
