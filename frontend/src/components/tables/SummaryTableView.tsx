@@ -372,6 +372,40 @@ export function SummaryTableView({
     URL.revokeObjectURL(url);
   };
 
+  // Plan B B4 — amendment §4.B4 calls out CSV + XLS as first-class
+  // because NDI-matlab's default is `.xls` via `writetable`. Dynamic
+  // import keeps the xlsx chunk out of the main bundle. Cells are flat
+  // primitives; structured values (e.g. the `{devTime, globalTime}`
+  // pairs from `_normalize_t0_t1`) are JSON-stringified to a single
+  // Excel cell so the spreadsheet stays tabular.
+  const exportXlsx = async () => {
+    const xlsx = await import('xlsx');
+    const rows = table.getFilteredRowModel().rows;
+    const cols = table.getVisibleLeafColumns().map((c) => c.id);
+    const aoa: unknown[][] = [cols];
+    for (const row of rows) {
+      const record: unknown[] = [];
+      for (const colId of cols) {
+        const val = row.getValue(colId);
+        if (val === null || val === undefined) {
+          record.push('');
+        } else if (typeof val === 'object') {
+          record.push(JSON.stringify(val));
+        } else {
+          record.push(val as string | number | boolean);
+        }
+      }
+      aoa.push(record);
+    }
+    const sheet = xlsx.utils.aoa_to_sheet(aoa);
+    const book = xlsx.utils.book_new();
+    // Excel sheet-name cap: 31 chars, forbid []:*?/\
+    const safeSheetName =
+      (title || 'table').replace(/[\\/?*[\]:]/g, '_').slice(0, 31) || 'table';
+    xlsx.utils.book_append_sheet(book, sheet, safeSheetName);
+    xlsx.writeFile(book, `${title || 'table'}.xlsx`);
+  };
+
   const hiddenByAuto = Object.keys(autoHiddenColumns).length;
 
   return (
@@ -429,11 +463,33 @@ export function SummaryTableView({
             )}
             Columns
           </Button>
-          <Button variant="secondary" size="sm" className="h-7 text-xs" onClick={exportCsv}>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={exportCsv}
+            data-testid="export-csv"
+          >
             <Download className="h-3 w-3 mr-1" />
             CSV
           </Button>
-          <Button variant="secondary" size="sm" className="h-7 text-xs" onClick={exportJson}>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={exportXlsx}
+            data-testid="export-xlsx"
+          >
+            <Download className="h-3 w-3 mr-1" />
+            XLS
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={exportJson}
+            data-testid="export-json"
+          >
             <Download className="h-3 w-3 mr-1" />
             JSON
           </Button>
