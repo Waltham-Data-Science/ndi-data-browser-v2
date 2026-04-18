@@ -11,6 +11,10 @@ from ..clients.ndi_cloud import NdiCloudClient
 from ..middleware.rate_limit import Limit, RateLimiter
 from ..services.binary_service import BinaryService
 from ..services.dataset_service import DatasetService
+from ..services.dataset_summary_service import (
+    SUMMARY_CACHE_TTL_SECONDS,
+    DatasetSummaryService,
+)
 from ..services.dependency_graph_service import DependencyGraphService
 from ..services.document_service import DocumentService
 from ..services.ontology_service import OntologyService
@@ -53,6 +57,22 @@ def dep_graph_cache(request: Request) -> RedisTableCache | None:
 
 def summary_table_service(request: Request) -> SummaryTableService:
     return SummaryTableService(cloud(request), cache=table_cache(request))
+
+
+def dataset_summary_cache(request: Request) -> RedisTableCache | None:
+    return getattr(request.app.state, "dataset_summary_cache", None)
+
+
+def dataset_summary_service(request: Request) -> DatasetSummaryService:
+    return DatasetSummaryService(
+        cloud(request),
+        ontology_service(request),
+        cache=dataset_summary_cache(request),
+    )
+
+
+# Keep the TTL constant reachable from app.py wiring without a cross-import.
+_SUMMARY_CACHE_TTL_SECONDS = SUMMARY_CACHE_TTL_SECONDS
 
 
 def dependency_graph_service(request: Request) -> DependencyGraphService:

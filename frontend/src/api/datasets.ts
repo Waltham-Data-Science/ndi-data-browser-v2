@@ -1,4 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
+
+import type { DatasetSummary } from '@/types/dataset-summary';
+
 import { apiFetch } from './client';
 
 export interface Contributor {
@@ -17,7 +20,15 @@ export interface AssociatedPublication {
   PMCID?: string;
 }
 
-export interface DatasetSummary {
+/** Raw cloud-record shape returned verbatim from `/api/datasets/...` endpoints.
+ *
+ * Renamed from `DatasetSummary` (Plan B B1) to make room for the new
+ * `DatasetSummary` type — see `@/types/dataset-summary` — which holds the
+ * synthesized per-dataset fact sheet produced by
+ * `GET /api/datasets/:id/summary`. This interface continues to model the
+ * cloud's `IDataset` payload.
+ */
+export interface DatasetRecord {
   id: string;
   /** Mongo _id returned as `_id` on detail; v2 exposes it as `id` across hooks. */
   _id?: string;
@@ -53,7 +64,7 @@ export interface DatasetSummary {
 
 export interface DatasetListResponse {
   totalNumber: number;
-  datasets: DatasetSummary[];
+  datasets: DatasetRecord[];
 }
 
 export interface ClassCountsResponse {
@@ -81,7 +92,7 @@ export function useMyDatasets(enabled: boolean) {
 export function useDataset(datasetId: string | undefined) {
   return useQuery({
     queryKey: ['dataset', datasetId],
-    queryFn: () => apiFetch<DatasetSummary>(`/api/datasets/${datasetId}`),
+    queryFn: () => apiFetch<DatasetRecord>(`/api/datasets/${datasetId}`),
     enabled: !!datasetId,
   });
 }
@@ -90,6 +101,24 @@ export function useClassCounts(datasetId: string | undefined) {
   return useQuery({
     queryKey: ['dataset', datasetId, 'class-counts'],
     queryFn: () => apiFetch<ClassCountsResponse>(`/api/datasets/${datasetId}/class-counts`),
+    enabled: !!datasetId,
+  });
+}
+
+/**
+ * Synthesized dataset summary — the Plan B B1 `DatasetSummary`. Backed by
+ * `GET /api/datasets/:id/summary`, produced by the backend
+ * :class:`DatasetSummaryService` from cloud-indexed class counts +
+ * ndiquery-based fact extraction.
+ *
+ * Not to be confused with :interface:`DatasetRecord` above (the raw
+ * `IDataset` shape returned by the catalog endpoints).
+ */
+export function useDatasetSummary(datasetId: string | undefined) {
+  return useQuery({
+    queryKey: ['dataset', datasetId, 'summary'],
+    queryFn: () =>
+      apiFetch<DatasetSummary>(`/api/datasets/${datasetId}/summary`),
     enabled: !!datasetId,
   });
 }

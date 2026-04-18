@@ -6,7 +6,8 @@ import {
   Users,
 } from 'lucide-react';
 
-import { useClassCounts, useDataset, type DatasetSummary } from '@/api/datasets';
+import { useClassCounts, useDataset, useDatasetSummary, type DatasetRecord } from '@/api/datasets';
+import { DatasetSummaryCard } from '@/components/datasets/DatasetSummaryCard';
 import { Badge } from '@/components/ui/Badge';
 import {
   Card,
@@ -33,12 +34,19 @@ export function DatasetDetailPage() {
   const { id } = useParams();
   const ds = useDataset(id);
   const cc = useClassCounts(id);
+  const summary = useDatasetSummary(id);
 
   if (!id) return <Navigate to="/datasets" replace />;
 
   return (
     <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
       <aside className="space-y-3">
+        {summary.isLoading && <CardSkeleton />}
+        {summary.isError && (
+          <ErrorState error={summary.error} onRetry={() => summary.refetch()} />
+        )}
+        {summary.data && <DatasetSummaryCard summary={summary.data} />}
+
         {ds.isLoading && <CardSkeleton />}
         {ds.isError && <ErrorState error={ds.error} onRetry={() => ds.refetch()} />}
         {ds.data && <DatasetOverviewCard ds={ds.data} />}
@@ -65,7 +73,7 @@ export function DatasetDetailPage() {
   );
 }
 
-function DatasetOverviewCard({ ds }: { ds: DatasetSummary }) {
+function DatasetOverviewCard({ ds }: { ds: DatasetRecord }) {
   const abstract = ds.description ?? ds.abstract;
   return (
     <Card>

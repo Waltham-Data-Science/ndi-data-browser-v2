@@ -1,7 +1,7 @@
 import { BookOpen, FileText, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-import type { DatasetSummary } from '@/api/datasets';
+import type { DatasetRecord } from '@/api/datasets';
 import { Badge } from '@/components/ui/Badge';
 import {
   Card,
@@ -13,7 +13,7 @@ import {
 import { formatBytes, formatDate, truncate } from '@/lib/format';
 
 interface DatasetCardProps {
-  dataset: DatasetSummary;
+  dataset: DatasetRecord;
 }
 
 /** Rich catalog card — ported from v1 with v2's camelCase field names
