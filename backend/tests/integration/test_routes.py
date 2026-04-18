@@ -444,7 +444,16 @@ def test_published_datasets_embed_compact_summary(app_and_cloud) -> None:  # typ
     assert r.status_code == 200, r.json()
     body = r.json()
     row = body["datasets"][0]
+
+    # ─── Raw DatasetRecord fields MUST be preserved alongside `summary` ───
+    # The wire-shape extension is strictly additive: pre-existing fields
+    # from the cloud's list response pass through unchanged. Regression
+    # guard against an enricher that accidentally drops or rewrites them.
     assert row["id"] == "DS42"
+    assert row["name"] == "B2 Catalog Dataset"
+    assert row["license"] == "CC-BY-4.0"
+
+    # ─── `summary` field is attached and populated ─────────────────────────
     assert row["summary"] is not None
     s = row["summary"]
     assert s["datasetId"] == "DS42"

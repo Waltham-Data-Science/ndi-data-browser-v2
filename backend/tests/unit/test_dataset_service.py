@@ -193,8 +193,19 @@ async def test_enricher_attaches_compact_summary_to_each_row() -> None:
 @pytest.mark.asyncio
 async def test_enricher_bounds_concurrency_at_semaphore_limit() -> None:
     """With MAX_CONCURRENT_SUMMARIES=3 and 10 datasets each taking 50ms, the
-    peak in-flight must never exceed 3. Tolerate timing noise by asserting
-    ``peak <= 3``, not ``peak == 3``.
+    peak in-flight must land in the window ``[2, 3]``:
+
+    - ``peak <= 3`` — the semaphore must bound fanout at or below the limit.
+    - ``peak >= 2`` — actual concurrency must have occurred. A trivially
+      serialized implementation (no semaphore, plain for-loop awaiting each
+      build) would produce ``peak == 1`` and silently pass the upper bound,
+      which is what the independent review flagged.
+
+    50ms per call × 10 calls = 500ms serial; under Semaphore(3) we expect
+    ~200ms wall time. Even on a loaded CI runner that stretches scheduling
+    latency, at least two calls should be in-flight at some point during
+    the run — asserting ``>= 2`` is the floor below which we'd consider
+    the semaphore broken.
     """
     n = 10
     summaries = {f"D{i}": _full_summary(f"D{i}") for i in range(n)}
@@ -211,8 +222,9 @@ async def test_enricher_bounds_concurrency_at_semaphore_limit() -> None:
     )
 
     peak = svc._peak_concurrency_for_tests[0]  # type: ignore[attr-defined]
-    assert 0 < peak <= MAX_CONCURRENT_SUMMARIES, (
-        f"peak={peak}, expected <= {MAX_CONCURRENT_SUMMARIES}"
+    assert 2 <= peak <= MAX_CONCURRENT_SUMMARIES, (
+        f"peak={peak}, expected 2 <= peak <= {MAX_CONCURRENT_SUMMARIES} "
+        f"(peak<2 means no concurrency happened; peak>3 means semaphore broken)"
     )
 
     # All rows should still have a summary.
