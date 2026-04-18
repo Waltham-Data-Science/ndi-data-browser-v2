@@ -5,12 +5,28 @@
  * scroll containers have zero height. We stub getBoundingClientRect so
  * the virtualizer materializes rows during tests.
  */
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
 import { SummaryTableView } from './SummaryTableView';
 import type { TableResponse } from '@/api/tables';
+
+// Mock the dynamic `import('xlsx')` call in exportXlsx. We expose a
+// single `writeFile` spy plus minimal `utils` stubs so the code under
+// test executes without a real xlsx dependency.
+const writeFileMock = vi.fn();
+const aoaToSheetMock = vi.fn((aoa: unknown[][]) => ({ aoa }));
+const bookNewMock = vi.fn(() => ({ SheetNames: [], Sheets: {} }));
+const bookAppendSheetMock = vi.fn();
+vi.mock('xlsx', () => ({
+  writeFile: (...args: unknown[]) => writeFileMock(...args),
+  utils: {
+    aoa_to_sheet: (...args: unknown[]) => aoaToSheetMock(...(args as [unknown[][]])),
+    book_new: () => bookNewMock(),
+    book_append_sheet: (...args: unknown[]) => bookAppendSheetMock(...args),
+  },
+}));
 
 // @tanstack/react-virtual returns zero items under jsdom because scroll
 // container dimensions are 0. Stub it to expose every row so the component
@@ -107,6 +123,65 @@ describe('SummaryTableView', () => {
     );
     const tagged = container.querySelectorAll('[data-ontology-term]');
     expect(tagged.length).toBeGreaterThanOrEqual(3); // species + strain + sex
+  });
+});
+
+describe('SummaryTableView XLS export', () => {
+  beforeEach(() => {
+    writeFileMock.mockClear();
+    aoaToSheetMock.mockClear();
+    bookNewMock.mockClear();
+    bookAppendSheetMock.mockClear();
+  });
+
+  it('renders a dedicated XLS export button alongside CSV and JSON', () => {
+    render(
+      withProviders(
+        <SummaryTableView
+          data={tutorialHaleyTable}
+          tableType="subject"
+          title="haley-subjects"
+        />,
+      ),
+    );
+    expect(screen.getByTestId('export-csv')).toBeInTheDocument();
+    expect(screen.getByTestId('export-xlsx')).toBeInTheDocument();
+    expect(screen.getByTestId('export-json')).toBeInTheDocument();
+  });
+
+  it('invokes xlsx.writeFile with an .xlsx filename when XLS is clicked', async () => {
+    render(
+      withProviders(
+        <SummaryTableView
+          data={tutorialHaleyTable}
+          tableType="subject"
+          title="haley-subjects"
+        />,
+      ),
+    );
+    fireEvent.click(screen.getByTestId('export-xlsx'));
+    // exportXlsx `await`s the dynamic import; waitFor polls until the
+    // async work has landed.
+    await waitFor(() => {
+      expect(writeFileMock).toHaveBeenCalledTimes(1);
+    });
+    const [, filename] = writeFileMock.mock.calls[0] as [unknown, string];
+    expect(filename).toBe('haley-subjects.xlsx');
+    expect(aoaToSheetMock).toHaveBeenCalledTimes(1);
+    expect(bookNewMock).toHaveBeenCalledTimes(1);
+    expect(bookAppendSheetMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to "table.xlsx" when no title is provided', async () => {
+    render(
+      withProviders(<SummaryTableView data={tutorialHaleyTable} tableType="subject" />),
+    );
+    fireEvent.click(screen.getByTestId('export-xlsx'));
+    await waitFor(() => {
+      expect(writeFileMock).toHaveBeenCalledTimes(1);
+    });
+    const [, filename] = writeFileMock.mock.calls[0] as [unknown, string];
+    expect(filename).toBe('table.xlsx');
   });
 });
 
