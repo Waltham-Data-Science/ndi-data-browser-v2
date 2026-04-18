@@ -9,6 +9,7 @@ import structlog
 from backend.clients.ndi_cloud import NdiCloudClient
 from backend.errors import (
     AuthInvalidCredentials,
+    AuthRequired,
     BulkFetchTooLarge,
     CloudTimeout,
     CloudUnreachable,
@@ -56,6 +57,27 @@ async def test_get_dataset_404_maps_to_not_found() -> None:
         try:
             with pytest.raises(NotFound):
                 await client.get_dataset("xxx")
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_cloud_401_on_authed_endpoint_raises_auth_required() -> None:
+    """Cloud 401 on any non-login authed endpoint must surface as AuthRequired.
+
+    After ADR-008 retired the refresh path, this is the translation that routes
+    an expired/revoked/permission-lost access token into 401 + AUTH_REQUIRED
+    with recovery=login. Before PR-17, a 401 raised an internal
+    `_UpstreamUnauthorized` marker that no layer caught — the generic Exception
+    handler turned it into 500. This test pins the corrected behavior.
+    """
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.get("/datasets/zzz").respond(401, json={"error": "token expired"})
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(AuthRequired):
+                await client.get_dataset("zzz", access_token="expired-token")
         finally:
             await client.close()
 

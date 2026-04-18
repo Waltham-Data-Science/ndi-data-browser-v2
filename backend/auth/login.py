@@ -71,7 +71,6 @@ async def do_login(
         user_id=(auth.user or {}).get("id", username),
         email=username,
         access_token=auth.access_token,
-        refresh_token=auth.refresh_token,
         access_token_expires_in_seconds=auth.expires_in_seconds,
         ip=ip,
         user_agent=request.headers.get("user-agent", "unknown"),

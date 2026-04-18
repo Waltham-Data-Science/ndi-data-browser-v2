@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from ..config import Settings, get_settings
 from ..errors import (
+    AuthRequired,
     BulkFetchTooLarge,
     CloudInternalError,
     CloudTimeout,
@@ -52,7 +53,6 @@ UNAUTHED_RETRYABLE_STATUSES = {500, 502, 503, 504}
 
 class CloudAuthResult(BaseModel):
     access_token: str
-    refresh_token: str | None = None
     expires_in_seconds: int = 3600
     user: dict[str, Any] | None = None
 
@@ -196,8 +196,12 @@ class NdiCloudClient:
         except Exception:
             body = None
         if response.status_code == 401:
-            # Upper layers handle the refresh/re-login distinction.
-            raise _UpstreamUnauthorized()
+            # Cloud-side 401 on any authed endpoint means the user's access
+            # token is no longer valid (expired, revoked, or permission lost).
+            # Raise AuthRequired directly so FastAPI's BrowserError handler
+            # returns 401 + AUTH_REQUIRED with recovery=login. No refresh
+            # attempt — ADR-008 retired that path.
+            raise AuthRequired()
         if response.status_code == 403:
             raise Forbidden(log_context={"endpoint": endpoint})
         if response.status_code == 404:
@@ -234,17 +238,6 @@ class NdiCloudClient:
         self._raise_for_status(resp, endpoint="auth_login")
         data = resp.json()
         return _auth_from_cloud(data)
-
-    async def refresh(self, refresh_token: str) -> CloudAuthResult:
-        """ndi-cloud-node does NOT currently expose a refresh endpoint.
-
-        Raise AuthExpired so the caller deletes the session and triggers re-login.
-        If Steve ships /auth/refresh later, the body format will likely be
-        {refreshToken} and we swap this no-op out.
-        """
-        from ..errors import AuthExpired
-        del refresh_token
-        raise AuthExpired("Session expired — no refresh endpoint available.")
 
     async def logout(self, access_token: str) -> None:
         try:
@@ -468,15 +461,10 @@ class NdiCloudClient:
         return resp.content
 
 
-class _UpstreamUnauthorized(Exception):
-    """Internal marker — 401 from cloud means auth layer should attempt refresh."""
-
-
 def _auth_from_cloud(data: dict[str, Any]) -> CloudAuthResult:
     """ndi-cloud-node returns {token, user}. Cognito ID tokens default to 1h TTL."""
     return CloudAuthResult(
         access_token=data.get("token") or data.get("accessToken") or "",
-        refresh_token=data.get("refreshToken"),  # may be None — the cloud doesn't currently issue one
         expires_in_seconds=int(data.get("expiresIn", 3600)),
         user=data.get("user"),
     )

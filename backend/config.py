@@ -36,7 +36,6 @@ class Settings(BaseSettings):
     # --- Session ---
     SESSION_IDLE_TTL_SECONDS: int = 2 * 60 * 60
     SESSION_ABSOLUTE_TTL_SECONDS: int = 24 * 60 * 60
-    ACCESS_TOKEN_REFRESH_GRACE_SECONDS: int = 60
 
     # --- Cloud client ---
     CLOUD_HTTP_TIMEOUT_SECONDS: float = 30.0
