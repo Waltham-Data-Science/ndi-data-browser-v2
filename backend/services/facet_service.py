@@ -274,7 +274,7 @@ class _FacetAccumulator:
     to the distinct set. The distinction matters: on a corpus where 10
     datasets all report the same single species, the "10 datasets contributed
     data" reading matches user expectation for the query-page header; a
-    "1 dataset contributed a novel term" reading would underreport by 9×.
+    "1 dataset contributed a novel term" reading would underreport by 9x.
     """
 
     def __init__(self) -> None:
