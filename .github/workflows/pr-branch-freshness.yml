@@ -1,0 +1,73 @@
+# PR branch-freshness gate.
+#
+# This is the permanent stale-base-merge mitigation for this repo. Branch
+# protection's "Require branches up to date before merging" is paywalled
+# for private repos and we have chosen not to upgrade or go public; this
+# workflow's red-CI signal is the replacement.
+#
+# What this workflow does:
+#   - On every PR event, fetches the current tip of `main` and checks
+#     whether that tip is an ancestor of the PR's HEAD.
+#   - If main has advanced beyond the PR's merge-base, the job fails with
+#     a clear message telling the author to rebase / merge main.
+#   - Runs on every `pull_request` synchronize + opened, so the signal
+#     stays fresh as main moves.
+#
+# What it doesn't do:
+#   - Hard-block the merge. `gh pr merge` will still merge a PR with this
+#     job red. The red check is the signal — any reviewer or agent that
+#     respects red-before-merge catches stale bases here. Ignoring red is
+#     the residual risk we've accepted, not an escalation path.
+#
+# Related: `docs/adr/010`..`013` cascading rebases, fix-main PR #23 that
+# surfaced this exact latent-conflict pattern (2026-04-18), CLAUDE.md
+# Gotchas entry on "PR-branch freshness is gated by CI".
+
+name: PR branch freshness
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  branch-fresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fetch full history so merge-base comparisons work.
+          fetch-depth: 0
+
+      - name: Fetch latest main
+        run: git fetch origin main
+
+      - name: Check that origin/main is an ancestor of PR HEAD
+        run: |
+          pr_head="${{ github.event.pull_request.head.sha }}"
+          main_tip=$(git rev-parse origin/main)
+
+          echo "PR HEAD:   $pr_head"
+          echo "main tip:  $main_tip"
+
+          # If main_tip is reachable from pr_head, the branch is up-to-date
+          # (or ahead; a linear rebase against main leaves main as an ancestor).
+          if git merge-base --is-ancestor "$main_tip" "$pr_head"; then
+            echo "::notice::PR branch is up-to-date with origin/main."
+            exit 0
+          fi
+
+          # Otherwise: main has advanced. Compute how many commits behind
+          # and surface a readable error in the GitHub Actions log.
+          behind_count=$(git rev-list --count "$pr_head..$main_tip")
+          echo ""
+          echo "::error::PR branch is $behind_count commit(s) behind origin/main."
+          echo ""
+          echo "Rebase or merge main into this branch before merging. One of:"
+          echo "  git fetch origin main && git merge origin/main"
+          echo "  git fetch origin main && git rebase origin/main"
+          echo ""
+          echo "Why: merges on a stale base silently broke main in the Plan B"
+          echo "wave (2026-04-18) when PR-15 + PR-13 landed against pre-#17"
+          echo "bases and left main CI-red. This gate surfaces the condition"
+          echo "before merge."
+          exit 1

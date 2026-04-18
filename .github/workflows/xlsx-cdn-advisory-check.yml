@@ -1,0 +1,159 @@
+# xlsx CDN advisory check.
+#
+# `xlsx` is pinned at `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` —
+# a SheetJS CDN tarball, not the npm registry. Dependabot, `npm audit`,
+# and GitHub's dependency graph do NOT track URL-installed tarballs, so
+# future CVEs on the `xlsx` package won't trigger automatic alerts.
+#
+# This workflow polls the SheetJS advisories page weekly and opens a
+# tagged issue on this repo whenever a NEW CVE identifier shows up that
+# isn't in the known-addressed allowlist below. That turns the manual
+# calendar-ping action item from the Plan B handoff into an automated
+# tripwire.
+#
+# Runs:
+#   - On schedule: Mondays at 09:00 UTC (cheap; no secrets needed).
+#   - On demand: `workflow_dispatch` for immediate re-check.
+#
+# Known-addressed CVEs for xlsx@0.20.3 (safe to ignore):
+#   - CVE-2023-30533 — prototype pollution, fixed in 0.19.3
+#   - CVE-2024-22363 — ReDoS, fixed in 0.20.2
+#
+# When a new CVE fires an issue:
+#   1. Confirm it affects xlsx at version 0.20.3 (read the advisory).
+#   2. If yes: bump `frontend/package.json` to the patched release, update
+#      CLAUDE.md gotcha section, close the issue. Re-run workflow to
+#      verify green.
+#   3. If no (affects a different SheetJS package or earlier version):
+#      add the CVE ID to the `KNOWN_CVES` list below, commit, close the
+#      issue.
+
+name: xlsx CDN advisory check
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # Mondays 09:00 UTC
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch SheetJS advisories page
+        id: fetch
+        run: |
+          set -euo pipefail
+          # Tolerate one transient failure; a missed weekly run is not worth
+          # an alert. If the page is truly unreachable we skip gracefully.
+          if ! curl -sL --max-time 30 \
+              https://cdn.sheetjs.com/advisories/ -o /tmp/advisories.html; then
+            echo "::warning::Advisories page fetch failed — skipping this run"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+
+      - name: Diff against known-addressed CVEs
+        if: steps.fetch.outputs.skipped == 'false'
+        id: diff
+        run: |
+          set -euo pipefail
+
+          # Known-addressed CVEs for xlsx@0.20.3. Add new entries when
+          # closing a false-positive issue; remove when bumping xlsx past
+          # the fix so a regression re-alerts.
+          KNOWN_CVES=(
+            CVE-2023-30533
+            CVE-2024-22363
+          )
+
+          # Extract all CVE identifiers from the advisories page. `sort -u`
+          # dedupes so multi-mention on a single page doesn't spam.
+          grep -oE 'CVE-[0-9]{4}-[0-9]{4,7}' /tmp/advisories.html \
+            | sort -u > /tmp/current-cves.txt
+
+          # Write known list sorted so `comm` gets matching input.
+          printf '%s\n' "${KNOWN_CVES[@]}" | sort -u > /tmp/known-cves.txt
+
+          # NEW CVEs = in current but not in known.
+          comm -23 /tmp/current-cves.txt /tmp/known-cves.txt > /tmp/new-cves.txt
+
+          if [ -s /tmp/new-cves.txt ]; then
+            echo "has_new=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "new_cves<<NEW_CVES_EOF"
+              cat /tmp/new-cves.txt
+              echo "NEW_CVES_EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "Found new CVE(s):"
+            cat /tmp/new-cves.txt
+          else
+            echo "has_new=false" >> "$GITHUB_OUTPUT"
+            echo "No new CVEs on advisories page."
+          fi
+
+      - name: Open issue on new advisory
+        if: steps.diff.outputs.has_new == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const newCves = `${{ steps.diff.outputs.new_cves }}`.trim();
+            const newCvesList = newCves.split('\n').filter(Boolean);
+
+            // Skip duplicate alerts if an open issue with the SAME CVE set
+            // already exists. Prevents multi-week spam on a slow-to-fix
+            // CVE the user has seen and triaged.
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'xlsx-advisory',
+              per_page: 100,
+            });
+            const alreadyOpen = existing.data.find(issue =>
+              newCvesList.every(cve => (issue.body || '').includes(cve))
+            );
+            if (alreadyOpen) {
+              console.log(`Already tracked in open issue #${alreadyOpen.number} — skipping`);
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `xlsx: new CVE(s) on SheetJS advisories page — triage needed`,
+              body: `**Automated alert from `.github/workflows/xlsx-cdn-advisory-check.yml`.**
+
+            The SheetJS advisories page at https://cdn.sheetjs.com/advisories/ now
+            lists CVE identifier(s) that are NOT in this repo's known-addressed
+            allowlist for \`xlsx@0.20.3\`:
+
+            \`\`\`
+            ${newCves}
+            \`\`\`
+
+            ## Why this isn't already in Dependabot
+
+            \`xlsx\` is installed from \`https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz\`, not the npm registry.
+            SheetJS moved distribution off npm starting at 0.19 (see [CLAUDE.md Gotchas](../blob/main/CLAUDE.md#gotchas)). Dependabot, \`npm audit\`, and GitHub's dependency graph cannot see URL-installed tarballs, so this weekly poll is the tripwire.
+
+            Currently-addressed CVEs (safe):
+            - CVE-2023-30533 — prototype pollution, fixed in 0.19.3
+            - CVE-2024-22363 — ReDoS, fixed in 0.20.2
+
+            ## Action
+
+            1. Open https://cdn.sheetjs.com/advisories/ and read each new CVE.
+            2. **If it affects xlsx at version 0.20.3**: bump \`frontend/package.json\` to the patched tarball URL, update the CLAUDE.md Gotchas line, run \`npm install\`, verify \`npm run build && npm run test -- --run\`, open PR, close this issue.
+            3. **If it affects a different SheetJS package or earlier version only**: add the CVE ID(s) to the \`KNOWN_CVES\` array in \`.github/workflows/xlsx-cdn-advisory-check.yml\`, commit, close this issue.
+
+            ## Re-run
+
+            Triggered manually via Actions tab → "xlsx CDN advisory check" → "Run workflow".`,
+              labels: ['dependencies', 'security', 'xlsx-advisory'],
+            });
