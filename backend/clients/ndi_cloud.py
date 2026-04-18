@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from ..config import Settings, get_settings
 from ..errors import (
+    AuthRequired,
     BulkFetchTooLarge,
     CloudInternalError,
     CloudTimeout,
@@ -189,8 +190,12 @@ class NdiCloudClient:
         except Exception:
             body = None
         if response.status_code == 401:
-            # Upper layers translate this into AUTH_REQUIRED / re-login.
-            raise _UpstreamUnauthorized()
+            # Cloud-side 401 on any authed endpoint means the user's access
+            # token is no longer valid (expired, revoked, or permission lost).
+            # Raise AuthRequired directly so FastAPI's BrowserError handler
+            # returns 401 + AUTH_REQUIRED with recovery=login. No refresh
+            # attempt — ADR-008 retired that path.
+            raise AuthRequired()
         if response.status_code == 403:
             raise Forbidden(log_context={"endpoint": endpoint})
         if response.status_code == 404:
@@ -415,10 +420,6 @@ class NdiCloudClient:
         if resp.status_code >= 400:
             raise CloudInternalError(f"Binary download failed (HTTP {resp.status_code})")
         return resp.content
-
-
-class _UpstreamUnauthorized(Exception):
-    """Internal marker — 401 from cloud means the session must be re-authenticated."""
 
 
 def _auth_from_cloud(data: dict[str, Any]) -> CloudAuthResult:

@@ -5,7 +5,7 @@ fingerprint for audit. Access tokens encrypted via Fernet.
 
 Session lifecycle:
   - Created on login. TTL = absolute (default 24h).
-  - Refreshed (last_active updated) on every authenticated request.
+  - Touched (last_active updated) on every authenticated request.
   - Deleted on logout or when the access token expires (see ADR-008 —
     the cloud does not expose a refresh endpoint; expired sessions are
     deleted and force re-login).
