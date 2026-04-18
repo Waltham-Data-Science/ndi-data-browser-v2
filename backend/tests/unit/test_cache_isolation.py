@@ -27,7 +27,6 @@ def _make_session(user_id: str) -> SessionData:
         user_id=user_id,
         user_email_hash=hashlib.sha256(user_id.encode()).hexdigest(),
         access_token="access",
-        refresh_token=None,
         access_token_expires_at=int(time.time()) + 3600,
         issued_at=int(time.time()),
         last_active=int(time.time()),
