@@ -91,7 +91,7 @@ v1 continues to serve `ndi-data-browser-production.up.railway.app` in its own Ra
 
 ## Testing
 
-- `backend/tests/unit/` — 355+ tests across error catalog, cloud client, circuit breaker, session store, CSRF, rate limiter, projection, query validation, cache, ontology, dependency graph, document/binary/openminds shape, dataset-summary synthesizer, catalog-summary enricher, dataset provenance aggregator, grain-selectable pivot, cross-dataset facet aggregator
+- `backend/tests/unit/` — 356 tests across error catalog, cloud client, circuit breaker, session store, CSRF, rate limiter, projection, query validation, cache, ontology, dependency graph, document/binary/openminds shape, dataset-summary synthesizer, catalog-summary enricher, dataset provenance aggregator, grain-selectable pivot, cross-dataset facet aggregator
 - `backend/tests/integration/` — 27 tests covering routes end-to-end with respx-mocked cloud + fakeredis
 - `backend/tests/contract/` — runs against dev cloud nightly
 - `frontend/tests-e2e/` — Playwright scenarios for public catalog, auth, error recovery

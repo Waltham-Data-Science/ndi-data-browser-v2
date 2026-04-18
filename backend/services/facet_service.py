@@ -263,11 +263,18 @@ class FacetService:
 
 class _FacetAccumulator:
     """Row-by-row state machine that tracks distinct facet values + counts
-    how many datasets contributed at least one new value.
+    how many datasets had a non-null summary available.
 
     Pulled out of :meth:`FacetService._build` so the branching per-row
     dispatch is contained in one object with small methods. Pure in-memory;
     no cloud calls.
+
+    ``contributing_datasets`` counts datasets whose compact OR full summary
+    was available (not ``None``) — NOT datasets that brought a novel term
+    to the distinct set. The distinction matters: on a corpus where 10
+    datasets all report the same single species, the "10 datasets contributed
+    data" reading matches user expectation for the query-page header; a
+    "1 dataset contributed a novel term" reading would underreport by 9×.
     """
 
     def __init__(self) -> None:
@@ -293,15 +300,22 @@ class _FacetAccumulator:
         """Ingest one (row, summary) pair. ``row`` comes from the published
         catalog; ``summary`` is the full :class:`DatasetSummary` serialized
         dict (or ``None`` when the synthesizer failed).
+
+        ``contributing_datasets`` increments once per dataset that had ANY
+        usable summary payload (compact OR full), regardless of whether the
+        dataset brought a novel term to the distinct set. See class
+        docstring for the rationale.
         """
         dataset_id = _row_dataset_id(row)
         if not dataset_id:
             return
         compact = _compact_from_row(row)
-        contributed = self._ingest_from_compact_or_summary(compact, summary)
+        # Ingestion flags feed the distinct-set, but dataset counting
+        # happens on summary availability, not on novelty.
+        self._ingest_from_compact_or_summary(compact, summary)
         if summary is not None:
-            contributed = self._ingest_from_full_summary(summary) or contributed
-        if contributed:
+            self._ingest_from_full_summary(summary)
+        if compact is not None or summary is not None:
             self.contributing_datasets += 1
 
     def _ingest_from_compact_or_summary(

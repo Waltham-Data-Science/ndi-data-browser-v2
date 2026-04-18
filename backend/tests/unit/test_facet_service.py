@@ -220,6 +220,59 @@ async def test_happy_path_aggregates_distinct_ontology_terms() -> None:
 
 
 # ---------------------------------------------------------------------------
+# datasetCount counts SUMMARIES AVAILABLE, not novel contributions.
+#
+# The reviewer flagged a subtle bug: the earlier implementation only
+# incremented the counter when a dataset brought a *new* term to the
+# distinct set. On a corpus where 10 datasets all report the same single
+# species, that would underreport ``datasetCount == 1`` when the query-page
+# header needs ``datasetCount == 10``. This test pins the correct behavior.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dataset_count_reflects_summaries_available_not_novelty() -> None:
+    """Five datasets that ALL share exactly the same facet terms must still
+    yield ``datasetCount == 5``, not 1. The species/strain/brain-region
+    distinct lists will be size 1 (correct dedup), but the dataset counter
+    should reflect how many datasets had data — not how many contributed
+    something novel to the global distinct set.
+    """
+    shared_summary_fields = {
+        "species": [("Mus musculus", "NCBITaxon:10090")],
+        "strains": [("C57BL/6J", "RRID:IMSR_JAX:000664")],
+        "sexes": [("male", "PATO:0000384")],
+        "brain_regions": [("hippocampus", "UBERON:0002421")],
+        "probe_types": ["patch-Vm"],
+    }
+    summaries = {
+        f"ds{i}": _make_summary(f"ds{i}", **shared_summary_fields)
+        for i in range(5)
+    }
+    rows = [
+        _make_row(f"ds{i}", CompactDatasetSummary.from_full(summaries[f"ds{i}"]))
+        for i in range(5)
+    ]
+    ds_svc = _fake_dataset_service({1: rows}, total_number=5)
+    sum_svc = _fake_summary_service(summaries)
+
+    svc = FacetService(ds_svc, sum_svc)
+    facets = await svc.build_facets()
+
+    # Distinct-value lists: all datasets share the same terms → size 1.
+    assert len(facets.species) == 1
+    assert len(facets.strains) == 1
+    assert len(facets.sexes) == 1
+    assert len(facets.brainRegions) == 1
+    assert len(facets.probeTypes) == 1
+    # But ALL FIVE datasets had summaries available → counter must reflect
+    # that, not the "brought a novel term" reading.
+    assert facets.datasetCount == 5, (
+        f"datasetCount must count datasets-with-summaries-available, "
+        f"NOT datasets-that-brought-a-novel-term. Got {facets.datasetCount}."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Null summary rows gracefully skipped
 # ---------------------------------------------------------------------------
 

@@ -47,11 +47,12 @@ interface QueryBuilderProps {
 }
 
 /**
- * Default new condition = ``contains_string`` (case-insensitive substring).
+ * Default operator for newly-added query conditions.
  *
- * Ported from NDI-matlab convention (Spike-0 Report C §7.6 + amendment
- * §4.B3): the tutorial teaches researchers ``stringMatch='contains'`` as
- * the default — e.g. ``ApproachName contains "optogenetic"``. The cloud's
+ * ``'contains_string'`` = case-insensitive substring match. Ported from
+ * NDI-matlab convention (Spike-0 Report C §7.6 + amendment §4.B3): the
+ * tutorial teaches researchers ``stringMatch='contains'`` as the default
+ * — e.g. ``ApproachName contains "optogenetic"``. The cloud's
  * ``contains_string`` op is documented as "Case-insensitive substring
  * match" (see ``/api/query/operations``), which is the same semantics.
  * Researchers coming from MATLAB expect substring + ignore-case; forcing
@@ -60,9 +61,14 @@ interface QueryBuilderProps {
  *
  * Power users can still switch to ``exact_string`` / ``exact_string_anycase``
  * / ``regexp`` / ``isa`` via the operator dropdown.
+ *
+ * Exported so a unit test can pin the amendment-§4.B3 default against
+ * silent future inversion.
  */
+export const DEFAULT_QUERY_OPERATION = 'contains_string' as const;
+
 function newCondition(): QueryNode {
-  return { operation: 'contains_string', field: '', param1: '', param2: '' };
+  return { operation: DEFAULT_QUERY_OPERATION, field: '', param1: '', param2: '' };
 }
 
 function buildStructure(conds: QueryNode[]): QueryNode[] {
