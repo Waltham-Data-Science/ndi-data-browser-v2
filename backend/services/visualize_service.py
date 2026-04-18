@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 from scipy import stats
 
+from ..auth.session import SessionData
 from ..clients.ndi_cloud import NdiCloudClient
 from .summary_table_service import SummaryTableService
 
@@ -28,7 +29,7 @@ class VisualizeService:
         field: str,
         *,
         group_by: str | None = None,
-        access_token: str | None,
+        session: SessionData | None,
     ) -> dict[str, Any]:
         """Return a distribution payload for a numeric `field` in the
         given class, optionally grouped by a categorical `group_by` key.
@@ -46,7 +47,7 @@ class VisualizeService:
             {n, min, max, mean, std, quartiles, kde, raw}
         """
         table = await self.tables.single_class(
-            dataset_id, class_name, access_token=access_token,
+            dataset_id, class_name, session=session,
         )
         rows = table.get("rows") or []
 

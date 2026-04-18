@@ -64,5 +64,5 @@ async def dependencies(
         dataset_id,
         document_id,
         max_depth=max_depth,
-        access_token=session.access_token if session else None,
+        session=session,
     )
