@@ -1,7 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 
 import type { DatasetProvenance } from '@/types/dataset-provenance';
-import type { DatasetSummary } from '@/types/dataset-summary';
+import type {
+  CompactDatasetSummary,
+  DatasetSummary,
+} from '@/types/dataset-summary';
 
 import { apiFetch } from './client';
 
@@ -61,6 +64,19 @@ export interface DatasetRecord {
   uploadedAt?: string;
   totalSize?: number;
   documentCount?: number;
+
+  /**
+   * Embedded compact synthesized summary (Plan B B2).
+   *
+   * Attached by the backend's catalog enricher
+   * (``DatasetService.list_published_with_summaries`` /
+   * ``list_mine_with_summaries``). ``null`` when the synthesizer failed
+   * for this row — the card falls back to rendering raw-record fields.
+   *
+   * Not present (``undefined``) when the response comes from an older
+   * backend build that hasn't shipped B2 yet; the card handles both.
+   */
+  summary?: CompactDatasetSummary | null;
 }
 
 export interface DatasetListResponse {

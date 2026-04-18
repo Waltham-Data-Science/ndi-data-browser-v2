@@ -11,22 +11,36 @@ import {
   CardTitle,
 } from '@/components/ui/Card';
 import { formatBytes, formatDate, truncate } from '@/lib/format';
+import type {
+  CompactDatasetSummary,
+  OntologyTerm,
+} from '@/types/dataset-summary';
+
+import { OntologyTermPill } from './DatasetSummaryCard';
 
 interface DatasetCardProps {
   dataset: DatasetRecord;
 }
 
-/** Rich catalog card — ported from v1 with v2's camelCase field names
- * and a small adaptation: v2 doesn't carry `species`/`brain_regions` on
- * the list response; those are inferred from openminds companions at the
- * detail level. We show license + organization as lightweight badges
- * here instead.
+/** Rich catalog card.
+ *
+ * When the backend embeds a compact :interface:`CompactDatasetSummary`
+ * (Plan B B2), render it as species / brain-region pills and a subject
+ * count above the existing raw-record metadata. When it's ``null`` or
+ * ``undefined`` (backend synth failed or pre-B2 deploy), fall back to the
+ * original v1-style card using `DatasetRecord` fields only — no layout
+ * shift, no missing content.
+ *
+ * Pills reuse `OntologyTermPill` from `DatasetSummaryCard.tsx` — no
+ * duplicated pill component, no drift between detail view and catalog.
  */
 export function DatasetCard({ dataset }: DatasetCardProps) {
   const abstract = dataset.abstract ?? dataset.description;
   const contributors = (dataset.contributors ?? [])
     .map((c) => [c.firstName, c.lastName].filter(Boolean).join(' '))
     .filter(Boolean);
+
+  const summary = dataset.summary ?? null;
 
   return (
     <Link
@@ -44,6 +58,8 @@ export function DatasetCard({ dataset }: DatasetCardProps) {
           )}
         </CardHeader>
         <CardBody className="pt-0 space-y-2">
+          {summary && <CompactSummarySection summary={summary} />}
+
           <div className="flex flex-wrap gap-1.5">
             {dataset.license && (
               <Badge variant="outline">{dataset.license}</Badge>
@@ -68,12 +84,20 @@ export function DatasetCard({ dataset }: DatasetCardProps) {
           )}
 
           <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-            {dataset.documentCount != null && (
+            {/* Doc count: prefer the synthesizer's count (always authoritative,
+                comes from indexed class-counts) over the cloud's documentCount
+                (can drift per the IDataset schema). Fall back to raw record. */}
+            {summary?.counts.totalDocuments != null ? (
+              <span className="inline-flex items-center gap-1">
+                <FileText className="h-3 w-3" />
+                {summary.counts.totalDocuments.toLocaleString()} docs
+              </span>
+            ) : dataset.documentCount != null ? (
               <span className="inline-flex items-center gap-1">
                 <FileText className="h-3 w-3" />
                 {dataset.documentCount.toLocaleString()} docs
               </span>
-            )}
+            ) : null}
             {dataset.contributors && dataset.contributors.length > 0 && (
               <span className="inline-flex items-center gap-1">
                 <Users className="h-3 w-3" />
@@ -104,5 +128,91 @@ export function DatasetCard({ dataset }: DatasetCardProps) {
         </CardBody>
       </Card>
     </Link>
+  );
+}
+
+/** The synthesizer-driven strip: species + brain-region chips + subject
+ *  count. Renders nothing extra when every fact is null/empty so a card
+ *  without any synthesized content stays visually lean. */
+function CompactSummarySection({
+  summary,
+}: {
+  summary: CompactDatasetSummary;
+}) {
+  const species = summary.species ?? null;
+  const regions = summary.brainRegions ?? null;
+  const hasSpecies = species != null && species.length > 0;
+  const hasRegions = regions != null && regions.length > 0;
+  const hasSubjectCount = summary.counts.subjects > 0;
+
+  if (!hasSpecies && !hasRegions && !hasSubjectCount) {
+    // Synthesizer ran but every fact was null/zero — nothing to surface.
+    return null;
+  }
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pb-1"
+      data-testid="dataset-card-summary"
+    >
+      {hasSpecies && (
+        <PillRow
+          testId="dataset-card-summary-species"
+          terms={species as OntologyTerm[]}
+          limit={3}
+        />
+      )}
+      {hasRegions && (
+        <PillRow
+          testId="dataset-card-summary-brain-regions"
+          terms={regions as OntologyTerm[]}
+          limit={3}
+        />
+      )}
+      {hasSubjectCount && (
+        <span
+          className="inline-flex items-center gap-1 text-[11px] font-mono text-slate-600 dark:text-slate-300"
+          data-testid="dataset-card-summary-subjects"
+        >
+          <Users className="h-3 w-3" />
+          {summary.counts.subjects.toLocaleString()} subjects
+        </span>
+      )}
+    </div>
+  );
+}
+
+function PillRow({
+  terms,
+  limit,
+  testId,
+}: {
+  terms: OntologyTerm[];
+  limit: number;
+  testId: string;
+}) {
+  const shown = terms.slice(0, limit);
+  const extra = terms.length - shown.length;
+  return (
+    <span
+      className="inline-flex flex-wrap items-center gap-1"
+      data-testid={testId}
+    >
+      {shown.map((t) => (
+        <OntologyTermPill
+          key={`${t.label}-${t.ontologyId ?? ''}`}
+          term={t}
+          noLink
+        />
+      ))}
+      {extra > 0 && (
+        <span
+          className="text-[10px] text-slate-500 dark:text-slate-400"
+          data-testid={`${testId}-overflow`}
+        >
+          +{extra}
+        </span>
+      )}
+    </span>
   );
 }
