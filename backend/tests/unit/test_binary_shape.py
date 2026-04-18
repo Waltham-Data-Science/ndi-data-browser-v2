@@ -10,8 +10,12 @@ from __future__ import annotations
 import struct
 
 import numpy as np
+import pytest
 
+from backend.errors import ValidationFailed
 from backend.services.binary_service import (
+    MAX_FITCURVE_SAMPLES,
+    BinaryService,
     _file_info_to_ref,
     _file_refs,
     _parse_nbf,
@@ -189,3 +193,63 @@ class TestNbfParse:
         assert out["channels"]["ch0"] == [1.0, 2.0, 3.0]
         assert out["channels"]["ch1"] == [10.0, 20.0, 30.0]
         assert out["sample_count"] == 3
+
+
+class TestOomGuards:
+    """Guards against malicious/corrupt binary payloads claiming billions of
+    samples — would otherwise OOM the worker before numpy even tries to read.
+    """
+
+    def test_parse_nbf_rejects_oversized_header(self) -> None:
+        """Malicious NBF header declaring channels=1000, n_samples=1B → reject."""
+        magic = b"NBF1"
+        sample_rate = struct.pack("<f", 100.0)
+        channels = struct.pack("<i", 1000)
+        n_samples = struct.pack("<i", 1_000_000_000)
+        reserved = b"\x00" * 16
+        # Body doesn't matter — guard fires before np.frombuffer.
+        payload = magic + sample_rate + channels + n_samples + reserved + b"\x00" * 32
+        with pytest.raises(ValidationFailed):
+            _parse_nbf(payload)
+
+    def test_parse_vhsb_rejects_oversized_header(self) -> None:
+        """Malicious VHSB header declaring n_samples=1B → reject before allocation."""
+        magic = b"VHSB"
+        version = struct.pack("<i", 1)
+        sample_rate = struct.pack("<d", 1000.0)
+        n_samples = struct.pack("<i", 1_000_000_000)
+        reserved = b"\x00" * 4
+        payload = magic + version + sample_rate + n_samples + reserved + b"\x00" * 32
+        with pytest.raises(ValidationFailed):
+            _parse_vhsb(payload)
+
+    def test_normal_sized_nbf_parses_without_error(self) -> None:
+        """Sanity: legitimate small NBF files still parse after guard was added."""
+        magic = b"NBF1"
+        sample_rate = struct.pack("<f", 100.0)
+        channels = struct.pack("<i", 1)
+        n_samples = struct.pack("<i", 4)
+        reserved = b"\x00" * 16
+        samples = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+        payload = magic + sample_rate + channels + n_samples + reserved + samples.tobytes()
+        out = _parse_nbf(payload)
+        assert out["sample_count"] == 4
+        assert out["channels"]["ch0"] == [1.0, 2.0, 3.0, 4.0]
+
+    def test_evaluate_fitcurve_clamps_large_n_samples(self) -> None:
+        """fitcurve with n_samples=10M produces MAX_FITCURVE_SAMPLES-length array, no raise."""
+        svc = BinaryService(cloud=None)  # type: ignore[arg-type]
+        document = {
+            "data": {
+                "fitcurve": {
+                    "functional_form": "linear",
+                    "parameters": [1.0, 0.0],
+                    "x_min": 0.0,
+                    "x_max": 1.0,
+                    "n_samples": 10_000_000,
+                },
+            },
+        }
+        out = svc.evaluate_fitcurve(document)
+        assert len(out["x"]) == MAX_FITCURVE_SAMPLES
+        assert len(out["y"]) == MAX_FITCURVE_SAMPLES
