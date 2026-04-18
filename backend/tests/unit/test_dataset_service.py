@@ -201,7 +201,7 @@ async def test_enricher_bounds_concurrency_at_semaphore_limit() -> None:
       build) would produce ``peak == 1`` and silently pass the upper bound,
       which is what the independent review flagged.
 
-    50ms per call × 10 calls = 500ms serial; under Semaphore(3) we expect
+    50ms per call x 10 calls = 500ms serial; under Semaphore(3) we expect
     ~200ms wall time. Even on a loaded CI runner that stretches scheduling
     latency, at least two calls should be in-flight at some point during
     the run — asserting ``>= 2`` is the floor below which we'd consider
