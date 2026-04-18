@@ -1,34 +1,27 @@
 # PR branch-freshness gate.
 #
-# Best-effort substitute for GitHub's "Require branches up to date before
-# merging" branch-protection setting, which is paywalled on the Free plan
-# for private repos (requires GitHub Team or making the repo public).
+# This is the permanent stale-base-merge mitigation for this repo. Branch
+# protection's "Require branches up to date before merging" is paywalled
+# for private repos and we have chosen not to upgrade or go public; this
+# workflow's red-CI signal is the replacement.
 #
 # What this workflow does:
 #   - On every PR event, fetches the current tip of `main` and checks
 #     whether that tip is an ancestor of the PR's HEAD.
-#   - If main has advanced beyond the PR's merge-base, the job fails with a
-#     clear message telling the author to rebase / merge main.
+#   - If main has advanced beyond the PR's merge-base, the job fails with
+#     a clear message telling the author to rebase / merge main.
 #   - Runs on every `pull_request` synchronize + opened, so the signal
 #     stays fresh as main moves.
 #
-# What it cannot do without the paid tier:
-#   - Actually block the merge. On the Free plan there are no "required
-#     checks" — `gh pr merge` will happily merge a PR with this job red.
-#     The red check is a visible signal in the PR UI and in any
-#     automated-agent workflow that reads CI state (this agent's merge
-#     loop does). That's 90% of the protection; the remaining 10% is
-#     hard-enforcement against a human/agent who ignores the red.
-#
-# If this becomes a real problem (recurring stale-base merges), the fixes
-# are: (a) upgrade the org to GitHub Team so `required_status_checks`
-# can be set via the API, (b) make the repo public (free protection), or
-# (c) add a pre-merge local script that runs the same check and aborts
-# before calling `gh pr merge`.
+# What it doesn't do:
+#   - Hard-block the merge. `gh pr merge` will still merge a PR with this
+#     job red. The red check is the signal — any reviewer or agent that
+#     respects red-before-merge catches stale bases here. Ignoring red is
+#     the residual risk we've accepted, not an escalation path.
 #
 # Related: `docs/adr/010`..`013` cascading rebases, fix-main PR #23 that
 # surfaced this exact latent-conflict pattern (2026-04-18), CLAUDE.md
-# Gotchas section on branch-protection tier.
+# Gotchas entry on "PR-branch freshness is gated by CI".
 
 name: PR branch freshness
 
