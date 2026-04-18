@@ -1,10 +1,10 @@
-# ADR 011 — Grain-selectable pivot v1 (Plan B B6e)
+# ADR 012 — Grain-selectable pivot v1 (Plan B B6e)
 
 **Status:** Accepted, 2026-04-17
 **Supersedes:** —
-**Related:** Plan B amendment [§4.B6e](../plans/spike-0-amendments.md#b6e--grain-selectable-pivot-per-decision-2), ADR-007 (summary-table enrichment), ADR-009 (services HTTP boundary), ADR-010 (dataset-summary synthesizer)
+**Related:** Plan B amendment [§4.B6e](../plans/spike-0-amendments.md#b6e--grain-selectable-pivot-per-decision-2), ADR-007 (summary-table enrichment), ADR-009 (services HTTP boundary), ADR-010 (dataset-summary synthesizer), ADR-011 (dataset provenance)
 
-**Coordination note:** B5 (dataset provenance / derivation graph) is running in parallel and may also claim `ADR-011`. If its PR lands first, this ADR renumbers to `ADR-012`. The document body is neutral on the ADR number; we only ship one of `011` or `012` for B6e.
+**ADR numbering:** B5 (dataset provenance) and B6e (this) were dispatched in parallel and both initially drafted as `ADR-011`. B5 landed first, so this ADR renumbered to `012` at merge time. The document body is unchanged except this header.
 
 ## Context
 
@@ -58,7 +58,7 @@ The backend reads the flag via `get_settings()` at each request — no startup l
 2. **Grain-auto-populate from counts.** The frontend selector reads `DatasetSummary.counts` (already cached) — one extra call → zero: we piggyback on the landing-card request.
 3. **Feature-flag-hide on 503.** 503 on `/pivot/subject` is the only signal the frontend needs to know the backend flag is off; a `DatasetPivotNavGuard` probes once and hides any wrapped nav element. No additional env var needs to cross the network boundary.
 4. **Separate cache bucket.** `pivot_cache` isolates schema-version churn. Bumping `PIVOT_SCHEMA_VERSION` doesn't force a summary / table / provenance recompute.
-5. **Coordination note for ADR numbering.** B5's ADR may also be `011`; the user reconciles which claims the number and the other renumbers to `012`.
+5. **Coordination note for ADR numbering.** Resolved at merge time: B5 (dataset provenance) kept `011`; this ADR renumbered from `011` to `012` in the merge that landed B6e. No body content changed.
 
 ## Consequences
 

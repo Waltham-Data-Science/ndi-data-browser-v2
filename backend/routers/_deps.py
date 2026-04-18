@@ -10,6 +10,7 @@ from ..cache.redis_table import RedisTableCache
 from ..clients.ndi_cloud import NdiCloudClient
 from ..middleware.rate_limit import Limit, RateLimiter
 from ..services.binary_service import BinaryService
+from ..services.dataset_provenance_service import DatasetProvenanceService
 from ..services.dataset_service import DatasetService
 from ..services.dataset_summary_service import (
     SUMMARY_CACHE_TTL_SECONDS,
@@ -86,6 +87,17 @@ _SUMMARY_CACHE_TTL_SECONDS = SUMMARY_CACHE_TTL_SECONDS
 
 def dependency_graph_service(request: Request) -> DependencyGraphService:
     return DependencyGraphService(cloud(request), cache=dep_graph_cache(request))
+
+
+def dataset_provenance_cache(request: Request) -> RedisTableCache | None:
+    return getattr(request.app.state, "dataset_provenance_cache", None)
+
+
+def dataset_provenance_service(request: Request) -> DatasetProvenanceService:
+    return DatasetProvenanceService(
+        cloud(request),
+        cache=dataset_provenance_cache(request),
+    )
 
 
 def binary_service(request: Request) -> BinaryService:

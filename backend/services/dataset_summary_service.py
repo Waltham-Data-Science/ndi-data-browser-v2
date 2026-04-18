@@ -139,6 +139,82 @@ class DatasetSummary(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Compact catalog-card projection (Plan B B2)
+# ---------------------------------------------------------------------------
+
+class CompactDatasetSummaryCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    subjects: int = Field(ge=0)
+    totalDocuments: int = Field(ge=0)
+
+
+class CompactDatasetSummaryCitation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: StrictStr
+    license: StrictStr | None = None
+    datasetDoi: StrictStr | None = None
+    year: conint(ge=1900) | None = None  # type: ignore[valid-type]
+
+
+class CompactDatasetSummary(BaseModel):
+    """Bytes-on-wire minimizer for catalog-card use (amendment §4.B2).
+
+    A strict subset of :class:`DatasetSummary`: just the datasetId, the two
+    counts a card displays (subjects + totalDocuments), the two multi-valued
+    facts it chips (species, brainRegions), and the minimum citation header
+    (title + license + DOI + upload year).
+
+    Rationale
+    ---------
+
+    A 20-row catalog page carrying the full :class:`DatasetSummary` adds
+    ~4-8 KB per row — contributors, paperDois, extractionWarnings, probeTypes,
+    strains, sexes, computedAt. The card doesn't render any of those. This
+    projection is ~400-600 bytes per row so a 50-row page still fits under
+    ~30 KB post-gzip.
+
+    Clients that need the full shape (dataset detail page) continue to hit
+    ``GET /api/datasets/:id/summary``. This is a new, additive type — NOT a
+    mutation of :class:`DatasetSummary`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    datasetId: StrictStr
+    counts: CompactDatasetSummaryCounts
+    species: list[OntologyTerm] | None = None
+    brainRegions: list[OntologyTerm] | None = None
+    citation: CompactDatasetSummaryCitation
+    schemaVersion: Literal["summary:v1"] = "summary:v1"
+
+    @classmethod
+    def from_full(cls, full: DatasetSummary) -> CompactDatasetSummary:
+        """Project the full :class:`DatasetSummary` down to the catalog-card
+        shape. Zero-copy on the ontology-term lists (same underlying objects)
+        because they're immutable from the consumer's perspective.
+        """
+        return cls(
+            datasetId=full.datasetId,
+            counts=CompactDatasetSummaryCounts(
+                subjects=full.counts.subjects,
+                totalDocuments=full.counts.totalDocuments,
+            ),
+            species=list(full.species) if full.species is not None else None,
+            brainRegions=(
+                list(full.brainRegions) if full.brainRegions is not None else None
+            ),
+            citation=CompactDatasetSummaryCitation(
+                title=full.citation.title,
+                license=full.citation.license,
+                datasetDoi=full.citation.datasetDoi,
+                year=full.citation.year,
+            ),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------
 
@@ -656,6 +732,9 @@ __all__ = [
     "SUMMARY_CACHE_TTL_SECONDS",
     "SUMMARY_KEY_PREFIX",
     "SUMMARY_SCHEMA_VERSION",
+    "CompactDatasetSummary",
+    "CompactDatasetSummaryCitation",
+    "CompactDatasetSummaryCounts",
     "DatasetSummary",
     "DatasetSummaryCitation",
     "DatasetSummaryContributor",

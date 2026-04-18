@@ -8,6 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from ..auth.dependencies import get_current_session, require_session
 from ..auth.session import SessionData
 from ..config import get_settings
+from ..services.dataset_provenance_service import (
+    DatasetProvenance,
+    DatasetProvenanceService,
+)
 from ..services.dataset_service import DatasetService
 from ..services.dataset_summary_service import (
     DatasetSummary,
@@ -15,6 +19,7 @@ from ..services.dataset_summary_service import (
 )
 from ..services.pivot_service import PivotService
 from ._deps import (
+    dataset_provenance_service,
     dataset_service,
     dataset_summary_service,
     limit_reads,
@@ -27,18 +32,38 @@ router = APIRouter(prefix="/api/datasets", tags=["datasets"], dependencies=[Depe
 @router.get("/published")
 async def published(
     svc: Annotated[DatasetService, Depends(dataset_service)],
+    summary_svc: Annotated[DatasetSummaryService, Depends(dataset_summary_service)],
+    session: Annotated[SessionData | None, Depends(get_current_session)],
     page: int = Query(1, ge=1, le=1000),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
-    return await svc.list_published(page=page, page_size=pageSize)
+    """Published catalog with compact :class:`DatasetSummary` embedded per
+    row (Plan B B2). Each ``datasets[i]`` gains a ``summary`` key that's
+    ``null`` when the synthesizer failed (the UI falls back to raw-record
+    rendering). Summaries are produced under a Semaphore-3 fanout — see
+    :meth:`DatasetService.list_published_with_summaries`.
+    """
+    return await svc.list_published_with_summaries(
+        page=page,
+        page_size=pageSize,
+        summary_service=summary_svc,
+        session=session,
+    )
 
 
 @router.get("/my")
 async def my(
     session: Annotated[SessionData, Depends(require_session)],
     svc: Annotated[DatasetService, Depends(dataset_service)],
+    summary_svc: Annotated[DatasetSummaryService, Depends(dataset_summary_service)],
 ) -> dict[str, Any]:
-    return await svc.list_mine(session=session)
+    """Authenticated ``/my`` list mirroring ``/published`` but over the
+    caller's organization's unpublished datasets. Same compact-summary
+    shape per row.
+    """
+    return await svc.list_mine_with_summaries(
+        session=session, summary_service=summary_svc,
+    )
 
 
 @router.get("/{dataset_id}")
@@ -83,6 +108,30 @@ async def summary(
     ``frontend/src/types/dataset-summary.ts``.
     """
     return await svc.build_summary(dataset_id, session=session)
+
+
+@router.get("/{dataset_id}/provenance", response_model=DatasetProvenance)
+async def provenance(
+    dataset_id: str,
+    svc: Annotated[
+        DatasetProvenanceService, Depends(dataset_provenance_service),
+    ],
+    session: Annotated[SessionData | None, Depends(get_current_session)],
+) -> DatasetProvenance:
+    """Dataset provenance / derivation graph (Plan B B5).
+
+    Aggregates three signals:
+
+    - ``branchOf``: parent dataset this one was forked from.
+    - ``branches``: child datasets forked off this one.
+    - ``documentDependencies``: per-class cross-dataset ``depends_on`` edge
+      counts sourced from scanning every document in the dataset.
+
+    See :class:`~backend.services.dataset_provenance_service.DatasetProvenance`
+    for the response shape; the frontend mirror is in
+    ``frontend/src/types/dataset-provenance.ts``.
+    """
+    return await svc.build_provenance(dataset_id, session=session)
 
 
 @router.get("/{dataset_id}/pivot/{grain}")

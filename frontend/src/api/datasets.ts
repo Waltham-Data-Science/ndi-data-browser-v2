@@ -1,6 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 
-import type { DatasetSummary } from '@/types/dataset-summary';
+import type { DatasetProvenance } from '@/types/dataset-provenance';
+import type {
+  CompactDatasetSummary,
+  DatasetSummary,
+} from '@/types/dataset-summary';
 
 import { apiFetch } from './client';
 
@@ -60,6 +64,19 @@ export interface DatasetRecord {
   uploadedAt?: string;
   totalSize?: number;
   documentCount?: number;
+
+  /**
+   * Embedded compact synthesized summary (Plan B B2).
+   *
+   * Attached by the backend's catalog enricher
+   * (``DatasetService.list_published_with_summaries`` /
+   * ``list_mine_with_summaries``). ``null`` when the synthesizer failed
+   * for this row — the card falls back to rendering raw-record fields.
+   *
+   * Not present (``undefined``) when the response comes from an older
+   * backend build that hasn't shipped B2 yet; the card handles both.
+   */
+  summary?: CompactDatasetSummary | null;
 }
 
 export interface DatasetListResponse {
@@ -119,6 +136,25 @@ export function useDatasetSummary(datasetId: string | undefined) {
     queryKey: ['dataset', datasetId, 'summary'],
     queryFn: () =>
       apiFetch<DatasetSummary>(`/api/datasets/${datasetId}/summary`),
+    enabled: !!datasetId,
+  });
+}
+
+/**
+ * Dataset provenance / derivation graph — Plan B B5. Backed by
+ * `GET /api/datasets/:id/provenance`, produced by the backend
+ * :class:`DatasetProvenanceService` from ``branchOf`` + ``/branches`` +
+ * cross-dataset ``depends_on`` aggregation.
+ *
+ * Vocabulary lock: "dataset provenance" / "derivation graph" — NOT
+ * "lineage" (which in the cloud means class-ISA lineage, a different
+ * concept). See `@/types/dataset-provenance` for the shape.
+ */
+export function useDatasetProvenance(datasetId: string | undefined) {
+  return useQuery({
+    queryKey: ['dataset', datasetId, 'provenance'],
+    queryFn: () =>
+      apiFetch<DatasetProvenance>(`/api/datasets/${datasetId}/provenance`),
     enabled: !!datasetId,
   });
 }

@@ -430,7 +430,20 @@ function renderStringListOrStatus(values: string[] | null): React.ReactNode {
 
 const HOVER_TOOLTIP_DELAY_MS = 600;
 
-export function OntologyTermPill({ term }: { term: OntologyTerm }) {
+export interface OntologyTermPillProps {
+  term: OntologyTerm;
+  /** When true, render without the outer resolver anchor. Required by
+   * nested-link consumers (e.g. a catalog card that wraps the whole card
+   * in a ``<Link>``) — nested ``<a>`` is invalid HTML and React warns.
+   * Default ``false`` keeps the detail-view behavior intact (pill links
+   * to the canonical ontology resolver). */
+  noLink?: boolean;
+}
+
+export function OntologyTermPill({
+  term,
+  noLink = false,
+}: OntologyTermPillProps) {
   // Ref (not state) so the setTimeout callback always reads the *live*
   // hover state, not the closure at call time. A user who briefly hovers
   // and moves away within HOVER_TOOLTIP_DELAY_MS must NOT see a ghost
@@ -439,7 +452,8 @@ export function OntologyTermPill({ term }: { term: OntologyTerm }) {
   const pendingTimeoutRef = useRef<number | null>(null);
   const [tooltipVisible, setTooltipVisible] = useState(false);
 
-  const resolverHref = term.ontologyId ? resolverUrl(term.ontologyId) : null;
+  const resolverHref =
+    !noLink && term.ontologyId ? resolverUrl(term.ontologyId) : null;
 
   function onEnter() {
     hoveringRef.current = true;

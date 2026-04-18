@@ -1,14 +1,27 @@
+import { useState } from 'react';
 import { Link, Navigate, Outlet, useParams } from 'react-router-dom';
 import {
   BookOpen,
+  Code2,
   FileText,
   Globe,
+  Quote,
   Users,
 } from 'lucide-react';
 
-import { useClassCounts, useDataset, useDatasetSummary, type DatasetRecord } from '@/api/datasets';
+import {
+  useClassCounts,
+  useDataset,
+  useDatasetProvenance,
+  useDatasetSummary,
+  type DatasetRecord,
+} from '@/api/datasets';
+import { CiteModal } from '@/components/datasets/CiteModal';
+import { DatasetProvenanceCard } from '@/components/datasets/DatasetProvenanceCard';
 import { DatasetSummaryCard } from '@/components/datasets/DatasetSummaryCard';
+import { UseThisDataModal } from '@/components/datasets/UseThisDataModal';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import {
   Card,
   CardBody,
@@ -20,6 +33,7 @@ import { CardSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/errors/ErrorState';
 import { ExternalAnchor } from '@/components/ExternalAnchor';
 import { formatBytes, formatDate, formatNumber } from '@/lib/format';
+import type { DatasetSummary } from '@/types/dataset-summary';
 
 const COMMON_CLASSES = [
   'subject',
@@ -35,6 +49,7 @@ export function DatasetDetailPage() {
   const ds = useDataset(id);
   const cc = useClassCounts(id);
   const summary = useDatasetSummary(id);
+  const provenance = useDatasetProvenance(id);
 
   if (!id) return <Navigate to="/datasets" replace />;
 
@@ -49,7 +64,21 @@ export function DatasetDetailPage() {
 
         {ds.isLoading && <CardSkeleton />}
         {ds.isError && <ErrorState error={ds.error} onRetry={() => ds.refetch()} />}
-        {ds.data && <DatasetOverviewCard ds={ds.data} />}
+        {ds.data && (
+          <DatasetOverviewCard
+            ds={ds.data}
+            datasetId={id}
+            summary={summary.data}
+          />
+        )}
+
+        {/* Plan B B5 — dataset provenance card (derivation graph,
+            cross-dataset depends_on edges, branches). Errors on provenance
+            degrade silently (no ErrorState) so a slow or flaky aggregator
+            never blocks the detail view. */}
+        {provenance.data && (
+          <DatasetProvenanceCard provenance={provenance.data} />
+        )}
 
         <Card>
           <CardHeader>
@@ -73,8 +102,18 @@ export function DatasetDetailPage() {
   );
 }
 
-function DatasetOverviewCard({ ds }: { ds: DatasetRecord }) {
+function DatasetOverviewCard({
+  ds,
+  datasetId,
+  summary,
+}: {
+  ds: DatasetRecord;
+  datasetId: string;
+  summary?: DatasetSummary;
+}) {
   const abstract = ds.description ?? ds.abstract;
+  const [citeOpen, setCiteOpen] = useState(false);
+  const [useDataOpen, setUseDataOpen] = useState(false);
   return (
     <Card>
       <CardHeader>
@@ -213,7 +252,46 @@ function DatasetOverviewCard({ ds }: { ds: DatasetRecord }) {
             </>
           )}
         </dl>
+
+        <div
+          className="flex flex-wrap gap-2 border-t border-slate-200 pt-3 dark:border-slate-700"
+          data-testid="dataset-actions"
+        >
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setCiteOpen(true)}
+            disabled={!summary}
+            data-testid="open-cite-modal"
+            aria-label="Open citation formats"
+          >
+            <Quote className="h-3 w-3" aria-hidden />
+            Cite
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setUseDataOpen(true)}
+            data-testid="open-use-data-modal"
+            aria-label="Open code snippets for local analysis"
+          >
+            <Code2 className="h-3 w-3" aria-hidden />
+            Use this data
+          </Button>
+        </div>
       </CardBody>
+      {summary && (
+        <CiteModal
+          open={citeOpen}
+          onClose={() => setCiteOpen(false)}
+          citation={summary.citation}
+        />
+      )}
+      <UseThisDataModal
+        open={useDataOpen}
+        onClose={() => setUseDataOpen(false)}
+        datasetId={datasetId}
+      />
     </Card>
   );
 }
