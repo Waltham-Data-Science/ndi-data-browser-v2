@@ -79,13 +79,17 @@ ignore = [
     "TID252",   # relative imports — idiomatic within this package
 ]
 
-# ADR-009: enforce that services/ don't import httpx directly.
-# The ban applies globally (TID251); `per-file-ignores` below carves out the
-# two legitimate httpx consumers: `clients/ndi_cloud.py` (the cloud client that
-# *is* the boundary) and `services/ontology_service.py` (external ontology
-# providers — documented carve-out in ADR-009).
+# ADR-009: enforce that services/ don't make direct HTTP calls. The ban
+# applies globally (TID251); `per-file-ignores` below carves out the legitimate
+# consumers: `clients/ndi_cloud.py` (the cloud client that *is* the boundary)
+# and `services/ontology_service.py` (external ontology providers — documented
+# carve-out in ADR-009). Covers the three common Python HTTP libraries so a
+# future contributor can't bypass the rule by switching `httpx` -> `requests`.
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "httpx".msg = "Do not import httpx inside backend/services/. Cloud I/O lives in backend/clients/ndi_cloud.py. See ADR-009 for the OntologyService carve-out."
+"requests".msg = "Do not import requests inside backend/services/. Cloud I/O lives in backend/clients/ndi_cloud.py. See ADR-009."
+"aiohttp".msg = "Do not import aiohttp inside backend/services/. Cloud I/O lives in backend/clients/ndi_cloud.py. See ADR-009."
+"urllib3".msg = "Do not import urllib3 inside backend/services/. Cloud I/O lives in backend/clients/ndi_cloud.py. See ADR-009."
 
 [tool.ruff.lint.per-file-ignores]
 "backend/clients/*.py" = ["TID251"]                 # clients/ owns HTTP to ndi-cloud-node
