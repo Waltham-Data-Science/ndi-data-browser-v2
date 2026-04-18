@@ -68,6 +68,47 @@ def test_published_datasets_calls_cloud(app_and_cloud) -> None:  # type: ignore[
     assert r.json()["datasets"][0]["name"] == "Test"
 
 
+def test_me_with_ua_mismatch_returns_401(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
+    """PR-5: UA hash change on a live session → revoke + AUTH_REQUIRED.
+
+    Simulates cookie theft: session cookie valid, but the user-agent header
+    differs from the one captured at login. Frontend's existing login-recovery
+    flow picks up AUTH_REQUIRED and redirects. No new error code needed.
+    """
+    client, _ = app_and_cloud
+    # Plant a session directly in Redis bound to one UA, then request with another.
+    import asyncio
+
+    from backend.auth.session import SessionStore
+
+    store: SessionStore = client.app.state.session_store
+
+    async def _plant():  # type: ignore[no-untyped-def]
+        return await store.create(
+            user_id="u1",
+            email="victim@example.com",
+            access_token="at",
+            access_token_expires_in_seconds=3600,
+            ip="127.0.0.1",
+            user_agent="Victim-Browser/1.0",
+        )
+
+    session = asyncio.get_event_loop().run_until_complete(_plant())
+
+    # Same cookie, different UA — simulated attacker who lifted the cookie.
+    client.cookies.set("session", session.session_id)
+    r = client.get("/api/auth/me", headers={"User-Agent": "Attacker/1.0"})
+    assert r.status_code == 401
+    body = r.json()
+    assert body["error"]["code"] == "AUTH_REQUIRED"
+
+    # Session revoked: stolen cookie is now useless even with the right UA.
+    async def _get():  # type: ignore[no-untyped-def]
+        return await store.get(session.session_id)
+
+    assert asyncio.get_event_loop().run_until_complete(_get()) is None
+
+
 def test_request_id_echoed(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
     client, _ = app_and_cloud
     r = client.get("/api/health", headers={"X-Request-ID": "test-id-1234"})
