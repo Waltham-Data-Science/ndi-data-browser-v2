@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/Card';
 import { cn } from '@/lib/cn';
 import { formatBytes } from '@/lib/format';
+import { normalizeOrcid } from '@/lib/orcid';
 import type {
   DatasetSummary,
   DatasetSummaryContributor,
@@ -326,14 +327,18 @@ function ContributorRow({
     .filter(Boolean)
     .join(' ')
     .trim();
+  // See `DatasetDetailPage.ContributorRow` — same normalization guard.
+  // Cloud records occasionally ship a bare ORCID id instead of a full
+  // URL; without this, the browser resolves it against our own origin.
+  const orcidHref = normalizeOrcid(contributor.orcid);
   return (
     <>
       <span className="text-[11px] text-slate-700 dark:text-slate-300">
         {name || '—'}
       </span>
-      {contributor.orcid && (
+      {orcidHref && (
         <ExternalAnchor
-          href={contributor.orcid}
+          href={orcidHref}
           label="ORCID"
           iconSize={10}
           className="text-[10px]"
