@@ -187,6 +187,17 @@ describe('csvJoinFormatter', () => {
     expect(csvJoinFormatter(['NCBITaxon:10116', 'NCBITaxon:10117']))
       .toBe('NCBITaxon:10116, NCBITaxon:10117');
   });
+
+  it('does NOT escape inner ", " in individual values (matches MATLAB parity)', () => {
+    // Documents an intentional ambiguity. MATLAB's `join({...}, ', ')` does
+    // not escape inner commas — so `["a, b", "c"]` serializes to `"a, b, c"`
+    // which visually looks like 3 elements. Amendment §4.B6a accepts this
+    // parity; chip-splitting is explicitly future work. Without this test,
+    // a future refactor to e.g. CSV-escape inner commas would silently
+    // diverge from MATLAB convention — the assertion here is a tripwire.
+    expect(csvJoinFormatter(['vasopressin, oxytocin', 'arginine']))
+      .toBe('vasopressin, oxytocin, arginine');
+  });
 });
 
 describe('discoverDynamicColumns', () => {

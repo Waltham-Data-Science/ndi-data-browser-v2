@@ -517,6 +517,11 @@ export function resolveDefaultColumns(
   grain: string,
   rows: ReadonlyArray<Record<string, unknown>> = [],
 ): ColumnDefault[] {
+  // Grain-name aliasing: tabs pass the backend class name as `tableType`
+  // (e.g. `'element'`), but internally we key column-default lookups by
+  // the tutorial-grain name. `'epoch'` routes to the combined-table shape
+  // that keys off `'element_epoch'`; `'element'` routes to the same
+  // canonical set as `'probe'` (both share the 9-column probe schema).
   const normalized = grain === 'epoch' ? 'element_epoch'
     : grain === 'element' ? 'probe'
     : grain;
