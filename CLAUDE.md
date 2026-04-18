@@ -73,7 +73,7 @@ Required env vars (see `backend/.env.example`):
 - `CSRF_SIGNING_KEY` (32 bytes hex) — generate with: `python -c "import secrets; print(secrets.token_hex(32))"`
 
 Feature flags:
-- `FEATURE_PIVOT_V1` (default `false`) — gate the Plan B B6e grain-selectable pivot at `GET /api/datasets/:id/pivot/:grain` (subject/session/element grains). When off the endpoint returns 503 and the frontend hides the nav. See ADR-011.
+- `FEATURE_PIVOT_V1` (default `false`) — gate the Plan B B6e grain-selectable pivot at `GET /api/datasets/:id/pivot/:grain` (subject/session/element grains). When off the endpoint returns 503 and the frontend hides the nav. See ADR-012.
 
 Everything else has sensible defaults.
 
