@@ -103,12 +103,14 @@ class TestCacheKey:
         from backend.cache.redis_table import RedisTableCache
         v = RedisTableCache.SCHEMA_VERSION
         assert (
-            _dep_graph_key("DS1", "DOC1", 3, authed=False)
+            _dep_graph_key("DS1", "DOC1", 3, user_scope="public")
             == f"depgraph:{v}:DS1:DOC1:3:public"
         )
         assert (
-            _dep_graph_key("DS1", "DOC1", 3, authed=True)
-            == f"depgraph:{v}:DS1:DOC1:3:authed"
+            _dep_graph_key(
+                "DS1", "DOC1", 3, user_scope="u:cafebabecafebabe",
+            )
+            == f"depgraph:{v}:DS1:DOC1:3:u:cafebabecafebabe"
         )
 
 

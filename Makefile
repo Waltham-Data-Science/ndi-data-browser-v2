@@ -52,12 +52,12 @@ fixtures-refresh: ## Re-record pinned E2E JSON responses from prod
 
 lint: ## ruff + mypy + ESLint + tsc
 	. .venv/bin/activate && ruff check backend/
-	. .venv/bin/activate && mypy backend/ || true
+	. .venv/bin/activate && mypy --config-file backend/pyproject.toml backend/
 	cd frontend && npm run typecheck
 
 typecheck: ## TypeScript + mypy
 	cd frontend && npm run typecheck
-	. .venv/bin/activate && mypy backend/ || true
+	. .venv/bin/activate && mypy --config-file backend/pyproject.toml backend/
 
 build: ## Build frontend and Docker image
 	cd frontend && npm run build

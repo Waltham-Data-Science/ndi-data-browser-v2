@@ -39,6 +39,7 @@ import asyncio
 import time
 from typing import Any
 
+from ..auth.session import SessionData, user_scope_for
 from ..cache.redis_table import RedisTableCache
 from ..clients.ndi_cloud import BULK_FETCH_MAX, NdiCloudClient
 from ..observability.logging import get_logger
@@ -101,11 +102,12 @@ class SummaryTableService:
         dataset_id: str,
         class_name: str,
         *,
-        access_token: str | None,
+        session: SessionData | None,
     ) -> dict[str, Any]:
+        access_token = session.access_token if session else None
         if self.cache is not None:
             key = RedisTableCache.table_key(
-                dataset_id, class_name, authed=access_token is not None,
+                dataset_id, class_name, user_scope=user_scope_for(session),
             )
             return await self.cache.get_or_compute(
                 key,
@@ -186,11 +188,12 @@ class SummaryTableService:
         self,
         dataset_id: str,
         *,
-        access_token: str | None,
+        session: SessionData | None,
     ) -> dict[str, Any]:
+        access_token = session.access_token if session else None
         if self.cache is not None:
             key = RedisTableCache.table_key(
-                dataset_id, "combined", authed=access_token is not None,
+                dataset_id, "combined", user_scope=user_scope_for(session),
             )
             return await self.cache.get_or_compute(
                 key,
@@ -311,7 +314,7 @@ class SummaryTableService:
         self,
         dataset_id: str,
         *,
-        access_token: str | None,
+        session: SessionData | None,
     ) -> dict[str, Any]:
         """Project `ontologyTableRow` docs into one TableResponse per distinct
         `variableNames` schema.
@@ -338,9 +341,10 @@ class SummaryTableService:
           ]
         }
         """
+        access_token = session.access_token if session else None
         if self.cache is not None:
             key = RedisTableCache.table_key(
-                dataset_id, "ontology", authed=access_token is not None,
+                dataset_id, "ontology", user_scope=user_scope_for(session),
             )
             return await self.cache.get_or_compute(
                 key,

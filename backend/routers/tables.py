@@ -30,9 +30,7 @@ async def combined(
     svc: Annotated[SummaryTableService, Depends(summary_table_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
 ) -> dict[str, Any]:
-    return await svc.combined(
-        dataset_id, access_token=session.access_token if session else None,
-    )
+    return await svc.combined(dataset_id, session=session)
 
 
 @router.get("/ontology")
@@ -44,9 +42,7 @@ async def ontology_tables(
     """Group `ontologyTableRow` docs by their `variableNames` schema.
     See `SummaryTableService.ontology_tables` for the response shape.
     """
-    return await svc.ontology_tables(
-        dataset_id, access_token=session.access_token if session else None,
-    )
+    return await svc.ontology_tables(dataset_id, session=session)
 
 
 @router.get("/{class_name}")
@@ -58,6 +54,4 @@ async def single(
 ) -> dict[str, Any]:
     if class_name not in SUPPORTED_CLASSES and class_name != "combined":
         raise HTTPException(status_code=400, detail=f"Unsupported table class: {class_name}")
-    return await svc.single_class(
-        dataset_id, class_name, access_token=session.access_token if session else None,
-    )
+    return await svc.single_class(dataset_id, class_name, session=session)

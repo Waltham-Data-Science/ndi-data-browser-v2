@@ -27,7 +27,7 @@ async def my(
     session: Annotated[SessionData, Depends(require_session)],
     svc: Annotated[DatasetService, Depends(dataset_service)],
 ) -> dict[str, Any]:
-    return await svc.list_mine(access_token=session.access_token, user_id=session.user_id)
+    return await svc.list_mine(session=session)
 
 
 @router.get("/{dataset_id}")
@@ -36,10 +36,7 @@ async def detail(
     svc: Annotated[DatasetService, Depends(dataset_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
 ) -> dict[str, Any]:
-    return await svc.detail(
-        dataset_id,
-        access_token=session.access_token if session else None,
-    )
+    return await svc.detail(dataset_id, session=session)
 
 
 @router.get("/{dataset_id}/class-counts")
@@ -48,10 +45,7 @@ async def class_counts(
     svc: Annotated[DatasetService, Depends(dataset_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
 ) -> dict[str, Any]:
-    return await svc.class_counts(
-        dataset_id,
-        access_token=session.access_token if session else None,
-    )
+    return await svc.class_counts(dataset_id, session=session)
 
 
 @router.get("/{dataset_id}/doc-types")
@@ -63,7 +57,4 @@ async def doc_types(
     """Alias for /class-counts — matches v1's vocabulary so the ported
     DocumentTypeSelector component keeps working with its existing URL.
     """
-    return await svc.class_counts(
-        dataset_id,
-        access_token=session.access_token if session else None,
-    )
+    return await svc.class_counts(dataset_id, session=session)
