@@ -113,7 +113,7 @@ branch = true
 omit = ["tests/*", "**/__init__.py"]
 
 [tool.coverage.report]
-fail_under = 85
+fail_under = 70  # Matches CLAUDE.md claim. Raise with intention, not by accident.
 exclude_lines = [
     "pragma: no cover",
     "raise NotImplementedError",

@@ -23,6 +23,7 @@ import asyncio
 import time
 from typing import Any
 
+from ..auth.session import SessionData, user_scope_for
 from ..cache.redis_table import RedisTableCache
 from ..clients.ndi_cloud import BULK_FETCH_MAX, NdiCloudClient
 from ..observability.logging import get_logger
@@ -52,12 +53,13 @@ class DependencyGraphService:
         document_id: str,
         *,
         max_depth: int = 3,
-        access_token: str | None,
+        session: SessionData | None,
     ) -> dict[str, Any]:
         depth = max(1, min(MAX_DEPTH_HARD_CAP, int(max_depth or 1)))
+        access_token = session.access_token if session else None
         if self.cache is not None:
             key = _dep_graph_key(
-                dataset_id, document_id, depth, authed=access_token is not None,
+                dataset_id, document_id, depth, user_scope=user_scope_for(session),
             )
             return await self.cache.get_or_compute(
                 key,
@@ -426,15 +428,19 @@ def _empty_graph(document_id: str, *, reason: str) -> dict[str, Any]:
 
 
 def _dep_graph_key(
-    dataset_id: str, doc_id: str, depth: int, *, authed: bool,
+    dataset_id: str, doc_id: str, depth: int, *, user_scope: str,
 ) -> str:
     """Namespaced separately from table cache. 10-min TTL.
 
     Includes `RedisTableCache.SCHEMA_VERSION` so shape changes invalidate
     stale blobs immediately on deploy rather than waiting for TTL.
+    Per-user ``user_scope`` (see ``backend/auth/session.py::user_scope_for``)
+    isolates authenticated graphs so two users never share cached walks.
     """
-    mode = "authed" if authed else "public"
-    return f"depgraph:{RedisTableCache.SCHEMA_VERSION}:{dataset_id}:{doc_id}:{depth}:{mode}"
+    return (
+        f"depgraph:{RedisTableCache.SCHEMA_VERSION}:"
+        f"{dataset_id}:{doc_id}:{depth}:{user_scope}"
+    )
 
 
 # Ensure RedisTableCache TTL is 10 min for this key-space. Keep the cache

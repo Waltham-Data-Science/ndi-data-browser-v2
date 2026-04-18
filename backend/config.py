@@ -36,7 +36,6 @@ class Settings(BaseSettings):
     # --- Session ---
     SESSION_IDLE_TTL_SECONDS: int = 2 * 60 * 60
     SESSION_ABSOLUTE_TTL_SECONDS: int = 24 * 60 * 60
-    ACCESS_TOKEN_REFRESH_GRACE_SECONDS: int = 60
 
     # --- Cloud client ---
     CLOUD_HTTP_TIMEOUT_SECONDS: float = 30.0
@@ -44,6 +43,37 @@ class Settings(BaseSettings):
     CLOUD_CIRCUIT_BREAKER_THRESHOLD: int = 5
     CLOUD_CIRCUIT_BREAKER_COOLDOWN_SECONDS: int = 30
     CLOUD_POOL_SIZE: int = 50
+
+    # --- Download host allowlist (PR-6 security fix) ---
+    # Comma-separated host suffixes where download_file() may forward the user's
+    # Bearer token. Exact-match entries (e.g. "s3.amazonaws.com") match the host
+    # exactly; wildcard entries starting with "*." match both the suffix itself
+    # and any subdomain of it. The cloud hostname is added to the runtime
+    # allowlist dynamically (always allowed). See ADR notes in backend/clients/
+    # _url_allowlist.py.
+    DOWNLOAD_HOST_ALLOWLIST: str = Field(
+        default=(
+            "s3.amazonaws.com,"
+            "*.s3.amazonaws.com,"
+            "*.s3.us-east-1.amazonaws.com,"
+            "*.s3.us-east-2.amazonaws.com,"
+            "*.s3.us-west-1.amazonaws.com,"
+            "*.s3.us-west-2.amazonaws.com,"
+            "*.cloudfront.net"
+        ),
+        description=(
+            "Comma-separated host suffixes where downloads may forward the user's "
+            "Bearer token. Cloud hostname is added dynamically at runtime."
+        ),
+    )
+    DOWNLOAD_ALLOWLIST_ENFORCE: bool = Field(
+        default=False,
+        description=(
+            "If true, strip Authorization header when downloading from non-allowlisted "
+            "hosts. If false (default), log a warning but still forward. Flip to true "
+            "in Railway env after reviewing phase-1 logs."
+        ),
+    )
 
     # --- Rate limits ---
     RATE_LIMIT_READS_PER_MIN: int = 120
@@ -65,6 +95,11 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def download_host_allowlist_list(self) -> list[str]:
+        """Parsed list of allowlist host patterns (exact or `*.suffix`)."""
+        return [h.strip() for h in self.DOWNLOAD_HOST_ALLOWLIST.split(",") if h.strip()]
 
     @field_validator("LOG_LEVEL")
     @classmethod

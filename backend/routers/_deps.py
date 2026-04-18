@@ -1,7 +1,9 @@
 """Router-side DI helpers: pull services off app.state."""
 from __future__ import annotations
 
-from fastapi import Request
+from typing import Annotated
+
+from fastapi import Depends, Request
 
 from ..auth.session import SessionStore
 from ..cache.redis_table import RedisTableCache
@@ -71,43 +73,63 @@ def ontology_service(request: Request) -> OntologyService:
 
 # --- Rate-limit helpers ---
 
-async def limit_reads(request: Request) -> None:
-    from ..config import get_settings
-    s = get_settings()
-    limiter = rate_limiter(request)
-    sid = _subject(request)
-    await limiter.check(
-        Limit(bucket="reads", max_requests=s.RATE_LIMIT_READS_PER_MIN, window_seconds=60),
-        sid,
-    )
+async def _subject(
+    request: Request,
+    store: Annotated[SessionStore, Depends(session_store)],
+) -> str:
+    """Resolve the rate-limit subject from a validated session, falling back
+    to the hashed client IP.
 
+    Critical: we MUST look up the session cookie in Redis before using its
+    value, otherwise attackers can defeat per-user rate limits by rotating
+    the cookie (each fake value gets a fresh bucket).
 
-async def limit_queries(request: Request) -> None:
-    from ..config import get_settings
-    s = get_settings()
-    limiter = rate_limiter(request)
-    sid = _subject(request)
-    await limiter.check(
-        Limit(bucket="query", max_requests=s.RATE_LIMIT_QUERY_PER_MIN, window_seconds=60),
-        sid,
-    )
-
-
-async def limit_bulk_fetch(request: Request) -> None:
-    from ..config import get_settings
-    s = get_settings()
-    limiter = rate_limiter(request)
-    sid = _subject(request)
-    await limiter.check(
-        Limit(bucket="bulk-fetch", max_requests=s.RATE_LIMIT_BULK_FETCH_PER_MIN, window_seconds=60),
-        sid,
-    )
-
-
-def _subject(request: Request) -> str:
-    # If a session exists and is resolvable synchronously, prefer user subject.
-    cookie = request.cookies.get("session")
-    if cookie:
-        return f"u:{cookie}"
+    NOTE: paid twice per request today (here + in get_current_session). If
+    p99 latency matters, pass the resolved session via request.state.session.
+    """
+    sid = request.cookies.get("session")
+    if sid:
+        sess = await store.get(sid)
+        if sess is not None:
+            return f"u:{sess.user_id}"
     ip = request.client.host if request.client else "unknown"
     return RateLimiter.subject_for(None, ip)
+
+
+async def limit_reads(
+    request: Request,
+    subject: Annotated[str, Depends(_subject)],
+) -> None:
+    from ..config import get_settings
+    s = get_settings()
+    limiter = rate_limiter(request)
+    await limiter.check(
+        Limit(bucket="reads", max_requests=s.RATE_LIMIT_READS_PER_MIN, window_seconds=60),
+        subject,
+    )
+
+
+async def limit_queries(
+    request: Request,
+    subject: Annotated[str, Depends(_subject)],
+) -> None:
+    from ..config import get_settings
+    s = get_settings()
+    limiter = rate_limiter(request)
+    await limiter.check(
+        Limit(bucket="query", max_requests=s.RATE_LIMIT_QUERY_PER_MIN, window_seconds=60),
+        subject,
+    )
+
+
+async def limit_bulk_fetch(
+    request: Request,
+    subject: Annotated[str, Depends(_subject)],
+) -> None:
+    from ..config import get_settings
+    s = get_settings()
+    limiter = rate_limiter(request)
+    await limiter.check(
+        Limit(bucket="bulk-fetch", max_requests=s.RATE_LIMIT_BULK_FETCH_PER_MIN, window_seconds=60),
+        subject,
+    )

@@ -1,14 +1,17 @@
 """Redis-backed response cache for summary tables.
 
-Shared across replicas so table builds are paid once per dataset/class/auth
+Shared across replicas so table builds are paid once per dataset/class/user
 tuple per TTL window. Plain JSON blob under a single key, no partitioning,
 no eviction beyond TTL — tables are kilobytes, and the working set is small
-(datasets x ~6 class views x 2 auth modes).
+(datasets x ~6 class views x (N authenticated users + 1 public bucket)).
 
 Plan §M4a step 3: "Redis-backed table cache is mandatory". Keys follow
-`table:{datasetId}:{className}:{authed|public}` with a 1-hour TTL. Cache
-misses fall through to the cloud builder; cache fills happen post-success
-so a cloud failure never populates a stale entry.
+`table:{version}:{datasetId}:{className}:{user_scope}` with a 1-hour TTL.
+``user_scope`` is ``"public"`` for unauthenticated reads or
+``"u:<sha256(user_id)[:16]>"`` for authenticated reads (see PR-3 and
+:func:`backend.auth.session.user_scope_for`). Cache misses fall through
+to the cloud builder; cache fills happen post-success so a cloud failure
+never populates a stale entry.
 """
 from __future__ import annotations
 
@@ -54,12 +57,27 @@ class RedisTableCache:
     # v3 = same projection as v2 but enrichment failures now raise instead
     #      of silently returning empty enrichment (which got cached). Fixes
     #      the Haley-subject-table empty-ontology blob observed post-M7 deploy.
-    SCHEMA_VERSION = "v3"
+    # v4: cache keys now include user_scope. See ADR / PR-3.
+    #     Replaces the 1-bit ``authed: bool`` dimension with a stable per-user
+    #     identifier so two authenticated users can never share a cached entry.
+    #     Bumping the schema version ensures in-flight v3 entries are ignored
+    #     post-deploy (they TTL out naturally within one hour).
+    SCHEMA_VERSION = "v4"
 
     @staticmethod
-    def table_key(dataset_id: str, class_name: str, *, authed: bool) -> str:
-        mode = "authed" if authed else "public"
-        return f"table:{RedisTableCache.SCHEMA_VERSION}:{dataset_id}:{class_name}:{mode}"
+    def table_key(dataset_id: str, class_name: str, *, user_scope: str) -> str:
+        """Compose a Redis key for a summary-table blob.
+
+        ``user_scope`` is an opaque cache scope: ``"public"`` for
+        unauthenticated reads or ``"u:<16-hex>"`` for authenticated reads
+        (see :func:`backend.auth.session.user_scope_for`). Must not contain
+        ``:`` beyond the fixed ``u:`` prefix so the key structure stays
+        parseable.
+        """
+        return (
+            f"table:{RedisTableCache.SCHEMA_VERSION}:"
+            f"{dataset_id}:{class_name}:{user_scope}"
+        )
 
     async def _get_lock(self, key: str) -> asyncio.Lock:
         async with self._locks_guard:

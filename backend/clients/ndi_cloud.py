@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from ..config import Settings, get_settings
 from ..errors import (
+    AuthRequired,
     BulkFetchTooLarge,
     CloudInternalError,
     CloudTimeout,
@@ -36,6 +37,12 @@ from ..observability.metrics import (
     cloud_retries_total,
     query_timeout_total,
 )
+from ._url_allowlist import (
+    build_runtime_allowlist,
+    extract_host,
+    host_matches_allowlist,
+    url_pattern_for_log,
+)
 from .circuit_breaker import CircuitBreaker, CircuitOpen
 
 log = get_logger(__name__)
@@ -46,7 +53,6 @@ UNAUTHED_RETRYABLE_STATUSES = {500, 502, 503, 504}
 
 class CloudAuthResult(BaseModel):
     access_token: str
-    refresh_token: str | None = None
     expires_in_seconds: int = 3600
     user: dict[str, Any] | None = None
 
@@ -190,8 +196,12 @@ class NdiCloudClient:
         except Exception:
             body = None
         if response.status_code == 401:
-            # Upper layers handle the refresh/re-login distinction.
-            raise _UpstreamUnauthorized()
+            # Cloud-side 401 on any authed endpoint means the user's access
+            # token is no longer valid (expired, revoked, or permission lost).
+            # Raise AuthRequired directly so FastAPI's BrowserError handler
+            # returns 401 + AUTH_REQUIRED with recovery=login. No refresh
+            # attempt — ADR-008 retired that path.
+            raise AuthRequired()
         if response.status_code == 403:
             raise Forbidden(log_context={"endpoint": endpoint})
         if response.status_code == 404:
@@ -228,17 +238,6 @@ class NdiCloudClient:
         self._raise_for_status(resp, endpoint="auth_login")
         data = resp.json()
         return _auth_from_cloud(data)
-
-    async def refresh(self, refresh_token: str) -> CloudAuthResult:
-        """ndi-cloud-node does NOT currently expose a refresh endpoint.
-
-        Raise AuthExpired so the caller deletes the session and triggers re-login.
-        If Steve ships /auth/refresh later, the body format will likely be
-        {refreshToken} and we swap this no-op out.
-        """
-        from ..errors import AuthExpired
-        del refresh_token
-        raise AuthExpired("Session expired — no refresh endpoint available.")
 
     async def logout(self, access_token: str) -> None:
         try:
@@ -408,13 +407,46 @@ class NdiCloudClient:
             "pageSize": page_size,
         }
 
+    def _runtime_download_allowlist(self) -> list[str]:
+        """Effective allowlist = configured static + cloud host."""
+        return build_runtime_allowlist(
+            self.settings.download_host_allowlist_list,
+            self.settings.cloud_base_url,
+        )
+
     async def download_file(
         self, url: str, *, access_token: str | None = None,
     ) -> bytes:
-        """Download a signed file URL (S3 or similar). Returns raw bytes."""
+        """Download a signed file URL (S3 or similar). Returns raw bytes.
+
+        Security (PR-6): before forwarding the user's Bearer token we check the
+        target host against a static allowlist (+ the cloud host). If the host
+        is NOT on the allowlist:
+          - Always log `cloud.download.off_allowlist_host` (phase-1 observation).
+          - If `DOWNLOAD_ALLOWLIST_ENFORCE=True`, strip the Authorization header
+            so we don't exfiltrate the token to an attacker-controlled host.
+          - Else (phase-1 default): still forward. We'll flip the flag after
+            reviewing 1 week of logs.
+        """
         headers = {"Accept-Encoding": "gzip"}
-        if access_token:
+        host = extract_host(url)
+        allowlist = self._runtime_download_allowlist()
+        on_allowlist = bool(host) and host_matches_allowlist(host, allowlist)
+
+        forward_bearer = access_token is not None
+        if not on_allowlist:
+            log.warning(
+                "cloud.download.off_allowlist_host",
+                host=host,
+                url_pattern=url_pattern_for_log(url),
+                enforce=self.settings.DOWNLOAD_ALLOWLIST_ENFORCE,
+            )
+            if self.settings.DOWNLOAD_ALLOWLIST_ENFORCE:
+                forward_bearer = False
+
+        if forward_bearer and access_token:
             headers["Authorization"] = f"Bearer {access_token}"
+
         try:
             resp = await self.client.get(url, headers=headers, timeout=60.0)
         except httpx.TimeoutException as e:
@@ -429,15 +461,10 @@ class NdiCloudClient:
         return resp.content
 
 
-class _UpstreamUnauthorized(Exception):
-    """Internal marker — 401 from cloud means auth layer should attempt refresh."""
-
-
 def _auth_from_cloud(data: dict[str, Any]) -> CloudAuthResult:
     """ndi-cloud-node returns {token, user}. Cognito ID tokens default to 1h TTL."""
     return CloudAuthResult(
         access_token=data.get("token") or data.get("accessToken") or "",
-        refresh_token=data.get("refreshToken"),  # may be None — the cloud doesn't currently issue one
         expires_in_seconds=int(data.get("expiresIn", 3600)),
         user=data.get("user"),
     )

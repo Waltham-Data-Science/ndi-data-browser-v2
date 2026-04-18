@@ -45,6 +45,25 @@ class CircuitBreaker:
             {State.CLOSED: 1.0, State.HALF_OPEN: 0.5, State.OPEN: 0.0}[self._state],
         )
 
+    # HALF_OPEN behavior note (Claude systematic-debugging H10, 2026-04-17):
+    #
+    # The canonical circuit-breaker pattern (Akka, Hystrix, Polly) allows exactly
+    # ONE trial call during HALF_OPEN, short-circuiting all other concurrent callers
+    # to OPEN until the trial outcome is known. This implementation does NOT do that
+    # -- once cooldown elapses, every concurrent caller sees the HALF_OPEN transition
+    # and proceeds to the cloud. On recovery from an outage, a burst of 2 replicas x
+    # ~50 queued requests can all hit the (potentially still-broken) cloud
+    # simultaneously.
+    #
+    # Acceptable today because numReplicas = 1 (see infra/railway.toml) and
+    # per-replica request concurrency is bounded by uvicorn workers. Revisit if
+    # scale grows such that recovery-burst on the cloud becomes observable
+    # (e.g. Lambda cold-start thrash after a cloud outage).
+    #
+    # Do NOT "fix" the HALF_OPEN semantics without confirming the blast radius is
+    # actually observable in production. A real fix requires a single-flight probe
+    # primitive (serialized lock OR atomic counter that caps HALF_OPEN to one trial)
+    # and its own test matrix; that's a proper redesign, not a comment.
     async def before_call(self) -> None:
         async with self._lock:
             if self._state is State.OPEN:
