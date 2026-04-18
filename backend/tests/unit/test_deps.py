@@ -62,7 +62,6 @@ async def test_subject_uses_user_id_when_session_valid(fake_redis) -> None:  # t
         user_id="alice-123",
         email="alice@example.com",
         access_token="at",
-        refresh_token="rt",
         access_token_expires_in_seconds=3600,
         ip="127.0.0.1",
         user_agent="pytest",
