@@ -1,7 +1,6 @@
 import { Link, Navigate, Outlet, useParams } from 'react-router-dom';
 import {
   BookOpen,
-  ExternalLink,
   FileText,
   Globe,
   Users,
@@ -18,8 +17,8 @@ import {
 } from '@/components/ui/Card';
 import { CardSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/errors/ErrorState';
+import { ExternalAnchor } from '@/components/ExternalAnchor';
 import { formatBytes, formatDate, formatNumber } from '@/lib/format';
-import { cn } from '@/lib/cn';
 
 const COMMON_CLASSES = [
   'subject',
@@ -268,33 +267,6 @@ function PublicationRow({ p }: { p: import('@/api/datasets').AssociatedPublicati
         )}
       </div>
     </li>
-  );
-}
-
-function ExternalAnchor({
-  href,
-  label,
-  className,
-  iconSize = 12,
-}: {
-  href: string;
-  label: string;
-  className?: string;
-  iconSize?: number;
-}) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={cn(
-        'inline-flex items-center gap-0.5 text-brand-600 dark:text-brand-400 hover:underline',
-        className,
-      )}
-    >
-      <span className="truncate max-w-[220px]">{label}</span>
-      <ExternalLink className="shrink-0" style={{ width: iconSize, height: iconSize }} />
-    </a>
   );
 }
 

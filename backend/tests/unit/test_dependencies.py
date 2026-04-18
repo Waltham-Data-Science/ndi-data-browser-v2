@@ -1,11 +1,19 @@
-"""Session fingerprint enforcement in ``get_current_session``.
+"""Auth dependency unit tests.
 
-PR-5 of Plan A: UA hash mismatch is a hard reject (revoke + AuthRequired).
-IP hash mismatch is warn-only — mobile users legitimately roam.
+Covers two behaviors of ``get_current_session`` / ``require_session``:
+
+- Session fingerprint enforcement (PR-5): UA hash mismatch is a hard reject
+  (revoke + AuthRequired). IP hash mismatch is warn-only — mobile users
+  legitimately roam.
+- Access-token expiry (ADR-008): the cloud does not expose a refresh endpoint,
+  so an expired token drops the session and surfaces as AuthRequired with
+  zero attempts to call any ``cloud.refresh`` path.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -13,7 +21,11 @@ import pytest
 import structlog
 from structlog.testing import capture_logs
 
-from backend.auth.dependencies import SESSION_COOKIE, get_current_session
+from backend.auth.dependencies import (
+    SESSION_COOKIE,
+    get_current_session,
+    require_session,
+)
 from backend.auth.session import SessionStore, fingerprint
 from backend.errors import AuthRequired
 
@@ -24,7 +36,7 @@ class _FakeClient:
 
 
 class _FakeRequest:
-    """Minimal stand-in for starlette.Request with just the bits our code reads."""
+    """Minimal stand-in for starlette.Request with the bits fingerprint() reads."""
 
     def __init__(
         self,
@@ -40,8 +52,18 @@ class _FakeRequest:
         )
 
 
-class _ReturnSelfCloud:
-    """Stand-in for NdiCloudClient — never invoked because we bypass refresh."""
+def _mock_request(*, cookies: dict[str, str] | None = None, app_state: object | None = None):
+    """Lighter stand-in for tests that don't exercise fingerprint/IP paths.
+
+    Used for expiry-only tests where fingerprint matching isn't under test.
+    Provides empty client/headers so fingerprint() still returns a stable pair.
+    """
+    cookies = cookies or {}
+    state = app_state or SimpleNamespace()
+    app = SimpleNamespace(state=state)
+    client = SimpleNamespace(host="unknown")
+    headers: dict[str, str] = {}
+    return SimpleNamespace(cookies=cookies, app=app, client=client, headers=headers)
 
 
 @pytest.fixture(autouse=True)
@@ -53,13 +75,9 @@ def _configure_structlog_for_capture() -> None:
     )
 
 
-@pytest.fixture
-def long_token_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make access tokens look fresh so ``ensure_fresh_access_token`` is a no-op."""
-    from backend.config import get_settings
-
-    settings = get_settings()
-    monkeypatch.setattr(settings, "ACCESS_TOKEN_REFRESH_GRACE_SECONDS", 0)
+# ---------------------------------------------------------------------------
+# Fingerprint helper (PR-5)
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -92,7 +110,6 @@ async def test_fingerprint_matches_session_store_creation_hashes(fake_redis: Any
         user_id="u",
         email="a@b.c",
         access_token="a",
-        refresh_token=None,
         access_token_expires_in_seconds=3600,
         ip="1.2.3.4",
         user_agent="Mozilla/5.0",
@@ -103,14 +120,17 @@ async def test_fingerprint_matches_session_store_creation_hashes(fake_redis: Any
     assert ua_hash == session.user_agent_hash
 
 
+# ---------------------------------------------------------------------------
+# Fingerprint enforcement in get_current_session (PR-5)
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
-async def test_matching_fingerprint_proceeds_normally(
-    fake_redis: Any, long_token_ttl: None
-) -> None:
+async def test_matching_fingerprint_proceeds_normally(fake_redis: Any) -> None:
     """IP1/UA1 in, IP1/UA1 at request time — passes through unchanged."""
     store = SessionStore(fake_redis)
     session = await store.create(
-        user_id="u", email="a@b.c", access_token="a", refresh_token=None,
+        user_id="u", email="a@b.c", access_token="a",
         access_token_expires_in_seconds=3600, ip="10.0.0.1", user_agent="Firefox",
     )
     req = _FakeRequest(
@@ -119,7 +139,6 @@ async def test_matching_fingerprint_proceeds_normally(
     result = await get_current_session(
         request=req,  # type: ignore[arg-type]
         store=store,
-        cloud=_ReturnSelfCloud(),  # type: ignore[arg-type]
     )
     assert result is not None
     assert result.session_id == session.session_id
@@ -129,12 +148,12 @@ async def test_matching_fingerprint_proceeds_normally(
 
 @pytest.mark.asyncio
 async def test_ua_mismatch_revokes_session_and_returns_auth_required(
-    fake_redis: Any, long_token_ttl: None
+    fake_redis: Any,
 ) -> None:
     """UA1 in, UA2 at request — hijack defense. Reject + revoke."""
     store = SessionStore(fake_redis)
     session = await store.create(
-        user_id="u", email="a@b.c", access_token="a", refresh_token=None,
+        user_id="u", email="a@b.c", access_token="a",
         access_token_expires_in_seconds=3600, ip="10.0.0.1", user_agent="Firefox",
     )
     attacker_req = _FakeRequest(
@@ -146,16 +165,13 @@ async def test_ua_mismatch_revokes_session_and_returns_auth_required(
         await get_current_session(
             request=attacker_req,  # type: ignore[arg-type]
             store=store,
-            cloud=_ReturnSelfCloud(),  # type: ignore[arg-type]
         )
     # Session revoked — the stolen cookie is now useless.
     assert await store.get(session.session_id) is None
 
 
 @pytest.mark.asyncio
-async def test_ip_change_logs_warning_allows_request(
-    fake_redis: Any, long_token_ttl: None
-) -> None:
+async def test_ip_change_logs_warning_allows_request(fake_redis: Any) -> None:
     """IP1 in, IP2 at request time (same UA) — warn but proceed.
 
     Mobile users legitimately roam between wifi/cell. Hard-rejecting on IP
@@ -163,7 +179,7 @@ async def test_ip_change_logs_warning_allows_request(
     """
     store = SessionStore(fake_redis)
     session = await store.create(
-        user_id="u", email="a@b.c", access_token="a", refresh_token=None,
+        user_id="u", email="a@b.c", access_token="a",
         access_token_expires_in_seconds=3600, ip="192.168.1.10", user_agent="Firefox",
     )
     roaming_req = _FakeRequest(
@@ -175,7 +191,6 @@ async def test_ip_change_logs_warning_allows_request(
         result = await get_current_session(
             request=roaming_req,  # type: ignore[arg-type]
             store=store,
-            cloud=_ReturnSelfCloud(),  # type: ignore[arg-type]
         )
     assert result is not None  # Request proceeded.
     # Structured warning was emitted with hashes (no raw IPs).
@@ -192,15 +207,13 @@ async def test_ip_change_logs_warning_allows_request(
 
 
 @pytest.mark.asyncio
-async def test_ua_mismatch_does_not_proceed_to_touch(
-    fake_redis: Any, long_token_ttl: None
-) -> None:
+async def test_ua_mismatch_does_not_proceed_to_touch(fake_redis: Any) -> None:
     """UA mismatch must short-circuit before ``store.touch`` — no last_active update."""
     store = SessionStore(fake_redis)
     # Patch touch so if it gets called we know the short-circuit failed.
     store.touch = AsyncMock()  # type: ignore[method-assign]
     session = await store.create(
-        user_id="u", email="a@b.c", access_token="a", refresh_token=None,
+        user_id="u", email="a@b.c", access_token="a",
         access_token_expires_in_seconds=3600, ip="1.1.1.1", user_agent="Firefox",
     )
     attacker_req = _FakeRequest(
@@ -210,6 +223,94 @@ async def test_ua_mismatch_does_not_proceed_to_touch(
         await get_current_session(
             request=attacker_req,  # type: ignore[arg-type]
             store=store,
-            cloud=_ReturnSelfCloud(),  # type: ignore[arg-type]
         )
     store.touch.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Access-token expiry path (ADR-008)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_expired_access_token_raises_auth_required_no_refresh_attempt(
+    fake_redis: Any,
+) -> None:
+    store = SessionStore(fake_redis)
+    session = await store.create(
+        user_id="u1",
+        email="alice@example.com",
+        access_token="at-expired",
+        access_token_expires_in_seconds=60,
+        ip="1.1.1.1",
+        user_agent="pytest",
+    )
+    # Force expiry: backdate the stored expires_at well into the past.
+    session.access_token_expires_at = int(time.time()) - 10
+    await store._write(session)
+
+    # Guardrail: assert the attribute does not exist (ADR-008).
+    from backend.clients import ndi_cloud as nc_mod
+    assert not hasattr(nc_mod.NdiCloudClient, "refresh"), (
+        "NdiCloudClient.refresh must stay deleted per ADR-008"
+    )
+
+    # A mock cloud is attached to app.state just so that any accidental
+    # attempt to call refresh() would raise AttributeError AND bump the mock's
+    # call count — either way the test would fail.
+    cloud_mock = AsyncMock()
+    app_state = SimpleNamespace(session_store=store, cloud_client=cloud_mock)
+    # Match the session's IP/UA so the fingerprint check passes and we exercise
+    # the expiry branch specifically.
+    request = _FakeRequest(
+        session_id=session.session_id, ip="1.1.1.1", user_agent="pytest",
+    )
+    request.app = SimpleNamespace(state=app_state)  # type: ignore[attr-defined]
+
+    # get_current_session should delete the session and return None.
+    result = await get_current_session(request, store=store)  # type: ignore[arg-type]
+    assert result is None
+
+    # Session was deleted.
+    assert await store.get(session.session_id) is None
+
+    # No refresh call made.
+    assert not cloud_mock.refresh.called
+    assert not cloud_mock.called
+
+    # require_session turns the None into AuthRequired.
+    with pytest.raises(AuthRequired):
+        await require_session(session=None)
+
+
+@pytest.mark.asyncio
+async def test_no_cookie_returns_none(fake_redis: Any) -> None:
+    store = SessionStore(fake_redis)
+    request = _mock_request(cookies={})
+    assert await get_current_session(request, store=store) is None  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_valid_session_returns_it_without_touching_cloud(
+    fake_redis: Any,
+) -> None:
+    store = SessionStore(fake_redis)
+    session = await store.create(
+        user_id="u1",
+        email="a@b.c",
+        access_token="at-live",
+        access_token_expires_in_seconds=3600,
+        ip="1.1.1.1",
+        user_agent="pytest",
+    )
+    # Match fingerprint to exercise the happy path.
+    request = _FakeRequest(
+        session_id=session.session_id, ip="1.1.1.1", user_agent="pytest",
+    )
+    result = await get_current_session(request, store=store)  # type: ignore[arg-type]
+    assert result is not None
+    assert result.session_id == session.session_id
+    # No need for cloud or any refresh infrastructure — check that no
+    # `refresh` attribute ever existed on the client class.
+    from backend.clients import ndi_cloud as nc_mod
+    assert not hasattr(nc_mod.NdiCloudClient, "refresh")

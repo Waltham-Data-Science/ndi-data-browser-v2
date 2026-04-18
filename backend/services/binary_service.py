@@ -30,12 +30,18 @@ import numpy as np
 from PIL import Image
 
 from ..clients.ndi_cloud import NdiCloudClient
-from ..errors import BinaryDecodeFailed, BinaryNotFound
+from ..errors import BinaryDecodeFailed, BinaryNotFound, ValidationFailed
 from ..observability.logging import get_logger
 
 log = get_logger(__name__)
 
 BinaryKind = Literal["timeseries", "image", "video", "fitcurve", "unknown"]
+
+# Sanity caps for binary payload decoding — guard against malicious or corrupt
+# files declaring billions of samples. Gemini Shard C HIGH, 2026-04-17.
+MAX_NBF_SAMPLES = 100_000_000
+MAX_VHSB_SAMPLES = 100_000_000  # use the same value unless VHSB's shape argues for different
+MAX_FITCURVE_SAMPLES = 10_000
 
 
 @dataclass(slots=True)
@@ -159,7 +165,8 @@ class BinaryService:
             form = str(fc.get("functional_form", "linear")).lower()
             x_min = float(fc.get("x_min", 0.0))
             x_max = float(fc.get("x_max", 1.0))
-            n = int(fc.get("n_samples", 200))
+            n_samples = int(fc.get("n_samples", 200))
+            n = min(n_samples, MAX_FITCURVE_SAMPLES)
             xs = np.linspace(x_min, x_max, n)
             ys = _evaluate_form(form, params, xs)
             return {
@@ -324,6 +331,10 @@ def _parse_nbf(data: bytes) -> dict[str, Any]:
     sample_rate = struct.unpack_from("<f", data, 4)[0]
     channels = max(1, struct.unpack_from("<i", data, 8)[0])
     n_samples = max(1, struct.unpack_from("<i", data, 12)[0])
+    if channels * n_samples > MAX_NBF_SAMPLES:
+        raise ValidationFailed(
+            f"NBF header declares too many samples (channels={channels}, n_samples={n_samples}).",
+        )
     count = channels * n_samples
     body = np.frombuffer(data, dtype=np.float32, count=count, offset=32)
     if channels == 1:
@@ -354,6 +365,10 @@ def _parse_vhsb(data: bytes) -> dict[str, Any]:
         raise ValueError("Not a VHSB file")
     sample_rate = struct.unpack_from("<d", data, 8)[0]
     n_samples = struct.unpack_from("<i", data, 16)[0]
+    if n_samples > MAX_VHSB_SAMPLES:
+        raise ValidationFailed(
+            f"VHSB header declares too many samples (n_samples={n_samples}).",
+        )
     # Clamp to what the bytes actually contain — guards against header lies.
     max_samples = max(0, (len(data) - 24) // 4)
     n_samples = min(max_samples, max(0, n_samples))

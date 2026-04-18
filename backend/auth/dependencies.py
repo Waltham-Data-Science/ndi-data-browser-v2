@@ -5,15 +5,14 @@
 """
 from __future__ import annotations
 
+import time
 from typing import Annotated, cast
 
 from fastapi import Depends, Request
 
-from ..clients.ndi_cloud import NdiCloudClient
 from ..errors import AuthRequired
 from ..observability.logging import get_logger, user_id_hash_ctx
 from .session import SessionData, SessionStore, fingerprint
-from .token_refresh import ensure_fresh_access_token
 
 SESSION_COOKIE = "session"
 
@@ -28,17 +27,9 @@ def _get_session_store(request: Request) -> SessionStore:
     return cast(SessionStore, store)
 
 
-def _get_cloud_client(request: Request) -> NdiCloudClient:
-    client = getattr(request.app.state, "cloud_client", None)
-    if client is None:
-        raise RuntimeError("NdiCloudClient not initialized on app.state")
-    return cast(NdiCloudClient, client)
-
-
 async def get_current_session(
     request: Request,
     store: Annotated[SessionStore, Depends(_get_session_store)],
-    cloud: Annotated[NdiCloudClient, Depends(_get_cloud_client)],
 ) -> SessionData | None:
     session_id = request.cookies.get(SESSION_COOKIE)
     if not session_id:
@@ -68,7 +59,13 @@ async def get_current_session(
             current_ip_hash=current_ip_hash,
         )
 
-    session = await ensure_fresh_access_token(session, store=store, cloud=cloud)
+    # Access tokens are 1-hour TTL and the cloud does not expose a refresh
+    # endpoint (see ADR-008). If the token has already expired, drop the
+    # session and force re-login via the standard AuthRequired path.
+    if session.access_token_expires_at <= int(time.time()):
+        await store.delete(session.session_id)
+        return None
+
     # Touch updates last_active without re-issuing an absolute TTL extension.
     await store.touch(session)
     user_id_hash_ctx.set(session.user_email_hash[:16])
