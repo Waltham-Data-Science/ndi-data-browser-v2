@@ -185,6 +185,173 @@ describe('SummaryTableView XLS export', () => {
   });
 });
 
+// ─── B6a canonical column defaults ──────────────────────────────────────
+// Fixture: Francesconi-tutorial-shaped subject row (Dabrowska lab). Exercises
+// ordering + hidden-by-default + CSV-join on array cells + dynamic treatment-
+// location discovery all in one shot.
+const francesconiSubjectTable: TableResponse = {
+  columns: [
+    { key: 'subjectIdentifier', label: 'Subject Identifier' },
+    { key: 'subjectLocalIdentifier', label: 'Local Identifier' },
+    { key: 'subjectDocumentIdentifier', label: 'Subject Doc ID' },
+    { key: 'sessionDocumentIdentifier', label: 'Session Doc ID' },
+    { key: 'strainName', label: 'Strain' },
+    { key: 'strainOntology', label: 'Strain Ontology' },
+    { key: 'backgroundStrainName', label: 'Background Strain' },
+    { key: 'backgroundStrainOntology', label: 'Background Strain Ontology' },
+    { key: 'geneticStrainTypeName', label: 'Genetic Strain Type' },
+    { key: 'speciesName', label: 'Species' },
+    { key: 'speciesOntology', label: 'Species Ontology' },
+    { key: 'biologicalSexName', label: 'Sex' },
+    { key: 'biologicalSexOntology', label: 'Sex Ontology' },
+    { key: 'ageAtRecording', label: 'Age at Recording' },
+    { key: 'description', label: 'Description' },
+    // Dynamic treatment column from the Dabrowska optogenetic-tetanus dataset
+    { key: 'OptogeneticTetanusStimulationTargetLocationName', label: 'Optogenetic Tetanus Stimulation Target Location Name' },
+  ],
+  rows: [
+    {
+      subjectIdentifier: 'wi_rat_CRFCre_210818_BNST@dabrowska-lab.rosalindfranklin.edu',
+      subjectLocalIdentifier: 'wi_rat_CRFCre_210818_BNST@dabrowska-lab.rosalindfranklin.edu',
+      subjectDocumentIdentifier: '412693bb0b2a75c8_c0dc4139300a673e',
+      sessionDocumentIdentifier: 'sess_abc123',
+      // Multi-valued strain — expect CSV-join rendering
+      strainName: ['CRF-Cre', 'OTR-IRES-Cre'],
+      strainOntology: [],
+      backgroundStrainName: 'WI',
+      backgroundStrainOntology: 'RRID:RGD_13508588',
+      geneticStrainTypeName: 'knockin',
+      speciesName: 'Rattus norvegicus',
+      speciesOntology: 'NCBITaxon:10116',
+      biologicalSexName: 'male',
+      biologicalSexOntology: 'PATO:0000384',
+      ageAtRecording: null,
+      description: null,
+      OptogeneticTetanusStimulationTargetLocationName: 'BNST',
+    },
+  ],
+};
+
+/** Extract the visible label from each `<th>` — ignoring the tooltip text
+ * that lives in a hidden sibling span. The label is the first `<span>`
+ * inside the sort button; this shields us from the tooltip-description
+ * string bleeding into `th.textContent`. */
+function visibleHeaders(tableEl: HTMLElement): string[] {
+  return Array.from(tableEl.querySelectorAll('thead th')).map((th) => {
+    const labelSpan = th.querySelector('button span');
+    return labelSpan?.textContent?.trim() ?? '';
+  });
+}
+
+describe('SummaryTableView — B6a canonical column defaults (subject grain)', () => {
+  it('hides sessionDocumentIdentifier by default', () => {
+    render(withProviders(<SummaryTableView data={francesconiSubjectTable} tableType="subject" />));
+    const tableEl = document.querySelector('table');
+    if (!tableEl) throw new Error('no table rendered');
+    const headers = visibleHeaders(tableEl as HTMLElement);
+    expect(headers).not.toContain('Session Doc ID');
+  });
+
+  it('keeps sessionDocumentIdentifier available via the column picker', () => {
+    const { container } = render(
+      withProviders(<SummaryTableView data={francesconiSubjectTable} tableType="subject" />),
+    );
+    // Click the "Columns" toggle to reveal the picker (fireEvent goes
+    // through React's synthetic-event path so the toggle state updates).
+    const columnsBtn = screen.getByRole('button', { name: /Columns/i });
+    fireEvent.click(columnsBtn);
+    // The picker panel lives in a div with the column checkboxes. Look for
+    // Session Doc ID as a checkbox label text (not a table header).
+    const pickerLabels = Array.from(container.querySelectorAll('label'))
+      .map((l) => l.textContent?.trim() ?? '');
+    expect(pickerLabels.some((l) => l === 'Session Doc ID')).toBe(true);
+  });
+
+  it('renders the canonical headers in canonical order', () => {
+    render(withProviders(<SummaryTableView data={francesconiSubjectTable} tableType="subject" />));
+    const tableEl = document.querySelector('table');
+    if (!tableEl) throw new Error('no table rendered');
+    const headers = visibleHeaders(tableEl as HTMLElement);
+    // Visible headers in order should start with the canonical 11 + the
+    // dynamic treatment column. `sessionDocumentIdentifier` absent (hidden),
+    // `ageAtRecording`/`description` absent (also hidden),
+    // `subjectIdentifier` absent (hidden-by-default per canonical).
+    expect(headers.slice(0, 3)).toEqual([
+      'Subject Doc ID',
+      'Local Identifier',
+      'Strain',
+    ]);
+    expect(headers).not.toContain('Session Doc ID');
+    expect(headers).not.toContain('Age at Recording');
+    expect(headers).not.toContain('Description');
+  });
+
+  it('CSV-joins array cells in multi-valued columns', () => {
+    render(withProviders(<SummaryTableView data={francesconiSubjectTable} tableType="subject" />));
+    const tableEl = document.querySelector('table');
+    if (!tableEl) throw new Error('no table rendered');
+    // `strainName` was set to ['CRF-Cre', 'OTR-IRES-Cre'] — expect CSV-join.
+    expect(within(tableEl).getByText('CRF-Cre, OTR-IRES-Cre')).toBeInTheDocument();
+  });
+
+  it('surfaces the discovered dynamic treatment column with a generated header', () => {
+    render(withProviders(<SummaryTableView data={francesconiSubjectTable} tableType="subject" />));
+    const tableEl = document.querySelector('table');
+    if (!tableEl) throw new Error('no table rendered');
+    const headers = visibleHeaders(tableEl as HTMLElement);
+    // Header text comes from `prettyHeaderFromCamelCase` — space-separated words.
+    expect(headers.some((h) => h.includes('Optogenetic Tetanus Stimulation Target Location'))).toBe(true);
+  });
+});
+
+describe('SummaryTableView — B6a canonical column defaults (probe grain)', () => {
+  const probeTable: TableResponse = {
+    columns: [
+      { key: 'probeDocumentIdentifier', label: 'Probe Doc ID' },
+      { key: 'probeName', label: 'Name' },
+      { key: 'probeType', label: 'Type' },
+      { key: 'probeReference', label: 'Reference' },
+      { key: 'probeLocationName', label: 'Probe Location' },
+      { key: 'probeLocationOntology', label: 'Probe Location Ontology' },
+      { key: 'cellTypeName', label: 'Cell Type' },
+      { key: 'cellTypeOntology', label: 'Cell Type Ontology' },
+      { key: 'subjectDocumentIdentifier', label: 'Subject Doc ID' },
+    ],
+    rows: [
+      {
+        probeDocumentIdentifier: '412693bb0bf99bbe_c0cb88b37570afba',
+        probeName: 'Vm_210401_BNSTIII_a',
+        probeType: 'patch-Vm',
+        probeReference: '[1]',
+        // Multi-valued location list demonstrates CSV-join
+        probeLocationName: ['bed nucleus of stria terminalis', 'BNST'],
+        probeLocationOntology: ['UBERON:0001880'],
+        cellTypeName: 'Type III BNST neuron',
+        cellTypeOntology: 'EMPTY:0000073',
+        subjectDocumentIdentifier: '412693bb0b2cf772_c0d06cadbb168eb5',
+      },
+    ],
+  };
+
+  it('renders the 9 probe columns in canonical order', () => {
+    render(withProviders(<SummaryTableView data={probeTable} tableType="element" />));
+    const tableEl = document.querySelector('table');
+    if (!tableEl) throw new Error('no table rendered');
+    const headers = visibleHeaders(tableEl as HTMLElement);
+    // Subject Doc ID first, then Probe Doc ID, then descriptors.
+    expect(headers[0]).toBe('Subject Doc ID');
+    expect(headers[1]).toBe('Probe Doc ID');
+    expect(headers[2]).toBe('Name');
+  });
+
+  it('CSV-joins probeLocationName when multi-valued', () => {
+    render(withProviders(<SummaryTableView data={probeTable} tableType="element" />));
+    const tableEl = document.querySelector('table');
+    if (!tableEl) throw new Error('no table rendered');
+    expect(within(tableEl).getByText('bed nucleus of stria terminalis, BNST')).toBeInTheDocument();
+  });
+});
+
 describe('SummaryTableView cell rendering', () => {
   const dualClockTable: TableResponse = {
     columns: [

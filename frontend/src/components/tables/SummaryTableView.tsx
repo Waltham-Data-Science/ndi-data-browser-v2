@@ -21,7 +21,12 @@ import { OntologyPopover } from '@/components/ontology/OntologyPopover';
 import { isOntologyTerm } from '@/components/ontology/ontology-utils';
 import { useBatchOntologyLookup } from '@/api/ontology';
 import { QuickPlot } from '@/components/visualization/QuickPlot';
-import { getColumnDefinition } from '@/data/table-column-definitions';
+import {
+  getColumnDefinition,
+  resolveDefaultColumns,
+  type ColumnDefault,
+  type ColumnFormatter,
+} from '@/data/table-column-definitions';
 import { cn } from '@/lib/cn';
 
 interface SummaryTableViewProps {
@@ -120,12 +125,58 @@ export function SummaryTableView({
     [setSearchParams],
   );
 
+  // B6a: canonical column defaults for subject/probe/epoch grains. The
+  // column list and its default visibility come from NDI-matlab's
+  // `docTable.subject`/`probe`/`epoch` per Plan B amendment §4.B6a. For
+  // other grains (combined, ontology, treatment, probe_location,
+  // openminds_subject) we fall back to the backend-provided column list
+  // with no defaults.
+  const canonicalDefaults = useMemo<ColumnDefault[]>(
+    () => (tableType ? resolveDefaultColumns(tableType, data.rows) : []),
+    [tableType, data.rows],
+  );
+
+  /** Index of canonical default rules by column id — consulted below for
+   * per-column visibility and formatting. */
+  const canonicalById = useMemo(() => {
+    const out = new Map<string, ColumnDefault>();
+    for (const c of canonicalDefaults) out.set(c.id, c);
+    return out;
+  }, [canonicalDefaults]);
+
+  /** Ordered column list: canonical order first, then any backend columns
+   * the canonical list doesn't know about (preserves server-driven columns
+   * while still honoring tutorial ordering).
+   *
+   * Preserve the backend's `label` when no canonical rule exists — the
+   * backend ships "Subject Doc ID" labels etc. that match our canonical
+   * headers, and for unknown columns we want the server's text, not a
+   * fallback. */
+  const orderedColumns = useMemo(() => {
+    const srcColumns = data.columns;
+    if (canonicalDefaults.length === 0) return srcColumns;
+    const bySrcKey = new Map(srcColumns.map((c) => [c.key, c]));
+    const result: typeof srcColumns = [];
+    const emitted = new Set<string>();
+    for (const c of canonicalDefaults) {
+      const src = bySrcKey.get(c.id);
+      if (src) {
+        result.push(src);
+        emitted.add(c.id);
+      }
+    }
+    for (const c of srcColumns) {
+      if (!emitted.has(c.key)) result.push(c);
+    }
+    return result;
+  }, [canonicalDefaults, data]);
+
   // Collect every ontology-shaped value in the current rows and fire a
   // batch lookup so the popovers open instantly.
   const ontologyTermIds = useMemo(() => {
     const terms = new Set<string>();
     for (const row of data.rows) {
-      for (const col of data.columns) {
+      for (const col of orderedColumns) {
         const v = row[col.key];
         if (typeof v === 'string' && isOntologyTerm(v)) {
           terms.add(v.trim());
@@ -139,7 +190,7 @@ export function SummaryTableView({
       }
     }
     return [...terms];
-  }, [data.rows, data.columns, columnOntologyPrefixes]);
+  }, [data.rows, orderedColumns, columnOntologyPrefixes]);
 
   useBatchOntologyLookup(ontologyTermIds);
 
@@ -148,7 +199,7 @@ export function SummaryTableView({
   const autoHiddenColumns = useMemo(() => {
     const hidden: VisibilityState = {};
     if (data.rows.length === 0) return hidden;
-    for (const col of data.columns) {
+    for (const col of orderedColumns) {
       const allEmpty = data.rows.every((row) => {
         const v = row[col.key];
         return v === null || v === undefined || v === '';
@@ -156,13 +207,25 @@ export function SummaryTableView({
       if (allEmpty) hidden[col.key] = false;
     }
     return hidden;
-  }, [data.columns, data.rows]);
+  }, [orderedColumns, data.rows]);
+
+  /** B6a: canonical-default-visibility — columns that are `visible: false`
+   * in the canonical list (e.g. `sessionDocumentIdentifier` on the subject
+   * grain) start hidden but remain exposed in the column-toggle picker.
+   * Merged below the auto-hide layer so explicit user toggles still win. */
+  const canonicalHiddenColumns = useMemo<VisibilityState>(() => {
+    const out: VisibilityState = {};
+    for (const c of canonicalDefaults) {
+      if (!c.visible) out[c.id] = false;
+    }
+    return out;
+  }, [canonicalDefaults]);
 
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(initialHidden);
 
   const mergedVisibility = useMemo(
-    () => ({ ...autoHiddenColumns, ...columnVisibility }),
-    [autoHiddenColumns, columnVisibility],
+    () => ({ ...canonicalHiddenColumns, ...autoHiddenColumns, ...columnVisibility }),
+    [canonicalHiddenColumns, autoHiddenColumns, columnVisibility],
   );
 
   // Push state -> URL whenever the user changes filter/sort/visibility.
@@ -191,9 +254,13 @@ export function SummaryTableView({
 
   const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(
     () =>
-      data.columns.map((col) => {
+      orderedColumns.map((col) => {
         const colDef = tableType ? getColumnDefinition(tableType, col.key) : undefined;
-        const label = colDef?.label ?? col.label;
+        const canonical = canonicalById.get(col.key);
+        // Precedence: canonical header > tooltip label > backend label.
+        // Tooltip description (when present) always wins for the info-icon.
+        const label = canonical?.header ?? colDef?.label ?? col.label;
+        const formatter = canonical?.formatter;
         return {
           id: col.key,
           accessorFn: (row) => row[col.key],
@@ -223,11 +290,11 @@ export function SummaryTableView({
               )}
             </div>
           ),
-          cell: ({ getValue }) => <TableCell value={getValue()} />,
+          cell: ({ getValue }) => <TableCell value={getValue()} formatter={formatter} />,
           filterFn: 'includesString' as const,
         };
       }),
-    [data.columns, tableType],
+    [orderedColumns, tableType, canonicalById],
   );
 
   const table = useReactTable({
@@ -434,6 +501,10 @@ export function SummaryTableView({
         <div className="flex flex-wrap gap-2 p-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
           {table.getAllLeafColumns().map((column) => {
             const colDef = tableType ? getColumnDefinition(tableType, column.id) : undefined;
+            // Precedence matches the header render above — canonical header
+            // wins so the picker agrees with the column-header text.
+            const canonical = canonicalById.get(column.id);
+            const label = canonical?.header ?? colDef?.label ?? column.id;
             return (
               <label
                 key={column.id}
@@ -446,7 +517,7 @@ export function SummaryTableView({
                   className="rounded border-slate-300 dark:border-slate-600"
                 />
                 <span className="font-mono truncate max-w-[180px]">
-                  {colDef?.label ?? column.id}
+                  {label}
                 </span>
               </label>
             );
@@ -467,10 +538,32 @@ export function SummaryTableView({
   );
 }
 
-function TableCell({ value }: { value: unknown }) {
+function TableCell({
+  value,
+  formatter,
+}: {
+  value: unknown;
+  /** Optional column-level formatter — e.g. CSV-join for array cells. If
+   * it returns a string, that replaces the default rendering; returning
+   * `undefined` falls through to the default branches below. */
+  formatter?: ColumnFormatter;
+}) {
   if (value === null || value === undefined) {
     // aria-hidden: the em-dash is a visual null-placeholder, not content.
     return <span className="text-slate-500 dark:text-slate-400" aria-hidden>—</span>;
+  }
+  // Let the column-level formatter override first — specifically the
+  // CSV-join formatter for array cells, which matches MATLAB's
+  // `join({...}, ', ')` shape per Plan B amendment §4.B6a.
+  if (formatter) {
+    const formatted = formatter(value);
+    if (typeof formatted === 'string') {
+      return (
+        <span className="font-mono text-xs truncate max-w-[300px] block">
+          {formatted}
+        </span>
+      );
+    }
   }
   if (typeof value === 'object' && !Array.isArray(value)) {
     return <EpochTimeCell value={value as Record<string, unknown>} />;
