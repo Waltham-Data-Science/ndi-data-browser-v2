@@ -39,7 +39,9 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - run: pip install -r backend/requirements.txt
       - run: pip install pytest pytest-asyncio pytest-cov respx hypothesis fakeredis freezegun
-      - run: python -m pytest backend/tests/unit backend/tests/integration --cov=backend --cov-report=xml --cov-report=term-missing
+      # Explicit --cov-fail-under gate so coverage cannot silently drift below 70%
+      # (config-loading bugs, pytest-cov version changes, etc. cannot bypass this).
+      - run: python -m pytest backend/tests/unit backend/tests/integration --cov=backend --cov-report=xml --cov-report=term-missing --cov-fail-under=70
         env:
           NDI_CLOUD_URL: https://api.example.test/v1
           REDIS_URL: redis://localhost:6379/0
