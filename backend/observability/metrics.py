@@ -62,26 +62,9 @@ login_attempts_total = Counter(
     ["outcome"],
     registry=REGISTRY,
 )
-cognito_refresh_total = Counter(
-    "ndb_cognito_refresh_total",
-    "Count of Cognito refresh attempts",
-    ["outcome"],
-    registry=REGISTRY,
-)
-cognito_refresh_duration_seconds = Histogram(
-    "ndb_cognito_refresh_duration_seconds",
-    "Cognito refresh latency",
-    buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
-    registry=REGISTRY,
-)
 session_count = Gauge(
     "ndb_session_count",
     "Approximate number of active sessions (via Redis dbsize sample)",
-    registry=REGISTRY,
-)
-session_refresh_lock_contention_total = Counter(
-    "ndb_session_refresh_lock_contention_total",
-    "Times another worker was already refreshing",
     registry=REGISTRY,
 )
 
