@@ -5,6 +5,7 @@ import type {
   CompactDatasetSummary,
   DatasetSummary,
 } from '@/types/dataset-summary';
+import type { FacetsResponse } from '@/types/facets';
 
 import { apiFetch } from './client';
 
@@ -203,5 +204,27 @@ export function useDatasetPivot(
       ),
     enabled: !!datasetId && !!grain,
     staleTime: 60_000,
+  });
+}
+
+/**
+ * Cross-dataset facet aggregation — Plan B B3. Backed by ``GET /api/facets``,
+ * produced by the backend :class:`FacetService` walking the published
+ * catalog and aggregating distinct ``species``/``brainRegions``/``strains``/
+ * ``sexes``/``probeTypes`` across every dataset that has a computed summary.
+ *
+ * Freshness budget: 5-minute TTL on the backend Redis cache + a 30-second
+ * staleTime on the query client so a tight click sequence (click species
+ * → click brain region) doesn't re-fetch on every chip click. See
+ * amendment §4.B3 for the "freshness > TTL economy" rationale.
+ */
+export function useFacets() {
+  return useQuery({
+    queryKey: ['facets'],
+    queryFn: () => apiFetch<FacetsResponse>('/api/facets'),
+    // Facets change on the order of dataset-publish events (minutes); a
+    // short staleTime keeps chip clicks from re-fetching while a new
+    // publish still propagates within the 5-minute server TTL.
+    staleTime: 30_000,
   });
 }

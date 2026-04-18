@@ -2,17 +2,71 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import type { QueryResponse } from '@/api/query';
+import type { QueryNode } from '@/api/query';
+import { FacetPanel } from '@/components/query/FacetPanel';
+import { OutputShapePreview } from '@/components/query/OutputShapePreview';
 import { QueryBuilder } from '@/components/query/QueryBuilder';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/Card';
 import { formatNumber } from '@/lib/format';
+import type { OntologyTerm } from '@/types/facets';
 
 /**
- * Cross-cloud query page — reuses the ported v1 QueryBuilder with URL
- * pre-load (ontology cross-link drops users here with op+field+param1
- * hydrated from the OntologyPopover "Find everywhere" link).
+ * Cross-cloud query page.
+ *
+ * Plan B B3 surface:
+ * - FacetPanel (left sidebar) — cross-dataset distinct-values chips from
+ *   ``GET /api/facets``. Clicking a chip appends a filter to the builder.
+ * - QueryBuilder (center) — ported v1 builder with MATLAB ``contains``
+ *   default string match (amendment §4.B3). Also hydrates from URL for
+ *   ontology "Find everywhere" cross-links.
+ * - OutputShapePreview (right sidebar) — static NDI-matlab tutorial
+ *   column sets for the subject/probe/epoch grains.
  */
 export function QueryPage() {
   const [results, setResults] = useState<QueryResponse | null>(null);
+  // Facet clicks inject a fresh seed + re-key the builder so the useEffect
+  // re-runs. ``seedKey`` increments monotonically per click; ``seed`` holds
+  // the initial condition list the builder should start with.
+  const [seed, setSeed] = useState<{ key: number; conditions: QueryNode[] } | null>(null);
+
+  const handleSelectOntologyFacet = (
+    _kind: 'species' | 'brainRegions' | 'strains' | 'sexes',
+    term: OntologyTerm,
+  ) => {
+    // `data.ontology_name` is the canonical ontology-ID field emitted by
+    // the enrichment pipeline (see B1's DatasetSummary notes + v1's
+    // ontology cross-link). A click appends `contains_string` on
+    // `data.ontology_name` — this matches both full IDs
+    // (`NCBITaxon:10116`) and human labels in the same cell.
+    //
+    // `_kind` is reserved for future use: when the enrichment pipeline
+    // routes species/brainRegions to distinct field paths we'll
+    // dispatch on it. For now we unify on `data.ontology_name`.
+    const param1 = term.ontologyId ?? term.label;
+    const condition: QueryNode = {
+      operation: 'contains_string',
+      field: 'data.ontology_name',
+      param1,
+    };
+    setSeed((prev) => ({
+      key: (prev?.key ?? 0) + 1,
+      conditions: [condition],
+    }));
+  };
+
+  const handleSelectProbeType = (probeType: string) => {
+    // Probe types are free-text; narrow by element.type (the canonical
+    // probe-type field in NDI-matlab + v2's SUBJECT/PROBE column shape).
+    const condition: QueryNode = {
+      operation: 'contains_string',
+      field: 'element.type',
+      param1: probeType,
+    };
+    setSeed((prev) => ({
+      key: (prev?.key ?? 0) + 1,
+      conditions: [condition],
+    }));
+  };
 
   return (
     <div className="space-y-4">
@@ -22,13 +76,39 @@ export function QueryPage() {
         </h1>
         <p className="text-sm text-slate-600 dark:text-slate-400">
           Build an NDI query. Every field search auto-narrows to the class, so
-          searches stay fast even across public datasets.
+          searches stay fast even across public datasets. Filters default to{' '}
+          <code className="font-mono text-xs">contains</code> (case-insensitive) —
+          matches the NDI-matlab tutorial convention.
         </p>
       </header>
 
-      <QueryBuilder onResults={setResults} onClear={() => setResults(null)} />
+      <div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)_20rem]">
+        <aside className="space-y-4">
+          <FacetPanel
+            onSelectOntologyFacet={handleSelectOntologyFacet}
+            onSelectProbeType={handleSelectProbeType}
+          />
+        </aside>
 
-      {results && <ResultsCard results={results} />}
+        <section className="space-y-4">
+          {/*
+            Use `key` to force a re-mount on each facet click so the builder's
+            initialization useEffect picks up the fresh seed. Without this a
+            second click on a different chip would not reach the state.
+          */}
+          <QueryBuilder
+            key={seed?.key ?? 'initial'}
+            onResults={setResults}
+            onClear={() => setResults(null)}
+            seedConditions={seed?.conditions}
+          />
+          {results && <ResultsCard results={results} />}
+        </section>
+
+        <aside className="space-y-4">
+          <OutputShapePreview />
+        </aside>
+      </div>
     </div>
   );
 }
