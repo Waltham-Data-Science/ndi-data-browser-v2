@@ -51,6 +51,11 @@ export interface DatasetSummaryCitation {
   datasetDoi: string | null;
   paperDois: string[];
   contributors: DatasetSummaryContributor[];
+  /** Record-creation year from ``createdAt`` in NDI Cloud. **NOT** the
+   *  paper publication year — a dataset uploaded in 2026 for a 2019 paper
+   *  will report ``year: 2026``. Resolve ``paperDois`` externally for the
+   *  true publication year. B4's cite modal is expected to label this
+   *  explicitly as "upload year". */
   year: number | null;
 }
 

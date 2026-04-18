@@ -110,6 +110,8 @@ class DatasetSummaryCitation(BaseModel):
     datasetDoi: StrictStr | None = None
     paperDois: list[StrictStr]
     contributors: list[DatasetSummaryContributor]
+    # Record-creation year from ``createdAt`` — NOT the paper publication
+    # year. See ``_publication_year`` for rationale.
     year: conint(ge=1900) | None = None  # type: ignore[valid-type]
 
 
@@ -620,9 +622,19 @@ def _paper_dois(items: list[Any]) -> list[str]:
 
 
 def _publication_year(raw: dict[str, Any]) -> int | None:
-    """Cloud responses don't expose a dedicated publication year field. We
-    pull the year off ``createdAt`` as a best-effort proxy; callers who want
-    the true publication year can read ``citation.paperDois`` and resolve.
+    """Record-creation year pulled from ``createdAt``.
+
+    **This is NOT the paper publication year.** The cloud does not expose
+    a dedicated publication-year field on ``IDataset``. We return the year
+    in which the dataset record was created in NDI Cloud — an upload /
+    curation timestamp, not a research-calendar milestone. A dataset
+    uploaded in 2026 that corresponds to a 2019 paper will report
+    ``year=2026``.
+
+    Consumers that need the canonical publication year should resolve it
+    from ``citation.paperDois`` via an external DOI resolver (PubMed /
+    Crossref). B4's cite-modal work is the natural place to render this
+    field with an explicit "upload year" label.
     """
     created = _clean(raw.get("createdAt"))
     if not isinstance(created, str):

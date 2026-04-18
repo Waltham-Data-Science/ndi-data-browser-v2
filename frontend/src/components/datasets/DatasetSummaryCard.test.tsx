@@ -3,8 +3,8 @@
  * the `[]` vs `null` UI differentiation, the ontology-term pill + tooltip
  * + resolver link, and the warnings debug tooltip.
  */
-import { describe, expect, it } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import {
   DatasetSummaryCard,
@@ -190,6 +190,56 @@ describe('OntologyTermPill', () => {
     const wrapper = container.querySelector('[data-ontology-id]');
     expect(wrapper).not.toBeNull();
     expect(wrapper?.getAttribute('data-ontology-id')).toBe('WBStrain:00000001');
+  });
+});
+
+describe('OntologyTermPill — hover-timing stale-closure guard', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('does NOT reveal the tooltip if the user leaves before 600ms elapses', () => {
+    const { container } = render(
+      <OntologyTermPill
+        term={{ label: 'Mus musculus', ontologyId: 'NCBITaxon:10090' }}
+      />,
+    );
+    const wrapper = container.querySelector('[data-ontology-id]') as HTMLElement;
+
+    // Enter, wait <600ms, leave, advance past 600ms total.
+    fireEvent.mouseEnter(wrapper);
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    fireEvent.mouseLeave(wrapper);
+    act(() => {
+      vi.advanceTimersByTime(1000); // well past HOVER_TOOLTIP_DELAY_MS
+    });
+
+    // Before the ref-based fix, the setTimeout callback would have fired
+    // with a stale closure of `hovering === true` and shown the tooltip.
+    expect(
+      screen.queryByTestId('ontology-term-tooltip'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('reveals the tooltip after 600ms of sustained hover', () => {
+    const { container } = render(
+      <OntologyTermPill
+        term={{ label: 'Rattus norvegicus', ontologyId: 'NCBITaxon:10116' }}
+      />,
+    );
+    const wrapper = container.querySelector('[data-ontology-id]') as HTMLElement;
+
+    fireEvent.mouseEnter(wrapper);
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
+
+    expect(screen.getByTestId('ontology-term-tooltip')).toBeInTheDocument();
   });
 });
 

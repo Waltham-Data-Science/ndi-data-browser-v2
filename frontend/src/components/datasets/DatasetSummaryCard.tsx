@@ -16,7 +16,7 @@
  * Full strings are preserved, never truncated (amendment §4.B1).
  */
 import { Info } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import { ExternalAnchor } from '@/components/ExternalAnchor';
 import { Badge } from '@/components/ui/Badge';
@@ -431,19 +431,35 @@ function renderStringListOrStatus(values: string[] | null): React.ReactNode {
 const HOVER_TOOLTIP_DELAY_MS = 600;
 
 export function OntologyTermPill({ term }: { term: OntologyTerm }) {
-  const [hovering, setHovering] = useState(false);
+  // Ref (not state) so the setTimeout callback always reads the *live*
+  // hover state, not the closure at call time. A user who briefly hovers
+  // and moves away within HOVER_TOOLTIP_DELAY_MS must NOT see a ghost
+  // tooltip appear after the timeout fires.
+  const hoveringRef = useRef(false);
+  const pendingTimeoutRef = useRef<number | null>(null);
   const [tooltipVisible, setTooltipVisible] = useState(false);
 
   const resolverHref = term.ontologyId ? resolverUrl(term.ontologyId) : null;
 
   function onEnter() {
-    setHovering(true);
-    window.setTimeout(() => {
-      setTooltipVisible((prev) => (hovering ? true : prev));
+    hoveringRef.current = true;
+    // Cancel any previous pending reveal in case of rapid re-enter.
+    if (pendingTimeoutRef.current !== null) {
+      window.clearTimeout(pendingTimeoutRef.current);
+    }
+    pendingTimeoutRef.current = window.setTimeout(() => {
+      pendingTimeoutRef.current = null;
+      if (hoveringRef.current) {
+        setTooltipVisible(true);
+      }
     }, HOVER_TOOLTIP_DELAY_MS);
   }
   function onLeave() {
-    setHovering(false);
+    hoveringRef.current = false;
+    if (pendingTimeoutRef.current !== null) {
+      window.clearTimeout(pendingTimeoutRef.current);
+      pendingTimeoutRef.current = null;
+    }
     setTooltipVisible(false);
   }
 
