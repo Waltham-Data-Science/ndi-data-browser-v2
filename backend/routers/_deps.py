@@ -18,6 +18,7 @@ from ..services.dataset_summary_service import (
 from ..services.dependency_graph_service import DependencyGraphService
 from ..services.document_service import DocumentService
 from ..services.ontology_service import OntologyService
+from ..services.pivot_service import PivotService
 from ..services.query_service import QueryService
 from ..services.summary_table_service import SummaryTableService
 from ..services.visualize_service import VisualizeService
@@ -69,6 +70,14 @@ def dataset_summary_service(request: Request) -> DatasetSummaryService:
         ontology_service(request),
         cache=dataset_summary_cache(request),
     )
+
+
+def pivot_cache(request: Request) -> RedisTableCache | None:
+    return getattr(request.app.state, "pivot_cache", None)
+
+
+def pivot_service(request: Request) -> PivotService:
+    return PivotService(cloud(request), cache=pivot_cache(request))
 
 
 # Keep the TTL constant reachable from app.py wiring without a cross-import.

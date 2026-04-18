@@ -21,12 +21,16 @@ def app_and_cloud(fake_redis):  # type: ignore[no-untyped-def]
             from backend.services.dataset_summary_service import (
                 SUMMARY_CACHE_TTL_SECONDS,
             )
+            from backend.services.pivot_service import PIVOT_CACHE_TTL_SECONDS
             app.state.redis = fake_redis
             app.state.session_store = SessionStore(fake_redis)
             app.state.rate_limiter = RateLimiter(fake_redis)
             app.state.table_cache = RedisTableCache(fake_redis)
             app.state.dataset_summary_cache = RedisTableCache(
                 fake_redis, ttl_seconds=SUMMARY_CACHE_TTL_SECONDS,
+            )
+            app.state.pivot_cache = RedisTableCache(
+                fake_redis, ttl_seconds=PIVOT_CACHE_TTL_SECONDS,
             )
             yield client, router
 
@@ -501,3 +505,132 @@ def test_list_by_class_paginates_at_cloud_layer(app_and_cloud) -> None:  # type:
     assert len(captured) == 1, f"expected 1 ndiquery call, got {len(captured)}"
     assert captured[0]["page"] == "3"
     assert captured[0]["pageSize"] == "50"
+
+
+# ---------------------------------------------------------------------------
+# Plan B B6e: grain-selectable pivot (behind FEATURE_PIVOT_V1)
+# ---------------------------------------------------------------------------
+
+def test_pivot_subject_returns_envelope_when_flag_enabled(
+    app_and_cloud, monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    """End-to-end B6e: GET /api/datasets/:id/pivot/subject returns the
+    canonical ``PivotResponse`` envelope with one row per subject doc.
+
+    Flag is lru-cached via ``get_settings()``; flip via env + cache_clear.
+    """
+    client, router = app_and_cloud
+
+    monkeypatch.setenv("FEATURE_PIVOT_V1", "true")
+    from backend.config import get_settings
+    get_settings.cache_clear()
+    try:
+        router.get("/datasets/DS1/document-class-counts").respond(
+            200,
+            json={
+                "datasetId": "DS1",
+                "totalDocuments": 2,
+                "classCounts": {"subject": 1, "openminds_subject": 1},
+            },
+        )
+        router.post("/ndiquery").respond(
+            200,
+            json={
+                "number_matches": 1, "pageSize": 1000, "page": 1,
+                "documents": [{"id": "sub-A"}],
+            },
+        )
+        router.post("/datasets/DS1/documents/bulk-fetch").respond(
+            200,
+            json={"documents": [{
+                "id": "sub-A", "ndiId": "ndi-sub-A",
+                "data": {
+                    "base": {
+                        "id": "ndi-sub-A",
+                        "session_id": "sess-1",
+                        "name": "subject-A",
+                    },
+                    "subject": {"local_identifier": "A@lab.edu"},
+                },
+            }]},
+        )
+
+        r = client.get("/api/datasets/DS1/pivot/subject")
+        assert r.status_code == 200, r.json()
+        body = r.json()
+        assert body["schemaVersion"] == "pivot:v1"
+        assert body["grain"] == "subject"
+        assert body["totalRows"] == 1
+        assert body["rows"][0]["subjectLocalIdentifier"] == "A@lab.edu"
+        assert body["rows"][0]["sessionDocumentIdentifier"] == "sess-1"
+    finally:
+        monkeypatch.delenv("FEATURE_PIVOT_V1", raising=False)
+        get_settings.cache_clear()
+
+
+def test_pivot_returns_503_when_feature_disabled(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """FEATURE_PIVOT_V1 is false by default → 503 service unavailable.
+
+    Frontend hides the pivot nav on this response code.
+    """
+    client, _ = app_and_cloud
+    # Default env — flag is false.
+    r = client.get("/api/datasets/DS1/pivot/subject")
+    assert r.status_code == 503
+    body = r.json()
+    # StarletteHTTPException handler maps non-404/400 to Internal with
+    # status preserved.
+    assert "FEATURE_PIVOT_V1" in body["error"]["message"]
+
+
+def test_pivot_invalid_grain_returns_400_typed(
+    app_and_cloud, monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    """Unsupported grain → typed VALIDATION_ERROR (400)."""
+    client, router = app_and_cloud
+
+    monkeypatch.setenv("FEATURE_PIVOT_V1", "true")
+    from backend.config import get_settings
+    get_settings.cache_clear()
+    try:
+        # Counts is consulted first; any non-empty classCounts is fine since
+        # the grain check rejects before presence-gate.
+        router.get("/datasets/DS1/document-class-counts").respond(
+            200,
+            json={"datasetId": "DS1", "totalDocuments": 1,
+                  "classCounts": {"subject": 1}},
+        )
+        r = client.get("/api/datasets/DS1/pivot/quark")
+        assert r.status_code == 400
+        body = r.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert "quark" in body["error"]["message"]
+    finally:
+        monkeypatch.delenv("FEATURE_PIVOT_V1", raising=False)
+        get_settings.cache_clear()
+
+
+def test_pivot_empty_grain_returns_404_typed(
+    app_and_cloud, monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    """Grain with zero docs on this dataset → typed NOT_FOUND (404)."""
+    client, router = app_and_cloud
+
+    monkeypatch.setenv("FEATURE_PIVOT_V1", "true")
+    from backend.config import get_settings
+    get_settings.cache_clear()
+    try:
+        router.get("/datasets/DS1/document-class-counts").respond(
+            200,
+            json={"datasetId": "DS1", "totalDocuments": 3,
+                  "classCounts": {"stimulus_presentation": 3}},
+        )
+        r = client.get("/api/datasets/DS1/pivot/subject")
+        assert r.status_code == 404
+        body = r.json()
+        assert body["error"]["code"] == "NOT_FOUND"
+    finally:
+        monkeypatch.delenv("FEATURE_PIVOT_V1", raising=False)
+        get_settings.cache_clear()

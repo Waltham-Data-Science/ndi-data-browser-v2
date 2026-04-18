@@ -30,7 +30,7 @@ See:
 - [docs/workflows.md](docs/workflows.md) — every user workflow with failure modes
 - [docs/error-catalog.md](docs/error-catalog.md) — 20 typed error codes
 - [docs/operations.md](docs/operations.md) — deploy, rollback, incident response
-- [docs/adr/](docs/adr/) — 10 ADRs (proxy backend, session cookies, Redis, dropping SQLite, refresh tokens — superseded by 008, React Router, summary-table enrichment, deprecate Cognito refresh, services HTTP client boundary, dataset-summary synthesizer)
+- [docs/adr/](docs/adr/) — 11 ADRs (proxy backend, session cookies, Redis, dropping SQLite, refresh tokens — superseded by 008, React Router, summary-table enrichment, deprecate Cognito refresh, services HTTP client boundary, dataset-summary synthesizer, grain-selectable pivot)
 
 ## Workflow rules
 
@@ -72,6 +72,9 @@ Required env vars (see `backend/.env.example`):
 - `SESSION_ENCRYPTION_KEY` (Fernet key) — generate with: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
 - `CSRF_SIGNING_KEY` (32 bytes hex) — generate with: `python -c "import secrets; print(secrets.token_hex(32))"`
 
+Feature flags:
+- `FEATURE_PIVOT_V1` (default `false`) — gate the Plan B B6e grain-selectable pivot at `GET /api/datasets/:id/pivot/:grain` (subject/session/element grains). When off the endpoint returns 503 and the frontend hides the nav. See ADR-011.
+
 Everything else has sensible defaults.
 
 ## Deployment
@@ -88,8 +91,8 @@ v1 continues to serve `ndi-data-browser-production.up.railway.app` in its own Ra
 
 ## Testing
 
-- `backend/tests/unit/` — 273 tests across error catalog, cloud client, circuit breaker, session store, CSRF, rate limiter, projection, query validation, cache, ontology, dependency graph, document/binary/openminds shape, dataset-summary synthesizer
-- `backend/tests/integration/` — 18 tests covering routes end-to-end with respx-mocked cloud + fakeredis
+- `backend/tests/unit/` — 284 tests across error catalog, cloud client, circuit breaker, session store, CSRF, rate limiter, projection, query validation, cache, ontology, dependency graph, document/binary/openminds shape, dataset-summary synthesizer, grain-selectable pivot
+- `backend/tests/integration/` — 22 tests covering routes end-to-end with respx-mocked cloud + fakeredis
 - `backend/tests/contract/` — runs against dev cloud nightly
 - `frontend/tests-e2e/` — Playwright scenarios for public catalog, auth, error recovery
 - Coverage gate: 70% on backend unit+integration (enforced in CI via explicit --cov-fail-under=70). Lowered from aspirational 85% (2026-04-17) to match actual coverage measured at CI. Raise deliberately as coverage improves.

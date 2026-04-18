@@ -41,7 +41,7 @@ log = get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (single startup/shutdown orchestration)
     configure_logging()
     settings = get_settings()
 
@@ -109,6 +109,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from .services.dataset_summary_service import SUMMARY_CACHE_TTL_SECONDS
     app.state.dataset_summary_cache = RedisTableCache(
         redis=redis, ttl_seconds=SUMMARY_CACHE_TTL_SECONDS,
+    )
+
+    # Grain-selectable pivot cache (Plan B B6e), 5-minute TTL with its own
+    # `pivot:v1` prefix so a summary schema bump doesn't invalidate pivots
+    # and vice versa.
+    from .services.pivot_service import PIVOT_CACHE_TTL_SECONDS
+    app.state.pivot_cache = RedisTableCache(
+        redis=redis, ttl_seconds=PIVOT_CACHE_TTL_SECONDS,
     )
 
     log.info("app.startup", environment=settings.ENVIRONMENT)
