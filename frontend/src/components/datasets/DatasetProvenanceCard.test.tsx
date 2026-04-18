@@ -7,8 +7,10 @@
  *  - Branch-of parent link + branch chip links (all routed via <Link>).
  *  - Expandable dependency list: closed by default, reveals grouped edges
  *    on click, groups by targetDatasetId preserving stable order.
- *  - Summary line singular/plural ("1 document references 1 other dataset"
- *    vs "5 documents reference 2 other datasets").
+ *  - Summary line singular/plural ("1 cross-dataset reference to 1 other dataset"
+ *    vs "5 cross-dataset references to 2 other datasets"). The count is
+ *    distinct target ndiIds, not source documents — see the `edgeCount`
+ *    JSDoc in `types/dataset-provenance.ts` for the semantic rationale.
  */
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
@@ -127,11 +129,11 @@ describe('DatasetProvenanceCard — dependency list', () => {
         ],
       }),
     );
-    expect(screen.getByTestId('provenance-docs-count')).toHaveTextContent('5');
+    expect(screen.getByTestId('provenance-refs-count')).toHaveTextContent('5');
     expect(screen.getByTestId('provenance-targets-count')).toHaveTextContent('2');
-    // Plural form: "5 documents reference 2 other datasets".
+    // Plural form: "5 cross-dataset references to 2 other datasets".
     const toggle = screen.getByTestId('provenance-dependencies-toggle');
-    expect(toggle).toHaveTextContent(/5\s+documents reference\s+2\s+other datasets/);
+    expect(toggle).toHaveTextContent(/5\s+cross-dataset references to\s+2\s+other datasets/);
   });
 
   it('uses singular form when counts are 1', () => {
@@ -148,7 +150,7 @@ describe('DatasetProvenanceCard — dependency list', () => {
       }),
     );
     const toggle = screen.getByTestId('provenance-dependencies-toggle');
-    expect(toggle).toHaveTextContent(/1\s+document reference\s+1\s+other dataset/);
+    expect(toggle).toHaveTextContent(/1\s+cross-dataset reference to\s+1\s+other dataset/);
   });
 
   it('is closed by default and toggles the list open on click', () => {
@@ -245,14 +247,15 @@ describe('DatasetProvenanceCard — dependency list', () => {
     fireEvent.click(screen.getByTestId('provenance-dependencies-toggle'));
     const rows = screen.getAllByTestId('provenance-edge-row');
     expect(rows).toHaveLength(2);
-    // Row 1: element badge + "3 documents".
+    // Row 1: element badge + "3 refs" (distinct target-ndiId count, per
+    // edgeCount JSDoc — not a per-source-document count).
     expect(rows[0]).toHaveTextContent('element');
-    expect(rows[0]).toHaveTextContent('3 documents');
-    // Row 2: element_epoch badge + "1 document" (singular).
+    expect(rows[0]).toHaveTextContent('3 refs');
+    // Row 2: element_epoch badge + "1 ref" (singular).
     expect(rows[1]).toHaveTextContent('element_epoch');
-    expect(rows[1]).toHaveTextContent('1 document');
-    // Singular is exactly "1 document", not "1 documents".
-    expect(rows[1].textContent?.includes('1 documents')).toBe(false);
+    expect(rows[1]).toHaveTextContent('1 ref');
+    // Singular is exactly "1 ref", not "1 refs".
+    expect(rows[1].textContent?.includes('1 refs')).toBe(false);
   });
 });
 

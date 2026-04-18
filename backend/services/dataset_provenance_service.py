@@ -94,14 +94,19 @@ _CLASSES_SKIP = frozenset(
 class DatasetDependencyEdge(BaseModel):
     """One aggregated cross-dataset edge.
 
-    Semantics: at least ``edgeCount`` documents of class ``viaDocumentClass``
-    in ``sourceDatasetId`` carry a ``depends_on`` reference to a document in
-    ``targetDatasetId``.
+    Semantics: ``edgeCount`` is the number of **distinct target ndiIds** in
+    ``targetDatasetId`` referenced by ``depends_on`` fields on documents of
+    class ``viaDocumentClass`` in ``sourceDatasetId``. It is NOT a count of
+    source documents — if two source documents carry a ``depends_on`` to the
+    same target ndiId, that contributes 1 to ``edgeCount``, not 2. This is
+    an intentional dedup at the ndiId level: shared probe / subject refs
+    are common in NDI, and document-level counting would inflate numbers
+    whenever callers rely on a single shared upstream entity.
 
     Edges are always source→target (this dataset depends on another). The
     inverse relationship ("who depends on us") is not aggregated here — it
-    would require scanning every OTHER dataset, which is a different cost
-    profile. A future "reverse provenance" endpoint could add it.
+    would require scanning every OTHER dataset, a different cost profile.
+    A future "reverse provenance" endpoint could add it.
     """
 
     model_config = ConfigDict(extra="forbid")

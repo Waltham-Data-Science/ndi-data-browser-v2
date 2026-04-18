@@ -161,7 +161,10 @@ function DependenciesSection({ edges }: { edges: DatasetDependencyEdge[] }) {
   }, [edges]);
 
   const totalEdges = edges.length;
-  const totalDocuments = edges.reduce((acc, e) => acc + e.edgeCount, 0);
+  // Sum of per-(target, class) distinct-ndiId counts across all edges.
+  // NOT a per-document count — see `edgeCount` JSDoc: two source docs
+  // sharing a target ndiId contribute 1, not 2.
+  const totalRefs = edges.reduce((acc, e) => acc + e.edgeCount, 0);
   const targetCount = byTarget.size;
 
   return (
@@ -192,11 +195,11 @@ function DependenciesSection({ edges }: { edges: DatasetDependencyEdge[] }) {
               <span>
                 <span
                   className="font-mono"
-                  data-testid="provenance-docs-count"
+                  data-testid="provenance-refs-count"
                 >
-                  {totalDocuments}
+                  {totalRefs}
                 </span>{' '}
-                document{totalDocuments === 1 ? '' : 's'} reference{' '}
+                cross-dataset reference{totalRefs === 1 ? '' : 's'} to{' '}
                 <span
                   className="font-mono"
                   data-testid="provenance-targets-count"
@@ -246,7 +249,7 @@ function DependenciesSection({ edges }: { edges: DatasetDependencyEdge[] }) {
                           {e.viaDocumentClass}
                         </Badge>
                         <span className="text-slate-600 dark:text-slate-300">
-                          {e.edgeCount} document{e.edgeCount === 1 ? '' : 's'}
+                          {e.edgeCount} ref{e.edgeCount === 1 ? '' : 's'}
                         </span>
                       </li>
                     ))}

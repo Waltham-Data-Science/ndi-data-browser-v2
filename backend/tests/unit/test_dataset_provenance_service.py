@@ -432,6 +432,54 @@ async def test_cross_dataset_edge_dedup(cloud: NdiCloudClient) -> None:
 
 
 # ---------------------------------------------------------------------------
+# edgeCount counts DISTINCT target ndiIds, NOT source documents. Two source
+# docs pointing at the same target ndiId contribute 1, not 2. This is the
+# ndiId-level dedup behavior pinned by the JSDoc/docstring after the initial
+# review flagged a semantics-vs-doc mismatch. A regression to document-level
+# counting (e.g. summing rather than set-collapsing) would flunk this test.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_edge_count_is_distinct_target_ndiids_not_source_docs(
+    cloud: NdiCloudClient,
+) -> None:
+    dataset_id = "DSX"
+    class_docs = {
+        "element": [
+            # Two source documents, both pointing at the SAME target ndiId
+            # — this is the common case where multiple elements share a
+            # probe or a subject reference.
+            _doc_with_depends_on(
+                "el1", "ndi-el1", [("subject_id", "ndi-shared-sub")],
+            ),
+            _doc_with_depends_on(
+                "el2", "ndi-el2", [("subject_id", "ndi-shared-sub")],
+            ),
+        ],
+    }
+    ndi_id_to_dataset = {"ndi-shared-sub": "DSY"}
+
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        _install_happy_path_routes(
+            router, dataset_id,
+            branch_of=None, branch_ids=[],
+            class_docs=class_docs,
+            ndi_id_to_dataset=ndi_id_to_dataset,
+        )
+        svc = DatasetProvenanceService(cloud)
+        prov = await svc.build_provenance(dataset_id, session=None)
+
+    assert len(prov.documentDependencies) == 1
+    edge = prov.documentDependencies[0]
+    # Two source docs, but only ONE distinct target ndiId → edgeCount=1.
+    # A document-level counter would have given edgeCount=2.
+    assert edge.edgeCount == 1, (
+        f"edgeCount must dedup at the target-ndiId level (expected 1), "
+        f"got {edge.edgeCount} — regression to per-document counting?"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Unresolvable ndiIds (deleted target doc) just drop out — edge not emitted
 # ---------------------------------------------------------------------------
 

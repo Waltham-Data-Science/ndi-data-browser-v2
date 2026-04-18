@@ -23,9 +23,13 @@ export interface DatasetDependencyEdge {
    *  Useful for grouping "X element docs point at Y" vs "X epochs point
    *  at Y" in the UI. */
   viaDocumentClass: string;
-  /** How many source-dataset documents carry a ``depends_on`` edge
-   *  pointing at a document in ``targetDatasetId``. Dedup is by
-   *  ``(sourceDatasetId, targetDatasetId, viaDocumentClass)``. */
+  /** Count of DISTINCT target ndiIds in ``targetDatasetId`` referenced
+   *  by ``depends_on`` fields on documents of class ``viaDocumentClass``
+   *  in ``sourceDatasetId``. NOT a per-source-document count — two source
+   *  docs pointing at the same target ndiId contribute 1 to this count,
+   *  not 2. Dedup is intentional: shared probe / subject refs are common
+   *  in NDI and document-level counting would inflate whenever callers
+   *  rely on a shared upstream entity. */
   edgeCount: number;
 }
 
