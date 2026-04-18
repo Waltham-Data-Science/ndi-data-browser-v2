@@ -18,6 +18,7 @@ from ..services.dataset_summary_service import (
 )
 from ..services.dependency_graph_service import DependencyGraphService
 from ..services.document_service import DocumentService
+from ..services.facet_service import FacetService
 from ..services.ontology_service import OntologyService
 from ..services.pivot_service import PivotService
 from ..services.query_service import QueryService
@@ -97,6 +98,18 @@ def dataset_provenance_service(request: Request) -> DatasetProvenanceService:
     return DatasetProvenanceService(
         cloud(request),
         cache=dataset_provenance_cache(request),
+    )
+
+
+def facets_cache(request: Request) -> RedisTableCache | None:
+    return getattr(request.app.state, "facets_cache", None)
+
+
+def facet_service(request: Request) -> FacetService:
+    return FacetService(
+        dataset_service(request),
+        dataset_summary_service(request),
+        cache=facets_cache(request),
     )
 
 

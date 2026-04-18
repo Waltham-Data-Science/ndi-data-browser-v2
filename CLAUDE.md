@@ -30,7 +30,7 @@ See:
 - [docs/workflows.md](docs/workflows.md) — every user workflow with failure modes
 - [docs/error-catalog.md](docs/error-catalog.md) — 20 typed error codes
 - [docs/operations.md](docs/operations.md) — deploy, rollback, incident response
-- [docs/adr/](docs/adr/) — 12 ADRs (proxy backend, session cookies, Redis, dropping SQLite, refresh tokens — superseded by 008, React Router, summary-table enrichment, deprecate Cognito refresh, services HTTP client boundary, dataset-summary synthesizer, dataset provenance, grain-selectable pivot)
+- [docs/adr/](docs/adr/) — 13 ADRs (proxy backend, session cookies, Redis, dropping SQLite, refresh tokens — superseded by 008, React Router, summary-table enrichment, deprecate Cognito refresh, services HTTP client boundary, dataset-summary synthesizer, dataset provenance, grain-selectable pivot, cross-dataset facet aggregation)
 
 ## Workflow rules
 
@@ -91,8 +91,8 @@ v1 continues to serve `ndi-data-browser-production.up.railway.app` in its own Ra
 
 ## Testing
 
-- `backend/tests/unit/` — 344 tests across error catalog, cloud client, circuit breaker, session store, CSRF, rate limiter, projection, query validation, cache, ontology, dependency graph, document/binary/openminds shape, dataset-summary synthesizer, catalog-summary enricher, dataset provenance aggregator, grain-selectable pivot
-- `backend/tests/integration/` — 25 tests covering routes end-to-end with respx-mocked cloud + fakeredis
+- `backend/tests/unit/` — 355+ tests across error catalog, cloud client, circuit breaker, session store, CSRF, rate limiter, projection, query validation, cache, ontology, dependency graph, document/binary/openminds shape, dataset-summary synthesizer, catalog-summary enricher, dataset provenance aggregator, grain-selectable pivot, cross-dataset facet aggregator
+- `backend/tests/integration/` — 27 tests covering routes end-to-end with respx-mocked cloud + fakeredis
 - `backend/tests/contract/` — runs against dev cloud nightly
 - `frontend/tests-e2e/` — Playwright scenarios for public catalog, auth, error recovery
 - Coverage gate: 70% on backend unit+integration (enforced in CI via explicit --cov-fail-under=70). Lowered from aspirational 85% (2026-04-17) to match actual coverage measured at CI. Raise deliberately as coverage improves.
@@ -122,3 +122,4 @@ Cloud auto-injects `isa` on field queries and has indexed `depends_on` — we re
 - **Redis under the hood is single-process TTL counters.** If we go multi-region, rate limiting will drift.
 - **The Railway volume from v1 is NOT attached to v2.** v2 is deliberately stateless. Attaching one would violate ADR 004.
 - **`xlsx` is sourced from SheetJS's CDN tarball**, not the npm registry. Version pinned at `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`. SheetJS published `0.18.5` as the last npm release; 0.19+ fixes (CVE-2023-30533 / CVE-2024-22363) only ship via the CDN URL, which is SheetJS's documented install method. Tradeoff: **Dependabot, `npm audit`, and GitHub's dependency graph do NOT track this URL**. Future CVEs will not alert automatically. When bumping, check [cdn.sheetjs.com/advisories](https://cdn.sheetjs.com/advisories/) manually.
+- **`/api/facets` uses a 5-minute short-TTL fallback** rather than invalidation-on-publish (ADR-013). The primary strategy is "invalidate on dataset-publish" but no cloud-to-proxy notification path exists today. Until one ships, a freshly published dataset shows up on the query page's facet chips within ≤5 minutes, not instantly. `FacetService.invalidate()` is the dormant hook to wire into a future publish-notification flow.

@@ -34,10 +34,35 @@ interface QueryBuilderProps {
   onClear?: () => void;
   /** Optional — narrows scope to a single dataset when the page provides it. */
   defaultDatasetId?: string;
+  /**
+   * Optional seed condition(s) appended on mount. Added to the existing
+   * state when present, and causes the advanced-filters panel to open so
+   * the user sees the applied filter. Used by the FacetPanel on the query
+   * page to route a facet-chip click into a new condition.
+   *
+   * The seed is intentionally a one-shot: any changes must re-key the
+   * component so React unmounts/remounts and the useEffect runs again.
+   */
+  seedConditions?: QueryNode[];
 }
 
+/**
+ * Default new condition = ``contains_string`` (case-insensitive substring).
+ *
+ * Ported from NDI-matlab convention (Spike-0 Report C §7.6 + amendment
+ * §4.B3): the tutorial teaches researchers ``stringMatch='contains'`` as
+ * the default — e.g. ``ApproachName contains "optogenetic"``. The cloud's
+ * ``contains_string`` op is documented as "Case-insensitive substring
+ * match" (see ``/api/query/operations``), which is the same semantics.
+ * Researchers coming from MATLAB expect substring + ignore-case; forcing
+ * ``identical`` / ``exact_string`` as the default loses matches they'd
+ * otherwise find.
+ *
+ * Power users can still switch to ``exact_string`` / ``exact_string_anycase``
+ * / ``regexp`` / ``isa`` via the operator dropdown.
+ */
 function newCondition(): QueryNode {
-  return { operation: 'isa', field: '', param1: '', param2: '' };
+  return { operation: 'contains_string', field: '', param1: '', param2: '' };
 }
 
 function buildStructure(conds: QueryNode[]): QueryNode[] {
@@ -62,12 +87,19 @@ function buildStructure(conds: QueryNode[]): QueryNode[] {
  * - Scope dropdown: public / private / all / "this dataset" when the
  *   enclosing page supplies `defaultDatasetId`.
  */
-export function QueryBuilder({ onResults, onClear, defaultDatasetId }: QueryBuilderProps) {
+export function QueryBuilder({
+  onResults,
+  onClear,
+  defaultDatasetId,
+  seedConditions,
+}: QueryBuilderProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState('');
   const [scope, setScope] = useState<Scope>(defaultDatasetId ? defaultDatasetId : 'public');
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [conditions, setConditions] = useState<QueryNode[]>([newCondition()]);
+  const [conditions, setConditions] = useState<QueryNode[]>(
+    () => (seedConditions && seedConditions.length > 0 ? [...seedConditions] : [newCondition()]),
+  );
 
   const executeQuery = useRunQuery();
   const { data: opsData } = useQueryOperations();
@@ -75,8 +107,15 @@ export function QueryBuilder({ onResults, onClear, defaultDatasetId }: QueryBuil
     ? opsData.operations.map((op) => ({ name: op.name, label: op.label, negatable: op.negatable }))
     : FALLBACK_OPERATIONS;
 
-  // Hydrate from URL on first load (ontology cross-link / deep-links).
+  // Hydrate from URL on first load (ontology cross-link / deep-links). If a
+  // seedConditions prop was provided, prefer it over URL params so the
+  // facet-click integration path is deterministic and doesn't depend on
+  // URL state side effects.
   useEffect(() => {
+    if (seedConditions && seedConditions.length > 0) {
+      setShowAdvanced(true);
+      return;
+    }
     const op = searchParams.get('op');
     const field = searchParams.get('field') ?? '';
     const param1 = searchParams.get('param1') ?? '';

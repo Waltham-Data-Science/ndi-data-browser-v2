@@ -127,6 +127,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
         redis=redis, ttl_seconds=PIVOT_CACHE_TTL_SECONDS,
     )
 
+    # Cross-dataset facet aggregator cache (Plan B B3), 5-minute TTL per
+    # amendment §4.B3 (freshness > TTL economy). Separate bucket so a facet
+    # schema bump doesn't invalidate summaries/provenance and vice versa.
+    from .services.facet_service import FACETS_CACHE_TTL_SECONDS
+    app.state.facets_cache = RedisTableCache(
+        redis=redis, ttl_seconds=FACETS_CACHE_TTL_SECONDS,
+    )
+
     log.info("app.startup", environment=settings.ENVIRONMENT)
     try:
         yield
@@ -226,6 +234,7 @@ def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, i
     app.include_router(documents.router)
     app.include_router(tables.router)
     app.include_router(query.router)
+    app.include_router(query.facets_router)
     app.include_router(binary.router)
     app.include_router(ontology.router)
     app.include_router(visualize.router)

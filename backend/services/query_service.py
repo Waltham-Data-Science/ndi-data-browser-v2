@@ -71,6 +71,13 @@ class QueryService:
             if node.operation == "~or":
                 raise QueryInvalidNegation()
 
+        # TODO(cloud): switch to ``POST /documents/query`` with projection once the
+        # cloud ships the endpoint tracked in amendment section 4.B3 (see
+        # Spike-0 Report A for the design-doc history). The projection variant
+        # would replace "download matching docs then filter fields client-side"
+        # with "one call with projection," shrinking response bytes ~5-10x for
+        # the query page's preview table. Not a blocker today — ``/ndiquery`` is
+        # still the primary backend.
         try:
             return await self.cloud.ndiquery(
                 searchstructure=[_node_to_cloud(n) for n in req.searchstructure],

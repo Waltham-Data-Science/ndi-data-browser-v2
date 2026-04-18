@@ -24,6 +24,9 @@ def app_and_cloud(fake_redis):  # type: ignore[no-untyped-def]
             from backend.services.dataset_summary_service import (
                 SUMMARY_CACHE_TTL_SECONDS,
             )
+            from backend.services.facet_service import (
+                FACETS_CACHE_TTL_SECONDS,
+            )
             from backend.services.pivot_service import PIVOT_CACHE_TTL_SECONDS
             app.state.redis = fake_redis
             app.state.session_store = SessionStore(fake_redis)
@@ -37,6 +40,9 @@ def app_and_cloud(fake_redis):  # type: ignore[no-untyped-def]
             )
             app.state.pivot_cache = RedisTableCache(
                 fake_redis, ttl_seconds=PIVOT_CACHE_TTL_SECONDS,
+            )
+            app.state.facets_cache = RedisTableCache(
+                fake_redis, ttl_seconds=FACETS_CACHE_TTL_SECONDS,
             )
             yield client, router
 
@@ -905,3 +911,152 @@ def test_dataset_provenance_404_on_unknown_dataset(
     assert r.status_code == 404
     body = r.json()
     assert body["error"]["code"] == "NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
+# B3: cross-dataset facet aggregation
+# ---------------------------------------------------------------------------
+
+def test_facets_endpoint_aggregates_across_published(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """Plan B B3: GET /api/facets walks the published catalog + for each
+    dataset builds a full summary, then aggregates distinct ontology-typed
+    facets across them all. Mocking two datasets here exercises:
+      - catalog walk with totalNumber=2
+      - summary fanout (ndiquery + bulk-fetch)
+      - dedupe when two datasets share a species ontologyId
+    """
+    # Clear module-level ProxyCaches so other tests' responses don't leak.
+    from backend.cache.ttl import ProxyCaches
+    ProxyCaches.datasets_list.clear()
+    ProxyCaches.dataset_detail.clear()
+    ProxyCaches.class_counts.clear()
+
+    import json as _json
+
+    import httpx
+
+    client, router = app_and_cloud
+    router.get("/datasets/published").respond(
+        200,
+        json={
+            "totalNumber": 2,
+            "datasets": [
+                {"id": "DSA", "name": "Dataset A"},
+                {"id": "DSB", "name": "Dataset B"},
+            ],
+        },
+    )
+    # Shared per-dataset mocks — both datasets have a single species + probe.
+    for dsid in ("DSA", "DSB"):
+        router.get(f"/datasets/{dsid}").respond(
+            200, json={
+                "_id": dsid,
+                "name": f"Dataset {dsid}",
+                "createdAt": "2025-01-01T00:00:00.000Z",
+            },
+        )
+        router.get(f"/datasets/{dsid}/document-class-counts").respond(
+            200, json={
+                "datasetId": dsid,
+                "totalDocuments": 3,
+                "classCounts": {"subject": 1, "openminds_subject": 1, "element": 1},
+            },
+        )
+
+    # ndiquery: dispatch by class name param.
+
+    def _ndiquery(request: httpx.Request, route) -> httpx.Response:  # type: ignore[no-untyped-def]
+        body = _json.loads(request.content.decode())
+        param1 = body["searchstructure"][0]["param1"]
+        ids = {
+            "openminds_subject": ["om-sp"],
+            "element": ["el1"],
+            "probe_location": [],
+        }.get(param1, [])
+        return httpx.Response(
+            200, json={
+                "number_matches": len(ids),
+                "pageSize": 1000,
+                "page": 1,
+                "documents": [{"id": i} for i in ids],
+            },
+        )
+
+    router.post("/ndiquery").mock(side_effect=_ndiquery)
+
+    # Per-dataset bulk-fetch returns the species + element docs.
+    for dsid, probe_type in [("DSA", "patch-Vm"), ("DSB", "stimulator")]:
+
+        def _make_bulk(pt):  # type: ignore[no-untyped-def]
+            def _bulk(request, route):  # type: ignore[no-untyped-def]
+                body = _json.loads(request.content.decode())
+                fixtures = {
+                    "om-sp": {
+                        "id": "om-sp", "ndiId": "ndi-om-sp",
+                        "data": {
+                            "base": {"id": "ndi-om-sp"},
+                            "depends_on": [{"name": "subject_id", "value": "ndi-subj"}],
+                            "openminds": {
+                                "openminds_type": "https://openminds.om-i.org/types/Species",
+                                "fields": {
+                                    "name": "Rattus norvegicus",
+                                    "preferredOntologyIdentifier": "NCBITaxon:10116",
+                                },
+                            },
+                        },
+                    },
+                    "el1": {
+                        "id": "el1", "ndiId": "ndi-el1",
+                        "data": {
+                            "base": {"id": "ndi-el1"},
+                            "depends_on": [{"name": "subject_id", "value": "ndi-subj"}],
+                            "element": {"name": "probe-1", "type": pt, "reference": 1},
+                        },
+                    },
+                }
+                docs = [fixtures[i] for i in body["documentIds"] if i in fixtures]
+                return httpx.Response(200, json={"documents": docs})
+            return _bulk
+
+        router.post(f"/datasets/{dsid}/documents/bulk-fetch").mock(
+            side_effect=_make_bulk(probe_type),
+        )
+
+    r = client.get("/api/facets")
+    assert r.status_code == 200, r.json()
+    body = r.json()
+    assert body["schemaVersion"] == "facets:v1"
+    # Species dedupe: two datasets, one ontologyId.
+    assert len(body["species"]) == 1
+    assert body["species"][0]["ontologyId"] == "NCBITaxon:10116"
+    # Probe types: two distinct free-text values.
+    assert set(body["probeTypes"]) == {"patch-Vm", "stimulator"}
+    # datasetCount: 2 contributing.
+    assert body["datasetCount"] == 2
+
+
+def test_facets_empty_catalog_returns_empty_lists(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """An empty published catalog returns a fully-formed FacetsResponse with
+    empty lists + datasetCount=0. Doesn't crash; frontend can still render.
+    """
+    from backend.cache.ttl import ProxyCaches
+    ProxyCaches.datasets_list.clear()
+
+    client, router = app_and_cloud
+    router.get("/datasets/published").respond(
+        200, json={"totalNumber": 0, "datasets": []},
+    )
+    r = client.get("/api/facets")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["species"] == []
+    assert body["brainRegions"] == []
+    assert body["strains"] == []
+    assert body["sexes"] == []
+    assert body["probeTypes"] == []
+    assert body["datasetCount"] == 0
+    assert body["schemaVersion"] == "facets:v1"

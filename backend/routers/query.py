@@ -8,10 +8,31 @@ from pydantic import BaseModel, Field
 
 from ..auth.dependencies import get_current_session
 from ..auth.session import SessionData
+from ..services.facet_service import FacetService, FacetsResponse
 from ..services.query_service import QueryRequest, QueryService
-from ._deps import limit_queries, query_service
+from ._deps import facet_service, limit_queries, limit_reads, query_service
 
 router = APIRouter(prefix="/api/query", tags=["query"], dependencies=[Depends(limit_queries)])
+
+# Facets is a read-only aggregation endpoint — bound by limit_reads instead of
+# limit_queries. Own router so the rate-limit dependency differs cleanly.
+facets_router = APIRouter(prefix="/api/facets", tags=["facets"], dependencies=[Depends(limit_reads)])
+
+
+@facets_router.get("", response_model=FacetsResponse)
+async def facets(
+    svc: Annotated[FacetService, Depends(facet_service)],
+    # Optional auth — facets aggregate public-dataset data. Authenticated
+    # users see the same aggregation (no per-user scoping; ADR-013 §Cache).
+    _session: Annotated[SessionData | None, Depends(get_current_session)],
+) -> FacetsResponse:
+    """Distinct-value facets aggregated across all published datasets.
+
+    Powers the query page filter sidebar: one list each for species /
+    brainRegions / strains / sexes / probeTypes. Cached under
+    ``facets:v1`` with a 5-minute TTL (amendment §4.B3 freshness budget).
+    """
+    return await svc.build_facets()
 
 
 class AppearsElsewhereBody(BaseModel):
