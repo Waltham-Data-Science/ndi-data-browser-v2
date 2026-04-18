@@ -8,8 +8,8 @@ dataset list, detail, and class counts for **Haley**
 Specs import `test` from `./test` instead of `@playwright/test`. That adds
 a `beforeEach` which calls `page.route()` for the pinned endpoints and
 serves the JSON out of `./responses/`. Anything not in the list falls
-through to the real backend (in CI that backend is launched by
-`.github/workflows/e2e.yml`; locally it's your `make backend`).
+through to the real backend — E2E is manual-only now; run it locally
+against your `make backend`.
 
 **Re-record a fixture**: hit prod and pipe through the included refresh
 script:

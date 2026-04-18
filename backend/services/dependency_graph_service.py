@@ -20,7 +20,6 @@ Cached in Redis for 10 min per `(dataset_id, doc_id)`.
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from typing import Any
 
@@ -452,5 +451,3 @@ def _dep_graph_key(
 #
 # Actual wiring in app.py creates a DepGraphCache (RedisTableCache with
 # ttl_seconds=DEP_GRAPH_TTL_SECONDS) and injects that.
-assert DEP_GRAPH_TTL_SECONDS == 600  # sanity guard (loaded at import time)
-_ = json  # satisfy unused-import linter — json is used implicitly via RedisTableCache

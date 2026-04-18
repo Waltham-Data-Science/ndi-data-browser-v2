@@ -253,7 +253,7 @@ class SummaryTableService:
             subject_ndi = _element_subject_ndi(element) if element else None
             subject = subject_by_ndi.get(subject_ndi) if subject_ndi else None
 
-            subj_row = _row_subject(subject, enriched) if subject else {}
+            subj_row = _row_subject(subject) if subject else {}
             probe_row = _row_probe(element, enriched) if element else {}
             epoch_row = _row_epoch(epoch, enriched, subject=subject, element=element)
 
@@ -983,8 +983,7 @@ def _project_for_class(
         _attach_openminds_enrichment(docs, om_subjects)
 
     if class_name == "subject":
-        treatments = enriched.get("treatment", [])
-        return SUBJECT_COLUMNS, [_row_subject(d, {"treatment": treatments}) for d in docs]
+        return SUBJECT_COLUMNS, [_row_subject(d) for d in docs]
 
     if class_name in ("probe", "element"):
         return PROBE_COLUMNS, [_row_probe(d, enriched) for d in docs]
@@ -1015,9 +1014,7 @@ def _project_for_class(
     ]
 
 
-def _row_subject(
-    d: dict[str, Any], enriched: dict[str, list[dict[str, Any]]],
-) -> dict[str, Any]:
+def _row_subject(d: dict[str, Any]) -> dict[str, Any]:
     """15-column tutorial-parity subject row (camelCase).
 
     Uses `_openminds_name_and_ontology()` dispatch on type_suffix so Schema A

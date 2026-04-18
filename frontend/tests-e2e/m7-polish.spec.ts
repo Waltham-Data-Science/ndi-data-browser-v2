@@ -28,11 +28,11 @@ test.describe('M7 — brand chrome', () => {
     await expect(page.getByRole('link', { name: /Browse datasets/ })).toBeVisible();
   });
 
-  test('/api/health/version exposes rolloutPct', async ({ request }) => {
+  test('/api/health/version exposes version + environment', async ({ request }) => {
     const r = await request.get('/api/health/version');
     expect(r.ok()).toBeTruthy();
     const body = await r.json();
     expect(body.version).toBeTruthy();
-    expect(typeof body.rolloutPct).toBe('number');
+    expect(typeof body.environment).toBe('string');
   });
 });

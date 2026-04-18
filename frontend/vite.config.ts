@@ -24,7 +24,7 @@ export default defineConfig({
         manualChunks: {
           react: ['react', 'react-dom', 'react-router-dom'],
           tanstack: ['@tanstack/react-query', '@tanstack/react-table', '@tanstack/react-virtual'],
-          uplot: ['uplot', 'uplot-react'],
+          uplot: ['uplot'],
         },
       },
     },
