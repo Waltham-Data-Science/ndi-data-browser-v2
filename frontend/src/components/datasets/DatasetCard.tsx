@@ -50,7 +50,12 @@ export function DatasetCard({ dataset }: DatasetCardProps) {
     >
       <Card className="h-full transition-shadow group-hover:shadow-md group-hover:ring-brand-400">
         <CardHeader className="pb-2">
-          <CardTitle className="line-clamp-2">{dataset.name}</CardTitle>
+          {/* line-clamp-4 not -2 — scientific dataset titles are long
+              (post-Steve feedback 2026-04-18, "We scientists tend to use
+              long titles"). Grid uses h-full so cards in a row align
+              to the tallest; four lines leaves room for ~150 chars
+              before any clamp kicks in. */}
+          <CardTitle className="line-clamp-4">{dataset.name}</CardTitle>
           {abstract && (
             <CardDescription className="line-clamp-2 text-xs">
               {truncate(abstract, 220)}

@@ -33,6 +33,7 @@ import { CardSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/errors/ErrorState';
 import { ExternalAnchor } from '@/components/ExternalAnchor';
 import { formatBytes, formatDate, formatNumber } from '@/lib/format';
+import { normalizeOrcid } from '@/lib/orcid';
 import type { DatasetSummary } from '@/types/dataset-summary';
 
 const COMMON_CLASSES = [
@@ -315,12 +316,18 @@ function DatasetStat({ label, value }: { label: string; value?: string | null })
 function ContributorRow({ c }: { c: import('@/api/datasets').Contributor }) {
   const name = [c.firstName, c.lastName].filter(Boolean).join(' ').trim();
   if (!name && !c.contact) return null;
+  // Normalize the ORCID field up front — the cloud API documents a full
+  // URL but sometimes ships a bare `NNNN-NNNN-NNNN-NNNN` id, which the
+  // browser would resolve against our own origin. `normalizeOrcid`
+  // returns `undefined` for unrecognized shapes so we simply don't
+  // render the affordance in that case.
+  const orcidHref = normalizeOrcid(c.orcid);
   return (
     <li className="flex items-center gap-1.5">
       <span className="text-slate-700 dark:text-slate-300">{name || c.contact}</span>
-      {c.orcid && (
+      {orcidHref && (
         <ExternalAnchor
-          href={c.orcid}
+          href={orcidHref}
           label="ORCID"
           className="text-[10px]"
           iconSize={10}

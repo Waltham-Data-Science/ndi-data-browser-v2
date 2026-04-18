@@ -1,8 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useOntologyLookup } from '@/api/ontology';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { normalizeOntologyTerm } from './ontology-utils';
+
+/**
+ * Grace period (ms) between `mouseleave` on the trigger/popover envelope
+ * and the popover closing. Users need to traverse the small gap between
+ * the underlined term and the absolutely-positioned popover div; a short
+ * delay forgives that transit without feeling sluggish.
+ *
+ * Post-Steve feedback 2026-04-18: "when I move my mouse to click on those
+ * options it disappears as soon as my mouse leaves the table cell".
+ */
+const POPOVER_CLOSE_DELAY_MS = 150;
 
 interface OntologyPopoverProps {
   termId: string;
@@ -34,6 +45,43 @@ export function OntologyPopover({ termId, findEverywherePath }: OntologyPopoverP
   const { data, isLoading } = useOntologyLookup(lookupTerm);
   const normalized = normalizeOntologyTerm(displayId) ?? displayId;
 
+  // Close-delay machinery. `closeTimeoutRef` holds the pending setTimeout
+  // id; `onEnter` cancels it, `onLeave` schedules it. Listeners are on
+  // the OUTER <span>: the button + popover are both DOM descendants, so
+  // moving the cursor between them does not fire `mouseleave` on the
+  // span unless the cursor actually leaves the button+popover envelope.
+  // The small visual gap between button and popover (mb-1) is covered by
+  // the close delay — the user has 150ms of grace to traverse it.
+  const closeTimeoutRef = useRef<number | null>(null);
+
+  const openNow = () => {
+    if (closeTimeoutRef.current !== null) {
+      window.clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
+    setIsOpen(true);
+  };
+  const closeSoon = () => {
+    if (closeTimeoutRef.current !== null) {
+      window.clearTimeout(closeTimeoutRef.current);
+    }
+    closeTimeoutRef.current = window.setTimeout(() => {
+      closeTimeoutRef.current = null;
+      setIsOpen(false);
+    }, POPOVER_CLOSE_DELAY_MS);
+  };
+
+  // Cleanup on unmount so a pending timer doesn't call setState on a
+  // gone component.
+  useEffect(() => {
+    return () => {
+      if (closeTimeoutRef.current !== null) {
+        window.clearTimeout(closeTimeoutRef.current);
+        closeTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
   // EMPTY: placeholders — NDI's internal vocabulary, no external lookup.
   if (isEmptyTerm) {
     const id = displayId.replace('EMPTY:', '');
@@ -51,19 +99,22 @@ export function OntologyPopover({ termId, findEverywherePath }: OntologyPopoverP
   const hasDefinition = !!data && !!data.label;
 
   return (
-    <span className="relative inline-block" data-ontology-term={displayId}>
+    <span
+      className="relative inline-block"
+      data-ontology-term={displayId}
+      onMouseEnter={openNow}
+      onMouseLeave={closeSoon}
+    >
       <button
         type="button"
         className="text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300 underline decoration-dotted cursor-help font-mono text-xs"
-        onMouseEnter={() => setIsOpen(true)}
-        onMouseLeave={() => setIsOpen(false)}
-        onFocus={() => setIsOpen(true)}
-        onBlur={() => setIsOpen(false)}
+        onFocus={openNow}
+        onBlur={closeSoon}
         onClick={(e) => {
           // Keep the popover open on click and prevent the enclosing row's
           // onRowClick from navigating to the document detail page.
           e.stopPropagation();
-          setIsOpen(true);
+          openNow();
         }}
         aria-expanded={isOpen}
         aria-label={`Ontology term ${displayId}. Click for definition.`}
