@@ -41,7 +41,7 @@ log = get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (single-function lifespan orchestrator; wiring N typed caches + services is intentional)
     configure_logging()
     settings = get_settings()
 
@@ -109,6 +109,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from .services.dataset_summary_service import SUMMARY_CACHE_TTL_SECONDS
     app.state.dataset_summary_cache = RedisTableCache(
         redis=redis, ttl_seconds=SUMMARY_CACHE_TTL_SECONDS,
+    )
+
+    # DatasetProvenance aggregator cache (Plan B B5), 5-minute TTL matching
+    # the summary cache freshness budget. Separate bucket so a provenance
+    # schema bump cannot invalidate summaries.
+    from .services.dataset_provenance_service import PROVENANCE_CACHE_TTL_SECONDS
+    app.state.dataset_provenance_cache = RedisTableCache(
+        redis=redis, ttl_seconds=PROVENANCE_CACHE_TTL_SECONDS,
     )
 
     log.info("app.startup", environment=settings.ENVIRONMENT)

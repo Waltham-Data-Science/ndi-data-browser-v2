@@ -7,12 +7,21 @@ from fastapi import APIRouter, Depends, Query
 
 from ..auth.dependencies import get_current_session, require_session
 from ..auth.session import SessionData
+from ..services.dataset_provenance_service import (
+    DatasetProvenance,
+    DatasetProvenanceService,
+)
 from ..services.dataset_service import DatasetService
 from ..services.dataset_summary_service import (
     DatasetSummary,
     DatasetSummaryService,
 )
-from ._deps import dataset_service, dataset_summary_service, limit_reads
+from ._deps import (
+    dataset_provenance_service,
+    dataset_service,
+    dataset_summary_service,
+    limit_reads,
+)
 
 router = APIRouter(prefix="/api/datasets", tags=["datasets"], dependencies=[Depends(limit_reads)])
 
@@ -76,3 +85,27 @@ async def summary(
     ``frontend/src/types/dataset-summary.ts``.
     """
     return await svc.build_summary(dataset_id, session=session)
+
+
+@router.get("/{dataset_id}/provenance", response_model=DatasetProvenance)
+async def provenance(
+    dataset_id: str,
+    svc: Annotated[
+        DatasetProvenanceService, Depends(dataset_provenance_service),
+    ],
+    session: Annotated[SessionData | None, Depends(get_current_session)],
+) -> DatasetProvenance:
+    """Dataset provenance / derivation graph (Plan B B5).
+
+    Aggregates three signals:
+
+    - ``branchOf``: parent dataset this one was forked from.
+    - ``branches``: child datasets forked off this one.
+    - ``documentDependencies``: per-class cross-dataset ``depends_on`` edge
+      counts sourced from scanning every document in the dataset.
+
+    See :class:`~backend.services.dataset_provenance_service.DatasetProvenance`
+    for the response shape; the frontend mirror is in
+    ``frontend/src/types/dataset-provenance.ts``.
+    """
+    return await svc.build_provenance(dataset_id, session=session)

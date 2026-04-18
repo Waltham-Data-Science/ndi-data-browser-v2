@@ -30,7 +30,7 @@ See:
 - [docs/workflows.md](docs/workflows.md) — every user workflow with failure modes
 - [docs/error-catalog.md](docs/error-catalog.md) — 20 typed error codes
 - [docs/operations.md](docs/operations.md) — deploy, rollback, incident response
-- [docs/adr/](docs/adr/) — 10 ADRs (proxy backend, session cookies, Redis, dropping SQLite, refresh tokens — superseded by 008, React Router, summary-table enrichment, deprecate Cognito refresh, services HTTP client boundary, dataset-summary synthesizer)
+- [docs/adr/](docs/adr/) — 11 ADRs (proxy backend, session cookies, Redis, dropping SQLite, refresh tokens — superseded by 008, React Router, summary-table enrichment, deprecate Cognito refresh, services HTTP client boundary, dataset-summary synthesizer, dataset provenance)
 
 ## Workflow rules
 
@@ -88,8 +88,8 @@ v1 continues to serve `ndi-data-browser-production.up.railway.app` in its own Ra
 
 ## Testing
 
-- `backend/tests/unit/` — 273 tests across error catalog, cloud client, circuit breaker, session store, CSRF, rate limiter, projection, query validation, cache, ontology, dependency graph, document/binary/openminds shape, dataset-summary synthesizer
-- `backend/tests/integration/` — 18 tests covering routes end-to-end with respx-mocked cloud + fakeredis
+- `backend/tests/unit/` — 310 tests across error catalog, cloud client, circuit breaker, session store, CSRF, rate limiter, projection, query validation, cache, ontology, dependency graph, document/binary/openminds shape, dataset-summary synthesizer, dataset provenance aggregator
+- `backend/tests/integration/` — 20 tests covering routes end-to-end with respx-mocked cloud + fakeredis
 - `backend/tests/contract/` — runs against dev cloud nightly
 - `frontend/tests-e2e/` — Playwright scenarios for public catalog, auth, error recovery
 - Coverage gate: 70% on backend unit+integration (enforced in CI via explicit --cov-fail-under=70). Lowered from aspirational 85% (2026-04-17) to match actual coverage measured at CI. Raise deliberately as coverage improves.

@@ -6,7 +6,14 @@ import {
   Users,
 } from 'lucide-react';
 
-import { useClassCounts, useDataset, useDatasetSummary, type DatasetRecord } from '@/api/datasets';
+import {
+  useClassCounts,
+  useDataset,
+  useDatasetProvenance,
+  useDatasetSummary,
+  type DatasetRecord,
+} from '@/api/datasets';
+import { DatasetProvenanceCard } from '@/components/datasets/DatasetProvenanceCard';
 import { DatasetSummaryCard } from '@/components/datasets/DatasetSummaryCard';
 import { Badge } from '@/components/ui/Badge';
 import {
@@ -35,6 +42,7 @@ export function DatasetDetailPage() {
   const ds = useDataset(id);
   const cc = useClassCounts(id);
   const summary = useDatasetSummary(id);
+  const provenance = useDatasetProvenance(id);
 
   if (!id) return <Navigate to="/datasets" replace />;
 
@@ -50,6 +58,14 @@ export function DatasetDetailPage() {
         {ds.isLoading && <CardSkeleton />}
         {ds.isError && <ErrorState error={ds.error} onRetry={() => ds.refetch()} />}
         {ds.data && <DatasetOverviewCard ds={ds.data} />}
+
+        {/* Plan B B5 — dataset provenance card (derivation graph,
+            cross-dataset depends_on edges, branches). Errors on provenance
+            degrade silently (no ErrorState) so a slow or flaky aggregator
+            never blocks the detail view. */}
+        {provenance.data && (
+          <DatasetProvenanceCard provenance={provenance.data} />
+        )}
 
         <Card>
           <CardHeader>

@@ -18,6 +18,9 @@ def app_and_cloud(fake_redis):  # type: ignore[no-untyped-def]
             from backend.auth.session import SessionStore
             from backend.cache.redis_table import RedisTableCache
             from backend.middleware.rate_limit import RateLimiter
+            from backend.services.dataset_provenance_service import (
+                PROVENANCE_CACHE_TTL_SECONDS,
+            )
             from backend.services.dataset_summary_service import (
                 SUMMARY_CACHE_TTL_SECONDS,
             )
@@ -27,6 +30,9 @@ def app_and_cloud(fake_redis):  # type: ignore[no-untyped-def]
             app.state.table_cache = RedisTableCache(fake_redis)
             app.state.dataset_summary_cache = RedisTableCache(
                 fake_redis, ttl_seconds=SUMMARY_CACHE_TTL_SECONDS,
+            )
+            app.state.dataset_provenance_cache = RedisTableCache(
+                fake_redis, ttl_seconds=PROVENANCE_CACHE_TTL_SECONDS,
             )
             yield client, router
 
@@ -501,3 +507,159 @@ def test_list_by_class_paginates_at_cloud_layer(app_and_cloud) -> None:  # type:
     assert len(captured) == 1, f"expected 1 ndiquery call, got {len(captured)}"
     assert captured[0]["page"] == "3"
     assert captured[0]["pageSize"] == "50"
+
+
+# ---------------------------------------------------------------------------
+# Plan B B5: dataset provenance route
+# ---------------------------------------------------------------------------
+
+def test_dataset_provenance_returns_aggregated_shape(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """End-to-end B5 route: GET /api/datasets/:id/provenance composes
+    get_dataset + /branches + class-counts + per-class ndiquery-fanout +
+    bulk-fetch + ndiquery-resolve, emitting a :class:`DatasetProvenance`
+    payload.
+    """
+    import httpx
+    client, router = app_and_cloud
+
+    router.get("/datasets/DS1").respond(
+        200,
+        json={
+            "_id": "DS1",
+            "name": "Provenance Integration Dataset",
+            "branchOf": "DSPARENT",
+        },
+    )
+    router.get("/datasets/DS1/branches").respond(
+        200,
+        json={"datasets": [{"id": "DSCHILD1"}, {"id": "DSCHILD2"}]},
+    )
+    router.get("/datasets/DS1/document-class-counts").respond(
+        200,
+        json={
+            "datasetId": "DS1",
+            "totalDocuments": 2,
+            "classCounts": {"element": 2},
+        },
+    )
+
+    # ndiquery handler serves BOTH the per-class isa query and the
+    # ndiId-resolution query.
+    def _ndiquery_handler(request, route):  # type: ignore[no-untyped-def]
+        body_json = request.content.decode() if request.content else ""
+        import json as _json
+        body = _json.loads(body_json)
+        op = body["searchstructure"][0]
+        if op.get("operation") == "isa" and op.get("param1") == "element":
+            return httpx.Response(
+                200,
+                json={
+                    "number_matches": 2, "pageSize": 1000, "page": 1,
+                    "documents": [{"id": "el1"}, {"id": "el2"}],
+                },
+            )
+        if (
+            op.get("operation") == "exact_string"
+            and op.get("field") == "base.id"
+        ):
+            ndi_id = op["param1"]
+            owning = {
+                "ndi-target-1": "DSY",
+                "ndi-target-2": "DSY",  # same target dataset → deduped
+            }.get(ndi_id)
+            if owning is None:
+                return httpx.Response(
+                    200,
+                    json={
+                        "number_matches": 0, "pageSize": 5, "page": 1,
+                        "documents": [],
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "number_matches": 1, "pageSize": 5, "page": 1,
+                    "documents": [
+                        {
+                            "id": f"mongo-{ndi_id}",
+                            "ndiId": ndi_id,
+                            "dataset": owning,
+                            "data": {"base": {"id": ndi_id}},
+                        },
+                    ],
+                },
+            )
+        return httpx.Response(400, json={"error": "unexpected op"})
+
+    router.post("/ndiquery").mock(side_effect=_ndiquery_handler)
+
+    # bulk-fetch returns the two element docs with depends_on entries.
+    def _bulk_handler(request, route):  # type: ignore[no-untyped-def]
+        import json as _json
+        body = _json.loads(request.content.decode())
+        by_id = {
+            "el1": {
+                "id": "el1",
+                "ndiId": "ndi-el1",
+                "data": {
+                    "base": {"id": "ndi-el1"},
+                    "depends_on": [
+                        {"name": "subject_id", "value": "ndi-target-1"},
+                    ],
+                },
+            },
+            "el2": {
+                "id": "el2",
+                "ndiId": "ndi-el2",
+                "data": {
+                    "base": {"id": "ndi-el2"},
+                    "depends_on": [
+                        {"name": "subject_id", "value": "ndi-target-2"},
+                    ],
+                },
+            },
+        }
+        docs = [by_id[i] for i in body["documentIds"] if i in by_id]
+        return httpx.Response(200, json={"documents": docs})
+
+    router.post("/datasets/DS1/documents/bulk-fetch").mock(
+        side_effect=_bulk_handler,
+    )
+
+    r = client.get("/api/datasets/DS1/provenance")
+    assert r.status_code == 200, r.json()
+    body = r.json()
+    assert body["datasetId"] == "DS1"
+    assert body["schemaVersion"] == "provenance:v1"
+    assert body["branchOf"] == "DSPARENT"
+    assert body["branches"] == ["DSCHILD1", "DSCHILD2"]
+    # Two docs both target DSY → one aggregated edge with edgeCount=2.
+    assert len(body["documentDependencies"]) == 1
+    edge = body["documentDependencies"][0]
+    assert edge["sourceDatasetId"] == "DS1"
+    assert edge["targetDatasetId"] == "DSY"
+    assert edge["viaDocumentClass"] == "element"
+    assert edge["edgeCount"] == 2
+
+
+def test_dataset_provenance_404_on_unknown_dataset(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """Unknown dataset → cloud 404 on GET /datasets/:id → typed NOT_FOUND."""
+    client, router = app_and_cloud
+    router.get("/datasets/MISSING").respond(404, json={"error": "not found"})
+    # /branches is tolerated-failure internal to the service (graceful
+    # empty-list downgrade), but the top-level build calls /datasets/:id
+    # via asyncio.gather so we stub it with a 404 too.
+    router.get("/datasets/MISSING/branches").respond(
+        404, json={"error": "not found"},
+    )
+    router.get("/datasets/MISSING/document-class-counts").respond(
+        404, json={"error": "not found"},
+    )
+    r = client.get("/api/datasets/MISSING/provenance")
+    assert r.status_code == 404
+    body = r.json()
+    assert body["error"]["code"] == "NOT_FOUND"
