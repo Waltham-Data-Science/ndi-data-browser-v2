@@ -103,6 +103,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         redis=redis, ttl_seconds=DEP_GRAPH_TTL_SECONDS,
     )
 
+    # DatasetSummary synthesizer cache, 5-minute TTL per amendment §4.B3
+    # (freshness > TTL economy). Separate cache from tables so a table
+    # schema bump doesn't invalidate summaries and vice versa.
+    from .services.dataset_summary_service import SUMMARY_CACHE_TTL_SECONDS
+    app.state.dataset_summary_cache = RedisTableCache(
+        redis=redis, ttl_seconds=SUMMARY_CACHE_TTL_SECONDS,
+    )
+
     log.info("app.startup", environment=settings.ENVIRONMENT)
     try:
         yield

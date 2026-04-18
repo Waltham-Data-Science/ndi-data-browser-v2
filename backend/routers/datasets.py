@@ -1,4 +1,4 @@
-"""Dataset list / detail / class-counts."""
+"""Dataset list / detail / class-counts / synthesized summary."""
 from __future__ import annotations
 
 from typing import Annotated, Any
@@ -8,7 +8,11 @@ from fastapi import APIRouter, Depends, Query
 from ..auth.dependencies import get_current_session, require_session
 from ..auth.session import SessionData
 from ..services.dataset_service import DatasetService
-from ._deps import dataset_service, limit_reads
+from ..services.dataset_summary_service import (
+    DatasetSummary,
+    DatasetSummaryService,
+)
+from ._deps import dataset_service, dataset_summary_service, limit_reads
 
 router = APIRouter(prefix="/api/datasets", tags=["datasets"], dependencies=[Depends(limit_reads)])
 
@@ -58,3 +62,17 @@ async def doc_types(
     DocumentTypeSelector component keeps working with its existing URL.
     """
     return await svc.class_counts(dataset_id, session=session)
+
+
+@router.get("/{dataset_id}/summary", response_model=DatasetSummary)
+async def summary(
+    dataset_id: str,
+    svc: Annotated[DatasetSummaryService, Depends(dataset_summary_service)],
+    session: Annotated[SessionData | None, Depends(get_current_session)],
+) -> DatasetSummary:
+    """Synthesized, structured dataset summary. See
+    :class:`~backend.services.dataset_summary_service.DatasetSummary`
+    for the response shape; the frontend mirror is in
+    ``frontend/src/types/dataset-summary.ts``.
+    """
+    return await svc.build_summary(dataset_id, session=session)

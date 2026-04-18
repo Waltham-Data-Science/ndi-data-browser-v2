@@ -18,10 +18,16 @@ def app_and_cloud(fake_redis):  # type: ignore[no-untyped-def]
             from backend.auth.session import SessionStore
             from backend.cache.redis_table import RedisTableCache
             from backend.middleware.rate_limit import RateLimiter
+            from backend.services.dataset_summary_service import (
+                SUMMARY_CACHE_TTL_SECONDS,
+            )
             app.state.redis = fake_redis
             app.state.session_store = SessionStore(fake_redis)
             app.state.rate_limiter = RateLimiter(fake_redis)
             app.state.table_cache = RedisTableCache(fake_redis)
+            app.state.dataset_summary_cache = RedisTableCache(
+                fake_redis, ttl_seconds=SUMMARY_CACHE_TTL_SECONDS,
+            )
             yield client, router
 
 
@@ -352,6 +358,101 @@ def test_required_enrichment_failure_skips_cache(app_and_cloud) -> None:  # type
     router.post("/ndiquery").mock(side_effect=_ndiquery_healthy)
     r2 = client.get("/api/datasets/DS1/tables/subject")
     assert r2.status_code == 200, r2.json()
+
+
+def test_dataset_summary_returns_synthesized_shape(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
+    """End-to-end B1 route: GET /api/datasets/:id/summary composes
+    get_dataset + class-counts + ndiquery-fanout + bulk-fetch, returning the
+    canonical :class:`DatasetSummary` shape.
+    """
+    client, router = app_and_cloud
+
+    router.get("/datasets/DS1").respond(
+        200,
+        json={
+            "_id": "DS1",
+            "name": "Integration Test Dataset",
+            "license": "CC-BY-4.0",
+            "doi": "https://doi.org/10.63884/xyz",
+            "totalSize": 424242,
+            "createdAt": "2025-06-01T00:00:00.000Z",
+            "updatedAt": "2026-03-01T00:00:00.000Z",
+            "contributors": [
+                {"firstName": "Ada", "lastName": "Lovelace",
+                 "orcid": "https://orcid.org/0000-0001"},
+            ],
+            "associatedPublications": [
+                {"title": "Paper A", "DOI": "https://doi.org/10.1/abc"},
+            ],
+        },
+    )
+    router.get("/datasets/DS1/document-class-counts").respond(
+        200,
+        json={
+            "datasetId": "DS1",
+            "totalDocuments": 3,
+            "classCounts": {"subject": 1, "session": 1, "openminds_subject": 1},
+        },
+    )
+    router.post("/ndiquery").respond(
+        200,
+        json={
+            "number_matches": 1, "pageSize": 1000, "page": 1,
+            "documents": [{"id": "om-sp"}],
+        },
+    )
+    router.post("/datasets/DS1/documents/bulk-fetch").respond(
+        200,
+        json={"documents": [{
+            "id": "om-sp",
+            "ndiId": "ndi-om-sp",
+            "data": {
+                "base": {"id": "ndi-om-sp"},
+                "depends_on": [
+                    {"name": "subject_id", "value": "ndi-subj"},
+                ],
+                "openminds": {
+                    "openminds_type": "https://openminds.om-i.org/types/Species",
+                    "fields": {
+                        "name": "Rattus norvegicus",
+                        "preferredOntologyIdentifier": "NCBITaxon:10116",
+                    },
+                },
+            },
+        }]},
+    )
+
+    r = client.get("/api/datasets/DS1/summary")
+    assert r.status_code == 200, r.json()
+    body = r.json()
+    assert body["datasetId"] == "DS1"
+    assert body["schemaVersion"] == "summary:v1"
+    assert body["counts"]["subjects"] == 1
+    assert body["counts"]["sessions"] == 1
+    assert body["species"] is not None
+    assert body["species"][0]["ontologyId"] == "NCBITaxon:10116"
+    assert body["citation"]["license"] == "CC-BY-4.0"
+    assert body["citation"]["datasetDoi"] == "https://doi.org/10.63884/xyz"
+    assert body["citation"]["paperDois"] == ["https://doi.org/10.1/abc"]
+    # Probes/elements were zero — those buckets stay None.
+    assert body["brainRegions"] is None
+    assert body["probeTypes"] is None
+
+
+def test_dataset_summary_404_on_unknown_dataset(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
+    """Unknown dataset → cloud 404 → typed NOT_FOUND via BrowserError handler."""
+    client, router = app_and_cloud
+    router.get("/datasets/MISSING").respond(404, json={"error": "not found"})
+    # Counts may never be called when the dataset lookup fails first, but the
+    # gather initiates both in parallel — respx tolerates that via
+    # assert_all_called=False (configured on the shared fixture).
+    router.get("/datasets/MISSING/document-class-counts").respond(
+        404, json={"error": "not found"},
+    )
+    r = client.get("/api/datasets/MISSING/summary")
+    assert r.status_code == 404
+    body = r.json()
+    assert body["error"]["code"] == "NOT_FOUND"
 
 
 def test_list_by_class_paginates_at_cloud_layer(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
