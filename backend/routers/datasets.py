@@ -20,18 +20,38 @@ router = APIRouter(prefix="/api/datasets", tags=["datasets"], dependencies=[Depe
 @router.get("/published")
 async def published(
     svc: Annotated[DatasetService, Depends(dataset_service)],
+    summary_svc: Annotated[DatasetSummaryService, Depends(dataset_summary_service)],
+    session: Annotated[SessionData | None, Depends(get_current_session)],
     page: int = Query(1, ge=1, le=1000),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
-    return await svc.list_published(page=page, page_size=pageSize)
+    """Published catalog with compact :class:`DatasetSummary` embedded per
+    row (Plan B B2). Each ``datasets[i]`` gains a ``summary`` key that's
+    ``null`` when the synthesizer failed (the UI falls back to raw-record
+    rendering). Summaries are produced under a Semaphore-3 fanout — see
+    :meth:`DatasetService.list_published_with_summaries`.
+    """
+    return await svc.list_published_with_summaries(
+        page=page,
+        page_size=pageSize,
+        summary_service=summary_svc,
+        session=session,
+    )
 
 
 @router.get("/my")
 async def my(
     session: Annotated[SessionData, Depends(require_session)],
     svc: Annotated[DatasetService, Depends(dataset_service)],
+    summary_svc: Annotated[DatasetSummaryService, Depends(dataset_summary_service)],
 ) -> dict[str, Any]:
-    return await svc.list_mine(session=session)
+    """Authenticated ``/my`` list mirroring ``/published`` but over the
+    caller's organization's unpublished datasets. Same compact-summary
+    shape per row.
+    """
+    return await svc.list_mine_with_summaries(
+        session=session, summary_service=summary_svc,
+    )
 
 
 @router.get("/{dataset_id}")

@@ -91,3 +91,44 @@ export interface DatasetSummary {
  * accidentally erase the schema version string at build time. Useful when
  * a future consumer needs to branch on the shape at runtime. */
 export const DatasetSummaryContract = { schemaVersion: 'summary:v1' } as const;
+
+/**
+ * Compact catalog-card projection of :interface:`DatasetSummary` (Plan B B2).
+ *
+ * A strict subset chosen for the visual footprint of a single catalog card
+ * (species/region chips, subject + doc counts, citation header). Embedded in
+ * each row of the `GET /api/datasets/published` and `GET /api/datasets/my`
+ * responses as `DatasetRecord.summary`.
+ *
+ * Wire-size tradeoff (amendment §4.B2): for a 20-row catalog page the full
+ * :interface:`DatasetSummary` adds ~100KB per page (citation.contributors,
+ * extractionWarnings, computedAt, probeTypes, strains, sexes). This compact
+ * projection is ~400-600 bytes per row. Clients that need the full shape
+ * still hit `GET /api/datasets/:id/summary`.
+ *
+ * NOT a mutation of :interface:`DatasetSummary` — it's an additive new type
+ * that refers to the same `OntologyTerm` sub-shape.
+ */
+export interface CompactDatasetSummaryCounts {
+  subjects: number;
+  totalDocuments: number;
+}
+
+export interface CompactDatasetSummaryCitation {
+  title: string;
+  license: string | null;
+  datasetDoi: string | null;
+  year: number | null;
+}
+
+export interface CompactDatasetSummary {
+  datasetId: string;
+  counts: CompactDatasetSummaryCounts;
+  /** ``null`` when extraction did not run (e.g. zero subjects). ``[]`` when
+   *  it did run but found nothing. Catalog card treats both the same
+   *  rendering-wise (hide the row). */
+  species: OntologyTerm[] | null;
+  brainRegions: OntologyTerm[] | null;
+  citation: CompactDatasetSummaryCitation;
+  schemaVersion: 'summary:v1';
+}

@@ -65,13 +65,24 @@ def test_csrf_missing_on_mutation_returns_403_typed(app_and_cloud) -> None:  # t
 
 
 def test_published_datasets_calls_cloud(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
+    """Plan B B2: published catalog embeds a compact summary per row.
+    When the synthesizer has nothing to work with (unmocked endpoints
+    return 404 via respx assert_all_called=False), the row still returns
+    with ``summary: null`` — the enricher degrades gracefully so the
+    catalog keeps rendering.
+    """
     client, router = app_and_cloud
     router.get("/datasets/published").respond(
         200, json={"totalNumber": 1, "datasets": [{"id": "d1", "name": "Test"}]},
     )
     r = client.get("/api/datasets/published")
     assert r.status_code == 200
-    assert r.json()["datasets"][0]["name"] == "Test"
+    body = r.json()
+    assert body["datasets"][0]["name"] == "Test"
+    # B2: `summary` is always present on the row, even if null.
+    assert "summary" in body["datasets"][0]
+    # Synth failed (no mocked endpoints) → summary is None rather than propagating.
+    assert body["datasets"][0]["summary"] is None
 
 
 def test_me_with_ua_mismatch_returns_401(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
@@ -358,6 +369,107 @@ def test_required_enrichment_failure_skips_cache(app_and_cloud) -> None:  # type
     router.post("/ndiquery").mock(side_effect=_ndiquery_healthy)
     r2 = client.get("/api/datasets/DS1/tables/subject")
     assert r2.status_code == 200, r2.json()
+
+
+def test_published_datasets_embed_compact_summary(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
+    """Plan B B2: when the cloud mocks are wired for the synth fanout, the
+    published list embeds a fully-populated compact summary per row.
+    """
+    # ProxyCaches is module-level; other tests may have cached a stale
+    # /datasets/published response. Clear before this test so the mock we
+    # install is what hits the enricher.
+    from backend.cache.ttl import ProxyCaches
+    ProxyCaches.datasets_list.clear()
+
+    client, router = app_and_cloud
+    router.get("/datasets/published").respond(
+        200,
+        json={
+            "totalNumber": 1,
+            "datasets": [{
+                "id": "DS42",
+                "name": "B2 Catalog Dataset",
+                "license": "CC-BY-4.0",
+            }],
+        },
+    )
+    # Synth fanout — /datasets/DS42 + /document-class-counts + ndiquery +
+    # bulk-fetch. Subjects=1 so the species path fires.
+    router.get("/datasets/DS42").respond(
+        200,
+        json={
+            "_id": "DS42",
+            "name": "B2 Catalog Dataset",
+            "license": "CC-BY-4.0",
+            "createdAt": "2025-07-01T00:00:00.000Z",
+            "doi": "https://doi.org/10.63884/ds42",
+        },
+    )
+    router.get("/datasets/DS42/document-class-counts").respond(
+        200,
+        json={
+            "datasetId": "DS42",
+            "totalDocuments": 2,
+            "classCounts": {"subject": 1, "openminds_subject": 1},
+        },
+    )
+    router.post("/ndiquery").respond(
+        200,
+        json={
+            "number_matches": 1, "pageSize": 1000, "page": 1,
+            "documents": [{"id": "om-sp"}],
+        },
+    )
+    router.post("/datasets/DS42/documents/bulk-fetch").respond(
+        200,
+        json={"documents": [{
+            "id": "om-sp",
+            "ndiId": "ndi-om-sp",
+            "data": {
+                "base": {"id": "ndi-om-sp"},
+                "depends_on": [
+                    {"name": "subject_id", "value": "ndi-subj"},
+                ],
+                "openminds": {
+                    "openminds_type": "https://openminds.om-i.org/types/Species",
+                    "fields": {
+                        "name": "Mus musculus",
+                        "preferredOntologyIdentifier": "NCBITaxon:10090",
+                    },
+                },
+            },
+        }]},
+    )
+    r = client.get("/api/datasets/published")
+    assert r.status_code == 200, r.json()
+    body = r.json()
+    row = body["datasets"][0]
+
+    # ─── Raw DatasetRecord fields MUST be preserved alongside `summary` ───
+    # The wire-shape extension is strictly additive: pre-existing fields
+    # from the cloud's list response pass through unchanged. Regression
+    # guard against an enricher that accidentally drops or rewrites them.
+    assert row["id"] == "DS42"
+    assert row["name"] == "B2 Catalog Dataset"
+    assert row["license"] == "CC-BY-4.0"
+
+    # ─── `summary` field is attached and populated ─────────────────────────
+    assert row["summary"] is not None
+    s = row["summary"]
+    assert s["datasetId"] == "DS42"
+    assert s["schemaVersion"] == "summary:v1"
+    assert s["counts"]["subjects"] == 1
+    assert s["counts"]["totalDocuments"] == 2
+    assert s["species"][0]["ontologyId"] == "NCBITaxon:10090"
+    assert s["citation"]["license"] == "CC-BY-4.0"
+    assert s["citation"]["year"] == 2025
+    # Compact: no contributors / paperDois / extractionWarnings / probeTypes /
+    # strains / sexes / dateRange / totalSizeBytes — confirm absence.
+    assert "contributors" not in s["citation"]
+    assert "paperDois" not in s["citation"]
+    assert "strains" not in s
+    assert "probeTypes" not in s
+    assert "dateRange" not in s
 
 
 def test_dataset_summary_returns_synthesized_shape(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
