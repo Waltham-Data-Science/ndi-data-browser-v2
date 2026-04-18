@@ -1,12 +1,13 @@
-"""Dataset list / detail / class-counts / synthesized summary."""
+"""Dataset list / detail / class-counts / synthesized summary / grain pivot."""
 from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..auth.dependencies import get_current_session, require_session
 from ..auth.session import SessionData
+from ..config import get_settings
 from ..services.dataset_provenance_service import (
     DatasetProvenance,
     DatasetProvenanceService,
@@ -16,11 +17,13 @@ from ..services.dataset_summary_service import (
     DatasetSummary,
     DatasetSummaryService,
 )
+from ..services.pivot_service import PivotService
 from ._deps import (
     dataset_provenance_service,
     dataset_service,
     dataset_summary_service,
     limit_reads,
+    pivot_service,
 )
 
 router = APIRouter(prefix="/api/datasets", tags=["datasets"], dependencies=[Depends(limit_reads)])
@@ -129,3 +132,30 @@ async def provenance(
     ``frontend/src/types/dataset-provenance.ts``.
     """
     return await svc.build_provenance(dataset_id, session=session)
+
+
+@router.get("/{dataset_id}/pivot/{grain}")
+async def pivot(
+    dataset_id: str,
+    grain: str,
+    svc: Annotated[PivotService, Depends(pivot_service)],
+    session: Annotated[SessionData | None, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Grain-selectable pivot (Plan B B6e, behind ``FEATURE_PIVOT_V1``).
+
+    - 503 when the feature flag is off (frontend hides the nav on 503).
+    - 400 (``VALIDATION_ERROR``) when ``grain`` is not subject/session/element.
+    - 404 when the grain has zero docs in this dataset
+      (per ``/document-class-counts``) — pre-computed so we don't spend a
+      ndiquery on empty grains.
+    """
+    settings = get_settings()
+    if not settings.FEATURE_PIVOT_V1:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Grain-selectable pivot is disabled. Set FEATURE_PIVOT_V1=true "
+                "to enable."
+            ),
+        )
+    return await svc.pivot_by_grain(dataset_id, grain, session=session)

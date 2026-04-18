@@ -158,3 +158,50 @@ export function useDatasetProvenance(datasetId: string | undefined) {
     enabled: !!datasetId,
   });
 }
+
+/**
+ * Grain-selectable pivot response envelope (Plan B B6e). Mirrors
+ * :class:`backend.services.pivot_service.PivotResponse`.
+ *
+ * ``grain`` is one of ``subject`` / ``session`` / ``element`` in v1. Row
+ * shape is grain-specific; see the backend projection helpers for the
+ * contract per grain.
+ */
+export interface PivotColumn {
+  key: string;
+  label: string;
+}
+
+export interface PivotResponse {
+  datasetId: string;
+  grain: string;
+  columns: PivotColumn[];
+  rows: Array<Record<string, unknown>>;
+  computedAt: string;
+  schemaVersion: 'pivot:v1';
+  totalRows: number;
+}
+
+export type PivotGrain = 'subject' | 'session' | 'element';
+
+/**
+ * Fetches the pivot table for a given dataset + grain. Gated by
+ * ``FEATURE_PIVOT_V1`` on the backend — a 503 indicates the feature is
+ * disabled and the pivot nav should hide itself. The TanStack Query
+ * retry gate already treats 5xx as non-retryable when it arrives as an
+ * :class:`ApiError`.
+ */
+export function useDatasetPivot(
+  datasetId: string | undefined,
+  grain: PivotGrain | undefined,
+) {
+  return useQuery({
+    queryKey: ['dataset', datasetId, 'pivot', grain],
+    queryFn: () =>
+      apiFetch<PivotResponse>(
+        `/api/datasets/${datasetId}/pivot/${grain}`,
+      ),
+    enabled: !!datasetId && !!grain,
+    staleTime: 60_000,
+  });
+}

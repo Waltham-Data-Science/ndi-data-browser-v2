@@ -86,6 +86,16 @@ class Settings(BaseSettings):
     ONTOLOGY_CACHE_DB_PATH: str = "/tmp/ndi-ontology.db"
     ONTOLOGY_CACHE_TTL_DAYS: int = 30
 
+    # --- Feature flags ---
+    FEATURE_PIVOT_V1: bool = Field(
+        default=False,
+        description=(
+            "Enable Plan B B6e grain-selectable pivot (subject/session/element "
+            "grains). When false, `GET /api/datasets/:id/pivot/:grain` returns "
+            "503 and the frontend hides the pivot nav."
+        ),
+    )
+
     # --- Observability ---
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: Literal["json", "console"] = "json"

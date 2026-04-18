@@ -6,6 +6,7 @@ import { HomePage } from '@/pages/HomePage';
 import { DatasetsPage } from '@/pages/DatasetsPage';
 import { DatasetDetailPage } from '@/pages/DatasetDetailPage';
 import { DocumentExplorerPage } from '@/pages/DocumentExplorerPage';
+import { PivotView } from '@/components/datasets/PivotView';
 import { TableTab } from '@/pages/TableTab';
 import { DocumentDetailPage } from '@/pages/DocumentDetailPage';
 import { LoginPage } from '@/pages/LoginPage';
@@ -50,6 +51,8 @@ export function App() {
                 <Route path="tables/:className" element={<TableTab />} />
                 {/* M4c: Summary Tables / Raw Documents toggle. */}
                 <Route path="documents" element={<DocumentExplorerPage />} />
+                {/* Plan B B6e: grain-selectable pivot (subject/session/element). */}
+                <Route path="pivot/:grain" element={<PivotView />} />
               </Route>
               <Route path="datasets/:id/documents/:docId" element={<DocumentDetailPage />} />
               <Route path="my" element={<MyDatasetsPage />} />

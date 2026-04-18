@@ -119,6 +119,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
         redis=redis, ttl_seconds=PROVENANCE_CACHE_TTL_SECONDS,
     )
 
+    # Grain-selectable pivot cache (Plan B B6e), 5-minute TTL with its own
+    # `pivot:v1` prefix so a summary schema bump doesn't invalidate pivots
+    # and vice versa.
+    from .services.pivot_service import PIVOT_CACHE_TTL_SECONDS
+    app.state.pivot_cache = RedisTableCache(
+        redis=redis, ttl_seconds=PIVOT_CACHE_TTL_SECONDS,
+    )
+
     log.info("app.startup", environment=settings.ENVIRONMENT)
     try:
         yield
