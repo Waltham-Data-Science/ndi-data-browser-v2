@@ -60,6 +60,7 @@ target-version = "py312"
 select = [
     "E", "W", "F", "I", "N", "UP", "B", "A", "C4",
     "SIM", "ARG", "PTH", "ERA", "PL", "RUF",
+    "TID",      # flake8-tidy-imports — enforces ADR-009 services/httpx ban
 ]
 ignore = [
     "E501",     # long lines — tolerated, formatter handles it
@@ -75,7 +76,28 @@ ignore = [
     "UP046",    # new generics syntax — lint churn
     "BLE001",   # blind Exception — intentional in fallback log paths
     "RUF012",   # mutable class defaults — Pydantic + dataclass field patterns
+    "TID252",   # relative imports — idiomatic within this package
 ]
+
+# ADR-009: enforce that services/ don't make direct HTTP calls. The ban
+# applies globally (TID251); `per-file-ignores` below carves out the legitimate
+# consumers: `clients/ndi_cloud.py` (the cloud client that *is* the boundary)
+# and `services/ontology_service.py` (external ontology providers — documented
+# carve-out in ADR-009). Covers the three common Python HTTP libraries so a
+# future contributor can't bypass the rule by switching `httpx` -> `requests`.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"httpx".msg = "Do not import httpx inside backend/services/. Cloud I/O lives in backend/clients/ndi_cloud.py. See ADR-009 for the OntologyService carve-out."
+"requests".msg = "Do not import requests inside backend/services/. Cloud I/O lives in backend/clients/ndi_cloud.py. See ADR-009."
+"aiohttp".msg = "Do not import aiohttp inside backend/services/. Cloud I/O lives in backend/clients/ndi_cloud.py. See ADR-009."
+"urllib3".msg = "Do not import urllib3 inside backend/services/. Cloud I/O lives in backend/clients/ndi_cloud.py. See ADR-009."
+
+[tool.ruff.lint.per-file-ignores]
+"backend/clients/*.py" = ["TID251"]                 # clients/ owns HTTP to ndi-cloud-node
+"clients/*.py" = ["TID251"]                          # same path when ruff runs from inside backend/
+"backend/services/ontology_service.py" = ["TID251"] # ADR-009 carve-out for external ontology providers
+"services/ontology_service.py" = ["TID251"]          # same path when ruff runs from inside backend/
+"backend/tests/**/*.py" = ["TID251"]                # tests legitimately use httpx for respx mocks
+"tests/**/*.py" = ["TID251"]                         # same path when ruff runs from inside backend/
 
 [tool.mypy]
 python_version = "3.12"

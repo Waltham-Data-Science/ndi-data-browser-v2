@@ -30,8 +30,8 @@ The v1 SQLite dataset cache is gone. Every read is a cloud read.
 │                                                                │
 │  Auth:                                                         │
 │    • Redis session store (opaque session-id → encrypted JWT)   │
-│    • Cognito access token refreshed transparently on 401       │
-│    • Refresh protected by short-lived Redis lock               │
+│    • Cognito access tokens are 1-hour TTL.                     │
+│    • Sessions expire and force re-login (see ADR-008).         │
 │                                                                │
 │  Cloud client:                                                 │
 │    • httpx.AsyncClient, HTTP/2, keep-alive, pool size 50       │
@@ -126,21 +126,19 @@ POST /api/query/appears-elsewhere
 ← frontend renders "Referenced by N docs across M other datasets"
 ```
 
-### Session expiry with transparent refresh
+### Session expiry
 
 ```
 frontend → GET /api/datasets/myorg
   backend:
     session cookie present → Redis lookup → decrypt tokens
-    access_token expires_at < now → acquire Redis lock session:<id>:refresh
-    POST cloud /auth/refresh {refreshToken}
-      success → write new access_token to Redis, release lock, continue
-      failure → delete session, release lock, raise AUTH_EXPIRED
-    forward request with fresh access_token
-  ← 200 with data
+    access_token expires_at < now → delete session, raise AUTH_REQUIRED
+    forward request with access_token
+  ← 200 with data (or 401 AUTH_REQUIRED if expired)
 ```
 
-Frontend never sees the 401. No re-login prompt unless the refresh token itself is dead.
+Cognito access tokens are 1-hour TTL. We do not refresh them (see ADR-008);
+session expiry surfaces to the frontend as `AUTH_REQUIRED` and the user re-logs in.
 
 ## Why FastAPI proxy (not direct browser → cloud)
 
