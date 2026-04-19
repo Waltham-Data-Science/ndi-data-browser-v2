@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useOntologyLookup } from '@/api/ontology';
@@ -103,13 +97,61 @@ export function OntologyPopover({ termId, findEverywherePath }: OntologyPopoverP
   const { data, isLoading } = useOntologyLookup(lookupTerm);
   const normalized = normalizeOntologyTerm(displayId) ?? displayId;
 
+  /**
+   * Compute popover position from the trigger's viewport rect.
+   *
+   * Called from mouse/focus event handlers (to set the initial position
+   * when opening) and from the scroll/resize subscription while the
+   * popover is visible. Never called from an effect body — that would
+   * be a `setState`-in-effect anti-pattern.
+   *
+   * The popover's actual height is measured if already mounted (re-flow
+   * case); otherwise we use a 180px estimate that exceeds the common
+   * definition-text height, so the placement decision doesn't
+   * mistakenly place an oversized popover above a top-of-viewport
+   * trigger. Placement is self-aligning: `placement: 'above'` uses
+   * `transform: translateY(-100%)` so the popover's bottom sits at
+   * `top`, regardless of its actual height.
+   */
+  const computeCoords = useCallback((): PopoverCoords | null => {
+    const trigger = triggerRef.current;
+    if (!trigger) return null;
+    const rect = trigger.getBoundingClientRect();
+    const popoverEl = popoverRef.current;
+    const popoverHeight = popoverEl?.offsetHeight ?? 180;
+
+    const spaceAbove = rect.top - VIEWPORT_MARGIN_PX;
+    const spaceBelow = window.innerHeight - rect.bottom - VIEWPORT_MARGIN_PX;
+    const placement: Placement =
+      spaceAbove >= popoverHeight + POPOVER_OFFSET_PX || spaceAbove >= spaceBelow
+        ? 'above'
+        : 'below';
+
+    const top =
+      placement === 'above'
+        ? rect.top - POPOVER_OFFSET_PX
+        : rect.bottom + POPOVER_OFFSET_PX;
+
+    const maxLeft = window.innerWidth - POPOVER_WIDTH_PX - VIEWPORT_MARGIN_PX;
+    const left = Math.max(VIEWPORT_MARGIN_PX, Math.min(rect.left, maxLeft));
+
+    return { top, left, placement };
+  }, []);
+
   const openNow = useCallback(() => {
     if (closeTimeoutRef.current !== null) {
       window.clearTimeout(closeTimeoutRef.current);
       closeTimeoutRef.current = null;
     }
+    // Compute coords synchronously in the same event tick we open in.
+    // This avoids the `react-hooks/set-state-in-effect` anti-pattern
+    // (computing coords reactively in an effect that runs after isOpen
+    // flips) and also eliminates a render where the popover is open
+    // but has no coords yet — first frame is placed correctly.
+    const next = computeCoords();
+    if (next) setCoords(next);
     setIsOpen(true);
-  }, []);
+  }, [computeCoords]);
 
   const closeSoon = useCallback(() => {
     if (closeTimeoutRef.current !== null) {
@@ -121,59 +163,19 @@ export function OntologyPopover({ termId, findEverywherePath }: OntologyPopoverP
     }, POPOVER_CLOSE_DELAY_MS);
   }, []);
 
-  /**
-   * Compute popover position from the trigger's viewport rect. Uses a
-   * rough estimate for the popover's height when placing above — the
-   * actual rendered height is measured on the first layout pass (see
-   * `useLayoutEffect` below) and coords refine to exact placement. The
-   * first frame may be slightly off; subsequent frames are pixel-perfect.
-   */
-  const computeCoords = useCallback((): PopoverCoords | null => {
-    const trigger = triggerRef.current;
-    if (!trigger) return null;
-    const rect = trigger.getBoundingClientRect();
-    // Measure the rendered popover if available; otherwise estimate.
-    const popoverEl = popoverRef.current;
-    const popoverHeight = popoverEl?.offsetHeight ?? 140;
-
-    const spaceAbove = rect.top - VIEWPORT_MARGIN_PX;
-    const spaceBelow = window.innerHeight - rect.bottom - VIEWPORT_MARGIN_PX;
-    // Prefer above (historic placement). Flip below only when above can't
-    // fit and below can.
-    const placement: Placement =
-      spaceAbove >= popoverHeight + POPOVER_OFFSET_PX || spaceAbove >= spaceBelow
-        ? 'above'
-        : 'below';
-
-    const top =
-      placement === 'above'
-        ? rect.top - POPOVER_OFFSET_PX
-        : rect.bottom + POPOVER_OFFSET_PX;
-
-    // Horizontal: anchor at trigger.left, but clamp so the w-72 popover
-    // doesn't spill off either viewport edge.
-    const maxLeft = window.innerWidth - POPOVER_WIDTH_PX - VIEWPORT_MARGIN_PX;
-    const left = Math.max(VIEWPORT_MARGIN_PX, Math.min(rect.left, maxLeft));
-
-    return { top, left, placement };
-  }, []);
-
-  // Initial placement + refined placement after measurement. useLayoutEffect
-  // runs before paint so the user never sees a misplaced first frame in
-  // the common case where the estimated height matches reality.
-  useLayoutEffect(() => {
-    if (!isOpen) return;
-    setCoords(computeCoords());
-  }, [isOpen, computeCoords]);
-
   // Keep the popover anchored to the trigger as the user scrolls (e.g.
-  // scrolling the table's virtualized body) or resizes the window.
-  // `capture: true` catches scroll events from nested scrollers too, not
-  // just the window — essential for the table case that motivated the
-  // portal fix.
+  // scrolling the table's virtualized body) or resizes the window. The
+  // `setCoords` call lives inside the scroll/resize event callback —
+  // this is the "subscribe for updates from an external system" pattern
+  // that `react-hooks/set-state-in-effect` explicitly allows. Capture
+  // phase catches nested scrollers too, essential for the table case
+  // that motivated the portal fix.
   useEffect(() => {
     if (!isOpen) return;
-    const onReflow = () => setCoords(computeCoords());
+    const onReflow = () => {
+      const next = computeCoords();
+      if (next) setCoords(next);
+    };
     window.addEventListener('scroll', onReflow, true);
     window.addEventListener('resize', onReflow);
     return () => {
