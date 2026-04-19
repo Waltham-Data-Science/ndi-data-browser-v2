@@ -272,7 +272,7 @@ export function SummaryTableView({
                 className="flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100 transition-colors text-left"
                 onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
               >
-                <span className="truncate max-w-[200px]">{label}</span>
+                <span className="truncate max-w-[200px] md:max-w-[300px] lg:max-w-[420px]">{label}</span>
                 <ArrowUpDown className="h-3 w-3 shrink-0 opacity-50" />
               </button>
               {colDef?.description && (
@@ -506,7 +506,7 @@ export function SummaryTableView({
                   onChange={column.getToggleVisibilityHandler()}
                   className="rounded border-slate-300 dark:border-slate-600"
                 />
-                <span className="font-mono truncate max-w-[180px]">
+                <span className="font-mono truncate max-w-[180px] md:max-w-[280px] lg:max-w-[380px]">
                   {label}
                 </span>
               </label>
@@ -599,7 +599,7 @@ function TableCell({
     const formatted = formatter(value);
     if (typeof formatted === 'string') {
       return (
-        <span className="font-mono text-xs truncate max-w-[300px] block">
+        <span className="font-mono text-xs truncate max-w-[300px] md:max-w-[440px] lg:max-w-[600px] block">
           {formatted}
         </span>
       );
@@ -624,7 +624,7 @@ function TableCell({
     return <OntologyPopover termId={trimmed} findEverywherePath={findEverywherePath} />;
   }
   return (
-    <span className="font-mono text-xs truncate max-w-[300px] block">
+    <span className="font-mono text-xs truncate max-w-[300px] md:max-w-[440px] lg:max-w-[600px] block">
       {str}
     </span>
   );
@@ -685,7 +685,7 @@ function VirtualizedTable({
     <div className="relative">
       <div
         ref={scrollRef}
-        className="rounded-md border border-slate-200 dark:border-slate-700 overflow-auto max-h-[600px]"
+        className="rounded-md border border-slate-200 dark:border-slate-700 overflow-auto max-h-[calc(100vh-220px)] min-h-[320px]"
       >
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-slate-50 dark:bg-slate-900 z-10">

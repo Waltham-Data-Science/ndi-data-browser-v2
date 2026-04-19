@@ -38,7 +38,7 @@ export function ExternalAnchor({
           className,
         )}
       >
-        <span className="truncate max-w-[220px]">{label}</span>
+        <span className="truncate max-w-[220px] md:max-w-[340px] lg:max-w-[480px]">{label}</span>
       </span>
     );
   }
@@ -52,7 +52,7 @@ export function ExternalAnchor({
         className,
       )}
     >
-      <span className="truncate max-w-[220px]">{label}</span>
+      <span className="truncate max-w-[220px] md:max-w-[340px] lg:max-w-[480px]">{label}</span>
       <ExternalLink className="shrink-0" style={{ width: iconSize, height: iconSize }} />
     </a>
   );

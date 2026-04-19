@@ -30,7 +30,7 @@ export function VideoPlayer({ data }: VideoPlayerProps) {
 
   return (
     <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-black overflow-hidden">
-      <video src={data.url} controls preload="metadata" className="w-full max-h-[500px]">
+      <video src={data.url} controls preload="metadata" className="w-full max-h-[calc(100vh-200px)]">
         Your browser does not support video playback.
       </video>
     </div>

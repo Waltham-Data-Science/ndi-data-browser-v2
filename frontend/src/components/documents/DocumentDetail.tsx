@@ -223,7 +223,7 @@ export function DocumentDetailView({ document: doc, datasetId }: DocumentDetailV
           <CardTitle className="text-xs font-medium">Document Properties</CardTitle>
         </CardHeader>
         <CardBody className="pt-0">
-          <div className="font-mono text-xs leading-relaxed overflow-auto max-h-[500px]">
+          <div className="font-mono text-xs leading-relaxed overflow-auto max-h-[calc(100vh-220px)] min-h-[240px]">
             <JsonTree data={displayData} />
           </div>
         </CardBody>

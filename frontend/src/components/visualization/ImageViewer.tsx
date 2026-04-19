@@ -89,7 +89,7 @@ export function ImageViewer({ data, onFrameChange }: ImageViewerProps) {
         </div>
       </div>
 
-      <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-black/40 overflow-auto max-h-[500px] flex items-center justify-center p-2">
+      <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-black/40 overflow-auto max-h-[calc(100vh-200px)] min-h-[320px] flex items-center justify-center p-2">
         <img
           src={data.dataUri}
           alt="NDI image data"

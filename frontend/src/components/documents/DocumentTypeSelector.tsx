@@ -22,7 +22,7 @@ export function DocumentTypeSelector({
   total,
 }: DocumentTypeSelectorProps) {
   return (
-    <div className="space-y-0.5 max-h-[500px] overflow-y-auto" role="listbox" aria-label="Document classes">
+    <div className="space-y-0.5 max-h-[calc(100vh-300px)] min-h-[320px] overflow-y-auto" role="listbox" aria-label="Document classes">
       <TypeRow
         label="All documents"
         count={total}

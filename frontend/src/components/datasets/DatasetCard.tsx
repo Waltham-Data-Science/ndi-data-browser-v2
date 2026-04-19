@@ -115,7 +115,7 @@ export function DatasetCard({ dataset }: DatasetCardProps) {
             {dataset.doi && (
               <span className="inline-flex items-center gap-1">
                 <BookOpen className="h-3 w-3" />
-                <span className="truncate max-w-[160px]">{dataset.doi}</span>
+                <span className="truncate max-w-[160px] md:max-w-[240px] lg:max-w-[360px]">{dataset.doi}</span>
               </span>
             )}
           </div>
