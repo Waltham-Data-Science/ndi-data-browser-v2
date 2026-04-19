@@ -195,7 +195,7 @@ function OntologyGroupPicker({
                 : 'px-2 py-1 text-xs font-medium rounded-t-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
             }
           >
-            <span className="font-mono truncate max-w-[200px] inline-block align-bottom">
+            <span className="font-mono truncate max-w-[200px] md:max-w-[300px] lg:max-w-[420px] inline-block align-bottom">
               {label}
               {g.variableNames.length > 2 && '…'}
             </span>

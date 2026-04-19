@@ -245,7 +245,7 @@ function RawDocumentsPane({
                               <td className="px-3 py-1.5 font-mono text-xs text-slate-500 dark:text-slate-400">
                                 {d.id || ''}
                               </td>
-                              <td className="px-3 py-1.5 font-mono text-xs text-slate-500 dark:text-slate-400 truncate max-w-[220px]">
+                              <td className="px-3 py-1.5 font-mono text-xs text-slate-500 dark:text-slate-400 truncate max-w-[220px] md:max-w-[340px] lg:max-w-[480px]">
                                 {d.ndiId || ''}
                               </td>
                             </tr>
