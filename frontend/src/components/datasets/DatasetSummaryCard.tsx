@@ -27,6 +27,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/Card';
+import { FloatingPanel } from '@/components/ui/FloatingPanel';
 import { cn } from '@/lib/cn';
 import { formatBytes } from '@/lib/format';
 import { normalizeOrcid } from '@/lib/orcid';
@@ -456,6 +457,12 @@ export function OntologyTermPill({
   const hoveringRef = useRef(false);
   const pendingTimeoutRef = useRef<number | null>(null);
   const [tooltipVisible, setTooltipVisible] = useState(false);
+  // Anchor for FloatingPanel — the outer pill span's bounding rect drives
+  // the tooltip position. Needed because the tooltip is portaled to
+  // `document.body` to escape clipping ancestors (see FloatingPanel for
+  // the why). The old inline absolute positioning was clipped by the
+  // table scroll container when a pill sat in an ontology table cell.
+  const anchorRef = useRef<HTMLSpanElement>(null);
 
   const resolverHref =
     !noLink && term.ontologyId ? resolverUrl(term.ontologyId) : null;
@@ -496,37 +503,42 @@ export function OntologyTermPill({
   );
 
   return (
-    <span
-      className="relative inline-flex"
-      onMouseEnter={onEnter}
-      onMouseLeave={onLeave}
-      onFocus={onEnter}
-      onBlur={onLeave}
-      data-ontology-id={term.ontologyId ?? ''}
-    >
-      {resolverHref ? (
-        <a
-          href={resolverHref}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded-full"
-          data-testid="ontology-term-link"
-        >
-          {content}
-        </a>
-      ) : (
-        content
-      )}
-      {tooltipVisible && term.ontologyId && (
-        <span
-          role="tooltip"
-          data-testid="ontology-term-tooltip"
-          className="absolute left-0 top-full z-10 mt-1 whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-mono shadow-md dark:border-slate-700 dark:bg-slate-900"
-        >
-          {term.ontologyId}
-        </span>
-      )}
-    </span>
+    <>
+      <span
+        ref={anchorRef}
+        className="relative inline-flex"
+        onMouseEnter={onEnter}
+        onMouseLeave={onLeave}
+        onFocus={onEnter}
+        onBlur={onLeave}
+        data-ontology-id={term.ontologyId ?? ''}
+      >
+        {resolverHref ? (
+          <a
+            href={resolverHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded-full"
+            data-testid="ontology-term-link"
+          >
+            {content}
+          </a>
+        ) : (
+          content
+        )}
+      </span>
+      <FloatingPanel
+        open={tooltipVisible && !!term.ontologyId}
+        anchorRef={anchorRef}
+        preferredPlacement="below"
+        width={200}
+        estimatedHeight={28}
+        testId="ontology-term-tooltip"
+        className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-mono shadow-md dark:border-slate-700 dark:bg-slate-900"
+      >
+        {term.ontologyId}
+      </FloatingPanel>
+    </>
   );
 }
 
@@ -572,6 +584,7 @@ function SummaryFooter({
 }) {
   const age = useMemo(() => humanizeAge(computedAt), [computedAt]);
   const [warningsOpen, setWarningsOpen] = useState(false);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   return (
     <footer
       className="flex items-center justify-between border-t border-slate-200 pt-2 text-[10px] text-slate-500 dark:border-slate-700 dark:text-slate-400"
@@ -580,6 +593,7 @@ function SummaryFooter({
       <span data-testid="summary-computed-at">Last computed {age}</span>
       {extractionWarnings.length > 0 && (
         <button
+          ref={toggleRef}
           type="button"
           className="inline-flex items-center gap-1 rounded hover:text-slate-700 dark:hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
           onClick={() => setWarningsOpen((v) => !v)}
@@ -591,11 +605,16 @@ function SummaryFooter({
           {extractionWarnings.length === 1 ? '' : 's'}
         </button>
       )}
-      {warningsOpen && extractionWarnings.length > 0 && (
-        <ul
-          className="absolute right-6 z-10 mt-1 w-80 max-w-[90vw] space-y-1 rounded-md border border-slate-200 bg-white p-2 text-[10px] shadow-md dark:border-slate-700 dark:bg-slate-900"
-          data-testid="summary-warnings-tooltip"
-        >
+      <FloatingPanel
+        open={warningsOpen && extractionWarnings.length > 0}
+        anchorRef={toggleRef}
+        preferredPlacement="above"
+        width={320}
+        estimatedHeight={Math.min(240, 40 + extractionWarnings.length * 24)}
+        testId="summary-warnings-tooltip"
+        className="rounded-md border border-slate-200 bg-white p-2 text-[10px] shadow-md dark:border-slate-700 dark:bg-slate-900"
+      >
+        <ul className="space-y-1">
           {extractionWarnings.map((w, i) => (
             <li
               key={i}
@@ -606,7 +625,7 @@ function SummaryFooter({
             </li>
           ))}
         </ul>
-      )}
+      </FloatingPanel>
     </footer>
   );
 }

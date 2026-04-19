@@ -16,6 +16,7 @@ import { ArrowUpDown, Download, Eye, EyeOff, Info } from 'lucide-react';
 
 import type { TableResponse } from '@/api/tables';
 import { Button } from '@/components/ui/Button';
+import { FloatingPanel } from '@/components/ui/FloatingPanel';
 import { Input } from '@/components/ui/Input';
 import { OntologyPopover } from '@/components/ontology/OntologyPopover';
 import { isOntologyTerm } from '@/components/ontology/ontology-utils';
@@ -275,18 +276,7 @@ export function SummaryTableView({
                 <ArrowUpDown className="h-3 w-3 shrink-0 opacity-50" />
               </button>
               {colDef?.description && (
-                <span className="relative group">
-                  <Info
-                    className="h-3 w-3 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 cursor-help"
-                    aria-label={`Column info: ${label}`}
-                  />
-                  <span
-                    role="tooltip"
-                    className="absolute z-50 bottom-full left-0 mb-1 w-64 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 shadow-lg text-xs text-slate-600 dark:text-slate-400 hidden group-hover:block"
-                  >
-                    {colDef.description}
-                  </span>
-                </span>
+                <ColumnInfoTip label={label} description={colDef.description} />
               )}
             </div>
           ),
@@ -535,6 +525,56 @@ export function SummaryTableView({
         <QuickPlot datasetId={datasetId} className={tableType} table={data} />
       )}
     </div>
+  );
+}
+
+/**
+ * Column-header `ℹ` info icon with its explainer tooltip. Renders the
+ * tooltip via `FloatingPanel` (portal to `document.body`, `position:
+ * fixed`) so it isn't clipped by the table's `overflow-auto` scroll
+ * wrapper. Replaces a previous CSS-only `group-hover:block` tooltip
+ * that was invisible on top-row headers — Steve's 2026-04-19 report.
+ *
+ * Hover semantics are simple show-on-enter / hide-on-leave (matching
+ * the old CSS behavior) — no delay is needed because the user
+ * explicitly hovered the info icon.
+ */
+function ColumnInfoTip({
+  label,
+  description,
+}: {
+  label: string;
+  description: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const iconRef = useRef<HTMLSpanElement>(null);
+  return (
+    <>
+      <span
+        ref={iconRef}
+        className="inline-flex"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+      >
+        <Info
+          className="h-3 w-3 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 cursor-help"
+          aria-label={`Column info: ${label}`}
+          tabIndex={0}
+        />
+      </span>
+      <FloatingPanel
+        open={open}
+        anchorRef={iconRef}
+        preferredPlacement="above"
+        width={256}
+        estimatedHeight={80}
+        className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 shadow-lg text-xs text-slate-600 dark:text-slate-400"
+      >
+        {description}
+      </FloatingPanel>
+    </>
   );
 }
 
