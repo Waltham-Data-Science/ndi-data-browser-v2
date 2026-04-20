@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     SESSION_ABSOLUTE_TTL_SECONDS: int = 24 * 60 * 60
 
     # --- Cloud client ---
+    # 30 s per individual HTTP call (CONNECT+READ+WRITE combined) — deliberately
+    # aligned with the ndi-cloud-node Lambda's 30 s hard ceiling (see
+    # ``ndi-cloud-node/api/serverless.yml`` ``apilambda.timeout: 30``). If Lambda
+    # exceeds its own budget, API Gateway returns 504; waiting longer on our
+    # side won't change that, it just delays the user-visible error. See
+    # ``docs/error-catalog.md::QUERY_TIMEOUT``.
     CLOUD_HTTP_TIMEOUT_SECONDS: float = 30.0
     CLOUD_MAX_RETRIES: int = 3
     CLOUD_CIRCUIT_BREAKER_THRESHOLD: int = 5
