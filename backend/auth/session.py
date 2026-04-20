@@ -16,7 +16,7 @@ import hashlib
 import json
 import secrets
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -75,6 +75,14 @@ class SessionData:
     last_active: int
     ip_addr_hash: str
     user_agent_hash: str
+    # Cached from the cloud's login response so `/api/auth/me` and
+    # `/api/datasets/my` don't need a second cloud round-trip per
+    # request. Safe to store unhashed (organization IDs are not PII
+    # and `isAdmin` is a boolean capability, not a secret).
+    # Defaults below are for backward-compat when deserializing
+    # pre-2026-04-20 sessions that predate these fields.
+    organization_ids: list[str] = field(default_factory=list)
+    is_admin: bool = False
 
     def to_redis(self, fernet: Fernet) -> dict[str, Any]:
         d = asdict(self)
@@ -84,6 +92,7 @@ class SessionData:
     @classmethod
     def from_redis(cls, data: dict[str, Any], fernet: Fernet) -> SessionData:
         access_token = fernet.decrypt(data["access_token"].encode()).decode()
+        raw_orgs = data.get("organization_ids") or []
         return cls(
             session_id=data["session_id"],
             user_id=data["user_id"],
@@ -94,6 +103,8 @@ class SessionData:
             last_active=int(data["last_active"]),
             ip_addr_hash=data["ip_addr_hash"],
             user_agent_hash=data["user_agent_hash"],
+            organization_ids=[str(x) for x in raw_orgs],
+            is_admin=bool(data.get("is_admin", False)),
         )
 
 
@@ -142,6 +153,8 @@ class SessionStore:
         access_token_expires_in_seconds: int,
         ip: str,
         user_agent: str,
+        organization_ids: list[str] | None = None,
+        is_admin: bool = False,
     ) -> SessionData:
         session_id = secrets.token_hex(16)  # 128 bits
         now = int(time.time())
@@ -155,6 +168,8 @@ class SessionStore:
             last_active=now,
             ip_addr_hash=_hash_ip(ip),
             user_agent_hash=_hash_user_agent(user_agent),
+            organization_ids=list(organization_ids or []),
+            is_admin=bool(is_admin),
         )
         await self._write(data)
         return data

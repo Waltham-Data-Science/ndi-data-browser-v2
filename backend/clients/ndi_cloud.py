@@ -269,6 +269,17 @@ class NdiCloudClient:
         return cast(dict[str, Any], resp.json())
 
     async def get_my_datasets(self, *, access_token: str) -> dict[str, Any]:
+        """Legacy helper: cloud's ``/datasets/unpublished`` (in-review pile,
+        filtered to ``isPublished: false AND isSubmitted: true``, plus an
+        admin-only bypass that returns every org's in-review datasets).
+
+        Retained for backward compat and tests. The production ``/api/datasets/my``
+        flow uses :meth:`get_organization_datasets` across the caller's
+        ``session.organization_ids`` instead — see
+        ``DatasetService.list_mine``. See CLAUDE.md "My Org datasets" for
+        the rationale (the old endpoint didn't surface drafts or published
+        work belonging to the caller's org — just the narrow in-review slice).
+        """
         resp = await self._request(
             "GET",
             "/datasets/unpublished",
@@ -276,6 +287,31 @@ class NdiCloudClient:
             access_token=access_token,
         )
         self._raise_for_status(resp, endpoint="datasets_mine")
+        return cast(dict[str, Any], resp.json())
+
+    async def get_organization_datasets(
+        self,
+        organization_id: str,
+        *,
+        access_token: str,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        """GET ``/organizations/:orgId/datasets`` — every dataset the org
+        owns, regardless of publish/submit status. Cloud-side permission
+        filter strips anything the caller is not entitled to see (the
+        admin / org-member distinction is resolved there, not here).
+        Response shape mirrors the other list endpoints:
+        ``{ totalNumber, page, pageSize, datasets: [...] }``.
+        """
+        resp = await self._request(
+            "GET",
+            f"/organizations/{organization_id}/datasets",
+            endpoint_label="organization_datasets",
+            access_token=access_token,
+            params={"page": page, "pageSize": page_size},
+        )
+        self._raise_for_status(resp, endpoint="organization_datasets")
         return cast(dict[str, Any], resp.json())
 
     async def get_dataset(self, dataset_id: str, *, access_token: str | None = None) -> dict[str, Any]:

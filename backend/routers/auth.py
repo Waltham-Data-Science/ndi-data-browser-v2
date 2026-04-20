@@ -28,6 +28,12 @@ class MeResponse(BaseModel):
     issuedAt: int
     lastActive: int
     expiresAt: int
+    # Captured at login from the cloud's `UserWithOrganizationsResult`
+    # and cached on the session. Added 2026-04-20 so `/api/datasets/my`
+    # can fan out `/organizations/:orgId/datasets` per org and so the
+    # frontend can render an admin affordance when relevant.
+    organizationIds: list[str] = []
+    isAdmin: bool = False
 
 
 class CsrfResponse(BaseModel):
@@ -96,4 +102,6 @@ async def me(
         issuedAt=session.issued_at,
         lastActive=session.last_active,
         expiresAt=session.access_token_expires_at,
+        organizationIds=list(session.organization_ids),
+        isAdmin=session.is_admin,
     )

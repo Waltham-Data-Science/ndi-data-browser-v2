@@ -69,13 +69,82 @@ class DatasetService:
     async def list_mine(
         self, *, session: SessionData,
     ) -> dict[str, Any]:
-        # User-scoped — do not share across users. `user_scope_for` hashes the
-        # user_id so the key string carries no PII even in redis debugging.
+        """Aggregate every dataset owned by any org the caller belongs to.
+
+        The cloud's ``/datasets/unpublished`` is a narrow slice (filter:
+        ``isPublished=false AND isSubmitted=true``) that hides the common
+        cases a scientist expects on their "My org" view — their own
+        published work, and drafts they haven't submitted yet. Instead we
+        fan out to ``GET /organizations/:orgId/datasets`` for each org in
+        ``session.organization_ids`` (captured at login from the cloud's
+        ``UserWithOrganizationsResult``) and return the union.
+
+        If the caller has zero orgs on their session, we return the
+        empty shape. This is the right answer for admins who aren't
+        enrolled in any org — they can still see everything via the
+        public catalog; the frontend renders a helpful empty-state.
+
+        Cache key is per-user so two members of the same org don't share
+        a cached aggregation (each user's permission filter on the cloud
+        side may expose a slightly different set).
+        """
         key = f"mine:{user_scope_for(session)}"
         return await ProxyCaches.datasets_list.get_or_compute(
             key,
-            lambda: self.cloud.get_my_datasets(access_token=session.access_token),
+            lambda: self._aggregate_org_datasets(session=session),
         )
+
+    async def _aggregate_org_datasets(
+        self, *, session: SessionData,
+    ) -> dict[str, Any]:
+        org_ids = list(session.organization_ids)
+        if not org_ids:
+            return {"totalNumber": 0, "datasets": []}
+        # Bounded concurrency on the fan-out — matches the Semaphore(3)
+        # discipline `summary_table_service` + the summary-enricher use,
+        # and keeps us well under the cloud Lambda account concurrency
+        # budget even for users in many orgs.
+        sem = asyncio.Semaphore(MAX_CONCURRENT_SUMMARIES)
+
+        async def _one(org_id: str) -> dict[str, Any] | None:
+            async with sem:
+                try:
+                    return await self.cloud.get_organization_datasets(
+                        org_id,
+                        access_token=session.access_token,
+                        page=1,
+                        page_size=100,
+                    )
+                except Exception as e:
+                    # Don't fail the whole /my view because one of the
+                    # caller's orgs had a transient hiccup — log and skip.
+                    log.warning(
+                        "list_mine.org_fetch_failed",
+                        organization_id=org_id,
+                        error=str(e),
+                    )
+                    return None
+
+        results = await asyncio.gather(*[_one(oid) for oid in org_ids])
+        merged: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        total = 0
+        for r in results:
+            if not isinstance(r, dict):
+                continue
+            total += int(r.get("totalNumber") or 0)
+            for row in r.get("datasets") or []:
+                if not isinstance(row, dict):
+                    continue
+                did = row.get("id")
+                if isinstance(did, str):
+                    if did in seen_ids:
+                        # Shouldn't happen (a dataset belongs to one org)
+                        # but defense-in-depth against upstream changes.
+                        continue
+                    seen_ids.add(did)
+                merged.append(row)
+        return {"totalNumber": total, "datasets": merged}
 
     async def detail(
         self, dataset_id: str, *, session: SessionData | None,

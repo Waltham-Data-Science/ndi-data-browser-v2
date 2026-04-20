@@ -113,20 +113,21 @@ def test_my_datasets_requires_session(app_and_cloud) -> None:  # type: ignore[no
     assert body["error"]["recovery"] == "login"
 
 
-def test_my_datasets_authenticated_proxies_to_unpublished(
+def test_my_datasets_authenticated_aggregates_across_session_orgs(
     app_and_cloud,
 ) -> None:  # type: ignore[no-untyped-def]
-    """Authenticated ``/api/datasets/my`` proxies to the cloud's
-    ``/datasets/unpublished`` endpoint (see ``CLAUDE.md`` cloud API
-    reference table) and shapes the response exactly like ``/published``
-    with an embedded compact-summary slot per row. When the synthesizer
-    has no cloud endpoints to call for a given row (respx's
-    ``assert_all_called=False`` returns 404 for unmocked routes), the
-    row renders with ``summary: null`` rather than propagating the error.
+    """Authenticated ``/api/datasets/my`` fans out
+    ``GET /organizations/:orgId/datasets`` for every org stored on the
+    caller's session (captured at login from the cloud's
+    ``UserWithOrganizationsResult``) and returns the merged list. Every
+    row gets a ``summary`` slot (null when the synthesizer can't run
+    against the unmocked cloud). The access token is threaded through
+    to each per-org call so the cloud's permission filter strips
+    anything the caller isn't entitled to see.
 
-    Also verifies the session's access token is forwarded to the cloud
-    — without the Bearer header, ndi-cloud-node would refuse to surface
-    unpublished datasets at all.
+    This replaces the pre-2026-04-20 ``/datasets/unpublished`` behaviour,
+    which surfaced only the narrow in-review slice and hid the caller's
+    actual published work + never-submitted drafts.
     """
     import asyncio
 
@@ -134,7 +135,8 @@ def test_my_datasets_authenticated_proxies_to_unpublished(
 
     client, router = app_and_cloud
 
-    # Plant a live session with a known access token.
+    # Plant a live session bound to two orgs. The Bearer-token header
+    # assertion below doubles as an auth-forwarding regression test.
     store: SessionStore = client.app.state.session_store
 
     async def _plant():  # type: ignore[no-untyped-def]
@@ -145,22 +147,39 @@ def test_my_datasets_authenticated_proxies_to_unpublished(
             access_token_expires_in_seconds=3600,
             ip="127.0.0.1",
             user_agent="testclient",
+            organization_ids=["org-alpha", "org-beta"],
+            is_admin=False,
         )
 
     session = asyncio.get_event_loop().run_until_complete(_plant())
     client.cookies.set("session", session.session_id)
 
-    # Assert the Bearer token is threaded through to the cloud.
-    unpublished_route = router.get(
-        "/datasets/unpublished",
+    alpha_route = router.get(
+        "/organizations/org-alpha/datasets",
         headers={"Authorization": "Bearer my-access-token"},
     ).respond(
         200,
         json={
             "totalNumber": 2,
+            "page": 1,
+            "pageSize": 100,
             "datasets": [
-                {"id": "draft-1", "name": "Draft Alpha", "isPublished": False},
-                {"id": "draft-2", "name": "Draft Bravo", "isPublished": False},
+                {"id": "a1", "name": "Alpha One"},
+                {"id": "a2", "name": "Alpha Two (draft)", "isPublished": False},
+            ],
+        },
+    )
+    beta_route = router.get(
+        "/organizations/org-beta/datasets",
+        headers={"Authorization": "Bearer my-access-token"},
+    ).respond(
+        200,
+        json={
+            "totalNumber": 1,
+            "page": 1,
+            "pageSize": 100,
+            "datasets": [
+                {"id": "b1", "name": "Beta One (published)", "isPublished": True},
             ],
         },
     )
@@ -168,14 +187,91 @@ def test_my_datasets_authenticated_proxies_to_unpublished(
     r = client.get("/api/datasets/my", headers={"User-Agent": "testclient"})
     assert r.status_code == 200
     body = r.json()
-    assert body["totalNumber"] == 2
-    ids = [d["id"] for d in body["datasets"]]
-    assert ids == ["draft-1", "draft-2"]
+    assert body["totalNumber"] == 3  # sum across both orgs
+    ids = sorted(d["id"] for d in body["datasets"])
+    assert ids == ["a1", "a2", "b1"]
     # Compact-summary slot is always present (null when synth has nothing).
     for row in body["datasets"]:
         assert "summary" in row
         assert row["summary"] is None
-    assert unpublished_route.called, "cloud /datasets/unpublished should have been hit"
+    assert alpha_route.called, "org-alpha datasets endpoint should have been hit"
+    assert beta_route.called, "org-beta datasets endpoint should have been hit"
+
+
+def test_my_datasets_with_no_orgs_returns_empty(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """Admin users who aren't enrolled in any org — or anyone whose
+    session predates the 2026-04-20 organization_ids capture — see an
+    empty list. Better than a 500; the frontend renders an empty-state
+    hint explaining that datasets from their orgs will appear here.
+    """
+    import asyncio
+
+    from backend.auth.session import SessionStore
+
+    client, _ = app_and_cloud
+
+    store: SessionStore = client.app.state.session_store
+
+    async def _plant():  # type: ignore[no-untyped-def]
+        return await store.create(
+            user_id="orphan-user",
+            email="orphan@example.test",
+            access_token="orphan-access-token",
+            access_token_expires_in_seconds=3600,
+            ip="127.0.0.1",
+            user_agent="testclient",
+            # No orgs — simulates a pre-2026-04-20 session or an
+            # unenrolled admin.
+            organization_ids=[],
+            is_admin=True,
+        )
+
+    session = asyncio.get_event_loop().run_until_complete(_plant())
+    client.cookies.set("session", session.session_id)
+
+    r = client.get("/api/datasets/my", headers={"User-Agent": "testclient"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body == {"totalNumber": 0, "datasets": []}
+
+
+def test_me_includes_organization_ids_and_admin_flag(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """``/api/auth/me`` surfaces the session's cached org IDs + admin
+    flag so the frontend can render admin-scoped affordances (filter
+    chips, badges) without a second cloud round-trip.
+    """
+    import asyncio
+
+    from backend.auth.session import SessionStore
+
+    client, _ = app_and_cloud
+
+    store: SessionStore = client.app.state.session_store
+
+    async def _plant():  # type: ignore[no-untyped-def]
+        return await store.create(
+            user_id="admin-user",
+            email="admin@example.test",
+            access_token="admin-token",
+            access_token_expires_in_seconds=3600,
+            ip="127.0.0.1",
+            user_agent="testclient",
+            organization_ids=["org-alpha"],
+            is_admin=True,
+        )
+
+    session = asyncio.get_event_loop().run_until_complete(_plant())
+    client.cookies.set("session", session.session_id)
+
+    r = client.get("/api/auth/me", headers={"User-Agent": "testclient"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["organizationIds"] == ["org-alpha"]
+    assert body["isAdmin"] is True
 
 
 def test_me_with_ua_mismatch_returns_401(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
