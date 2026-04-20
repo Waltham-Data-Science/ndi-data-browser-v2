@@ -103,7 +103,7 @@ function NavItem({
       className={({ isActive }) =>
         cn(
           'rounded-md px-3 py-1 text-sm font-medium text-white/80 hover:bg-white/5 hover:text-white transition-all',
-          isActive && 'text-[#5DC1FF]',
+          isActive && 'text-brand-300',
         )
       }
     >
