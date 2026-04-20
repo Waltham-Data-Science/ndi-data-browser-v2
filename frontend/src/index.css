@@ -4,9 +4,12 @@
   /* Brand tokens — aligned to NDI Cloud design system (April 2026).
      Primary = NDI Cloud emblem sky blue (#17A7FF) with a matched 500/600/700
      progression for hover + focus states. Navy (#002054) is the header +
-     emphasis color. 50/100 reserved for light-mode bubble fills. */
+     emphasis color. 50/100 reserved for light-mode bubble fills. 200/300
+     are lighter sky blues used on the glassmorphism header's active nav
+     link (300) and hover surfaces (200). */
   --color-brand-50: #e6f4ff;
   --color-brand-100: #c9e8ff;
+  --color-brand-300: #5dc1ff;
   --color-brand-400: #17a7ff;
   --color-brand-500: #0b8bd6;
   --color-brand-600: #0671ab;
@@ -17,9 +20,13 @@
   --color-brand-teal: #0F6E56;
   /* Background — clean neutral gray, not the old pink tint */
   --color-brand-bg: #F9FAFB;
-  /* Typography — Geist font family */
-  --font-sans: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  /* Typography — Geist font family (self-hosted via fontsource; see
+     `src/main.tsx` for the imports). The variable-font packages
+     register as "Geist Variable" / "Geist Mono Variable" — we list
+     those first, then graceful-degrade to the OS system stack if the
+     woff2 hasn't arrived yet (font-display: swap prevents FOIT). */
+  --font-sans: 'Geist Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
 
 :root {
