@@ -6,6 +6,7 @@ and cookie issuance.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import Request, Response
 
@@ -67,13 +68,31 @@ async def do_login(
         log.info("auth.login.failed", reason=type(e).__name__)
         raise
 
+    # Extract org memberships + admin flag from the cloud's login
+    # response (`UserWithOrganizationsResult`) and cache them on the
+    # session. The cloud returns `user.organizations: [{id, name,
+    # canUploadDataset}, ...]` and `user.isAdmin: bool`. We store just
+    # the IDs (sufficient for fan-out queries to the cloud's
+    # `/organizations/:orgId/datasets`) + the admin bit (for
+    # frontend UX affordances like an admin scope toggle on /my).
+    user_payload: dict[str, Any] = auth.user or {}
+    raw_orgs = user_payload.get("organizations") or []
+    organization_ids: list[str] = []
+    if isinstance(raw_orgs, list):
+        for o in raw_orgs:
+            if isinstance(o, dict) and isinstance(o.get("id"), str):
+                organization_ids.append(o["id"])
+    is_admin = bool(user_payload.get("isAdmin", False))
+
     session = await store.create(
-        user_id=(auth.user or {}).get("id", username),
+        user_id=user_payload.get("id", username) if isinstance(user_payload.get("id"), str) else username,
         email=username,
         access_token=auth.access_token,
         access_token_expires_in_seconds=auth.expires_in_seconds,
         ip=ip,
         user_agent=request.headers.get("user-agent", "unknown"),
+        organization_ids=organization_ids,
+        is_admin=is_admin,
     )
     login_attempts_total.labels(outcome="success").inc()
     log.info("auth.login.success", session_id=session.session_id)
