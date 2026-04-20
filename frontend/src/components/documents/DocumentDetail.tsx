@@ -25,7 +25,7 @@ function JsonTree({
   keyHint?: string;
 }): ReactElement {
   if (data === null || data === undefined) {
-    return <span className="text-slate-500 dark:text-slate-400">null</span>;
+    return <span className="text-gray-500 dark:text-gray-400">null</span>;
   }
   if (typeof data === 'boolean') {
     return <span className="text-blue-500 dark:text-blue-400">{data ? 'true' : 'false'}</span>;
@@ -49,21 +49,21 @@ function JsonTree({
   }
   if (Array.isArray(data)) {
     if (data.length === 0) {
-      return <span className="text-slate-500 dark:text-slate-400">[]</span>;
+      return <span className="text-gray-500 dark:text-gray-400">[]</span>;
     }
     const maxItems = 100;
     const truncated = data.length > maxItems;
     const items = truncated ? data.slice(0, maxItems) : data;
     return (
-      <div className={depth > 0 ? 'pl-3 border-l border-slate-200 dark:border-slate-700/50' : ''}>
+      <div className={depth > 0 ? 'pl-3 border-l border-gray-200 dark:border-gray-700/50' : ''}>
         {items.map((item, i) => (
           <div key={i} className="py-0.5">
-            <span className="text-slate-500 dark:text-slate-400 text-[10px] mr-1">[{i}]</span>
+            <span className="text-gray-500 dark:text-gray-400 text-[10px] mr-1">[{i}]</span>
             <JsonTree data={item} depth={depth + 1} />
           </div>
         ))}
         {truncated && (
-          <div className="text-[10px] text-slate-500 dark:text-slate-400 italic py-0.5">
+          <div className="text-[10px] text-gray-500 dark:text-gray-400 italic py-0.5">
             + {data.length - maxItems} more items ({keyHint ?? ''})
           </div>
         )}
@@ -73,18 +73,18 @@ function JsonTree({
   if (typeof data === 'object') {
     const entries = Object.entries(data as Record<string, unknown>);
     if (entries.length === 0) {
-      return <span className="text-slate-500 dark:text-slate-400">{'{}'}</span>;
+      return <span className="text-gray-500 dark:text-gray-400">{'{}'}</span>;
     }
     return (
       <div
         className={
-          depth > 0 ? 'pl-3 border-l border-slate-200 dark:border-slate-700/50' : ''
+          depth > 0 ? 'pl-3 border-l border-gray-200 dark:border-gray-700/50' : ''
         }
       >
         {entries.map(([k, v]) => (
           <div key={k} className="py-0.5">
             <span className="text-purple-600 dark:text-purple-400 font-medium">{k}</span>
-            <span className="text-slate-500 dark:text-slate-400">: </span>
+            <span className="text-gray-500 dark:text-gray-400">: </span>
             <JsonTree data={v} depth={depth + 1} keyHint={k} />
           </div>
         ))}
@@ -132,11 +132,11 @@ export function DocumentDetailView({ document: doc, datasetId }: DocumentDetailV
           )}
         </div>
         {doc.name && (
-          <h2 className="text-sm font-medium text-slate-900 dark:text-slate-100 leading-tight">
+          <h2 className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-tight">
             {doc.name}
           </h2>
         )}
-        <div className="mt-1 space-y-0.5 text-[10px] font-mono text-slate-500 dark:text-slate-400 leading-tight">
+        <div className="mt-1 space-y-0.5 text-[10px] font-mono text-gray-500 dark:text-gray-400 leading-tight">
           <p>ID: {ndiId || doc.id}</p>
           {definition && <p>{definition}</p>}
           {datestamp && (
@@ -161,7 +161,7 @@ export function DocumentDetailView({ document: doc, datasetId }: DocumentDetailV
             <div className="space-y-1">
               {deps.map((dep, i) => (
                 <div key={i} className="flex items-center gap-2 text-xs">
-                  <span className="text-slate-500 dark:text-slate-400 font-mono">
+                  <span className="text-gray-500 dark:text-gray-400 font-mono">
                     {dep.name}:
                   </span>
                   {dep.value ? (
@@ -178,7 +178,7 @@ export function DocumentDetailView({ document: doc, datasetId }: DocumentDetailV
                       </span>
                     )
                   ) : (
-                    <span className="text-slate-500 dark:text-slate-400 italic">empty</span>
+                    <span className="text-gray-500 dark:text-gray-400 italic">empty</span>
                   )}
                 </div>
               ))}
@@ -201,12 +201,12 @@ export function DocumentDetailView({ document: doc, datasetId }: DocumentDetailV
               {fileInfo.map((f, i) => (
                 <div
                   key={i}
-                  className="flex items-center gap-2 text-xs font-mono text-slate-600 dark:text-slate-400"
+                  className="flex items-center gap-2 text-xs font-mono text-gray-600 dark:text-gray-400"
                 >
                   <File className="h-3 w-3 shrink-0" />
                   <span className="truncate">{f.name}</span>
                   {f.uid && (
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate">{f.uid}</span>
+                    <span className="text-[10px] text-gray-500 dark:text-gray-400 truncate">{f.uid}</span>
                   )}
                 </div>
               ))}

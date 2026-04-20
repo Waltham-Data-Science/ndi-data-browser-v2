@@ -200,7 +200,7 @@ export function OntologyPopover({ termId, findEverywherePath }: OntologyPopoverP
     const id = displayId.replace('EMPTY:', '');
     return (
       <span
-        className="font-mono text-xs text-slate-500 dark:text-slate-400"
+        className="font-mono text-xs text-gray-500 dark:text-gray-400"
         title="NDI internal identifier (no ontology mapping)"
         data-ontology-term={displayId}
       >
@@ -253,7 +253,7 @@ export function OntologyPopover({ termId, findEverywherePath }: OntologyPopoverP
               transform:
                 coords.placement === 'above' ? 'translateY(-100%)' : undefined,
             }}
-            className="z-50 rounded-md border border-slate-200 bg-white p-3 shadow-lg text-xs dark:border-slate-700 dark:bg-slate-900"
+            className="z-50 rounded-md border border-gray-200 bg-white p-3 shadow-lg text-xs dark:border-gray-700 dark:bg-gray-900"
             onMouseEnter={openNow}
             onMouseLeave={closeSoon}
           >
@@ -264,14 +264,14 @@ export function OntologyPopover({ termId, findEverywherePath }: OntologyPopoverP
               </div>
             ) : hasDefinition ? (
               <div className="space-y-1.5">
-                <div className="font-medium text-slate-900 dark:text-slate-100">
+                <div className="font-medium text-gray-900 dark:text-gray-100">
                   {data!.label}
                 </div>
-                <div className="font-mono text-[10px] text-slate-500 dark:text-slate-400">
+                <div className="font-mono text-[10px] text-gray-500 dark:text-gray-400">
                   {`${data!.provider}:${data!.termId}`}
                 </div>
                 {data!.definition && (
-                  <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                  <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
                     {data!.definition}
                   </p>
                 )}
@@ -295,7 +295,7 @@ export function OntologyPopover({ termId, findEverywherePath }: OntologyPopoverP
                 )}
               </div>
             ) : (
-              <div className="text-slate-500 dark:text-slate-400">
+              <div className="text-gray-500 dark:text-gray-400">
                 No definition found for{' '}
                 <span className="font-mono">{normalized}</span>
               </div>

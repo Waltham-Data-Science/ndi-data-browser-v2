@@ -20,7 +20,7 @@ export function MyDatasetsPage() {
       {q.isLoading && <CardSkeleton />}
       {q.isError && <ErrorState error={q.error} onRetry={() => q.refetch()} />}
       {q.data && q.data.datasets.length === 0 && (
-        <p className="text-slate-600 dark:text-slate-400">No private datasets in your organization yet.</p>
+        <p className="text-gray-600 dark:text-gray-400">No private datasets in your organization yet.</p>
       )}
       <div className="grid gap-3 sm:grid-cols-2">
         {q.data?.datasets.map((d) => (
@@ -29,7 +29,7 @@ export function MyDatasetsPage() {
               <CardBody>
                 <h3 className="font-semibold">{d.name}</h3>
                 {(d.description ?? d.abstract) && (
-                  <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-3">{d.description ?? d.abstract}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-3">{d.description ?? d.abstract}</p>
                 )}
               </CardBody>
             </Card>

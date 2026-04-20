@@ -164,7 +164,7 @@ function PivotBody({
   if (!pivot.data || pivot.data.rows.length === 0) {
     return (
       <p
-        className="text-sm text-slate-500 dark:text-slate-400"
+        className="text-sm text-gray-500 dark:text-gray-400"
         data-testid="pivot-empty"
       >
         No {GRAIN_LABELS[grain].toLowerCase()} rows for this dataset.
@@ -195,7 +195,7 @@ function PivotTable({ data, grain }: { data: PivotResponse; grain: PivotGrain })
       <table className="min-w-full text-xs">
         <thead>
           {table.getHeaderGroups().map((hg) => (
-            <tr key={hg.id} className="border-b border-slate-200 dark:border-slate-700">
+            <tr key={hg.id} className="border-b border-gray-200 dark:border-gray-700">
               {hg.headers.map((h) => {
                 const def = getColumnDefinition(grain, h.column.id);
                 return (
@@ -203,7 +203,7 @@ function PivotTable({ data, grain }: { data: PivotResponse; grain: PivotGrain })
                     key={h.id}
                     scope="col"
                     title={def?.description}
-                    className="px-2 py-1.5 text-left font-semibold text-slate-700 dark:text-slate-300"
+                    className="px-2 py-1.5 text-left font-semibold text-gray-700 dark:text-gray-300"
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
                   </th>
@@ -216,12 +216,12 @@ function PivotTable({ data, grain }: { data: PivotResponse; grain: PivotGrain })
           {table.getRowModel().rows.map((row) => (
             <tr
               key={row.id}
-              className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800"
+              className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               {row.getVisibleCells().map((cell) => (
                 <td
                   key={cell.id}
-                  className="px-2 py-1 text-slate-700 dark:text-slate-300 font-mono"
+                  className="px-2 py-1 text-gray-700 dark:text-gray-300 font-mono"
                 >
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>
@@ -247,13 +247,13 @@ function GrainSelector({
 }) {
   return (
     <label
-      className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300"
+      className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300"
       data-testid="pivot-grain-selector"
     >
       <span className="font-medium">Grain</span>
       <select
         aria-label="Pivot grain"
-        className="rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1 text-xs"
+        className="rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-2 py-1 text-xs"
         value={active}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value as PivotGrain)}

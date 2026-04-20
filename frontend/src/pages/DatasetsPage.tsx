@@ -68,10 +68,10 @@ export function DatasetsPage() {
       <header className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               Published datasets
             </h1>
-            <p className="text-sm text-slate-600 dark:text-slate-300">
+            <p className="text-sm text-gray-600 dark:text-gray-300">
               Browse the NDI Cloud catalog. Click any card for full detail — subjects, probes,
               epochs, and raw documents.
             </p>
@@ -84,7 +84,7 @@ export function DatasetsPage() {
             />
           </div>
         </div>
-        <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+        <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">
           {q ? `${visible.length} of ${formatNumber(total)}` : `${formatNumber(total)} total`}
         </p>
       </header>
@@ -100,8 +100,8 @@ export function DatasetsPage() {
       {isError && <ErrorState error={error} onRetry={() => refetch()} />}
 
       {!isLoading && !isError && visible.length === 0 && (
-        <div className="rounded-lg border border-dashed border-slate-200 dark:border-slate-700 p-10 text-center">
-          <p className="text-sm text-slate-600 dark:text-slate-400">
+        <div className="rounded-lg border border-dashed border-gray-200 dark:border-gray-700 p-10 text-center">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             No datasets match your search.
           </p>
           {q && (
@@ -137,7 +137,7 @@ export function DatasetsPage() {
         >
           Previous
         </Button>
-        <span className="text-sm text-slate-600 dark:text-slate-300 font-mono">
+        <span className="text-sm text-gray-600 dark:text-gray-300 font-mono">
           Page {page} of {pageCount}
         </span>
         <Button

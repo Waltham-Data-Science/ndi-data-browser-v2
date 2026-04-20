@@ -36,7 +36,7 @@ export function FacetPanel({
         <CardTitle className="text-sm">
           Research vocabulary
           {facets && (
-            <span className="ml-2 text-xs font-normal text-slate-500 dark:text-slate-400">
+            <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">
               ({facets.datasetCount} datasets)
             </span>
           )}
@@ -44,7 +44,7 @@ export function FacetPanel({
       </CardHeader>
       <CardBody className="space-y-4">
         {isLoading && (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             Loading facets…
           </p>
         )}
@@ -98,7 +98,7 @@ function FacetList({
   if (terms.length === 0) return null;
   return (
     <div>
-      <h3 className="text-xs font-medium text-slate-700 dark:text-slate-200 mb-1.5">
+      <h3 className="text-xs font-medium text-gray-700 dark:text-gray-200 mb-1.5">
         {title}
       </h3>
       <div className="flex flex-wrap gap-1.5">
@@ -134,7 +134,7 @@ function ProbeTypeList({
   if (probeTypes.length === 0) return null;
   return (
     <div>
-      <h3 className="text-xs font-medium text-slate-700 dark:text-slate-200 mb-1.5">
+      <h3 className="text-xs font-medium text-gray-700 dark:text-gray-200 mb-1.5">
         Probe types
       </h3>
       <div className="flex flex-wrap gap-1.5">

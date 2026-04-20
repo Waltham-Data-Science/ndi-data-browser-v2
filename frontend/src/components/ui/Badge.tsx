@@ -11,9 +11,9 @@ const VARIANT: Record<Variant, string> = {
   default:
     'bg-brand-500 text-white ring-1 ring-inset ring-brand-600 dark:bg-brand-400 dark:ring-brand-300',
   outline:
-    'bg-transparent text-slate-700 ring-1 ring-inset ring-slate-300 dark:text-slate-200 dark:ring-slate-600',
+    'bg-transparent text-gray-700 ring-1 ring-inset ring-gray-300 dark:text-gray-200 dark:ring-gray-600',
   secondary:
-    'bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700',
+    'bg-gray-100 text-gray-700 ring-1 ring-inset ring-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-700',
 };
 
 export function Badge({

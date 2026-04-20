@@ -49,7 +49,7 @@ export function TableLoadingPanel({
   return (
     <div className="space-y-2" aria-label={`Loading ${tableType} table`}>
       <div
-        className="text-xs text-slate-500 dark:text-slate-400 font-mono"
+        className="text-xs text-gray-500 dark:text-gray-400 font-mono"
         role="status"
         aria-live="polite"
       >
@@ -62,7 +62,7 @@ export function TableLoadingPanel({
 
 export function CardSkeleton() {
   return (
-    <div className="space-y-2 p-4 rounded-lg bg-white ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+    <div className="space-y-2 p-4 rounded-lg bg-white ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-800">
       <Skeleton className="h-5 w-2/3" />
       <Skeleton className="h-4 w-full" />
       <Skeleton className="h-4 w-5/6" />

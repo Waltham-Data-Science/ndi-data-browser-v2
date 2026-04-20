@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  /* Brand tokens — aligned to reference_ndi_brand.md.
+  /* Brand tokens — aligned to NDI Cloud design system (April 2026).
      Primary = NDI Cloud emblem sky blue (#17A7FF) with a matched 500/600/700
      progression for hover + focus states. Navy (#002054) is the header +
      emphasis color. 50/100 reserved for light-mode bubble fills. */
@@ -13,9 +13,13 @@
   --color-brand-700: #04547f;
   --color-brand-logo: #17a7ff;
   --color-brand-navy: #002054;
-  /* Background tint from the brand guide. */
-  --color-brand-bg: #fdf7fa;
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Teal — used for primary CTAs, matching ndi-web-app */
+  --color-brand-teal: #0F6E56;
+  /* Background — clean neutral gray, not the old pink tint */
+  --color-brand-bg: #F9FAFB;
+  /* Typography — Geist font family */
+  --font-sans: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
 
 :root {
@@ -29,31 +33,15 @@ html, body, #root {
 body {
   font-family: var(--font-sans);
   background: var(--color-brand-bg);
-  color: #0f172a;
+  color: #111827;
   -webkit-font-smoothing: antialiased;
-  /*
-   * Belt-and-suspenders guard against page-level horizontal scroll.
-   *
-   * This app should never scroll the whole page horizontally — wide tables
-   * live inside scoped `overflow-x-auto` wrappers so only the table body
-   * scrolls. The structural fix is `min-w-0` on grid 1fr tracks (see
-   * DatasetDetailPage + DocumentExplorerPage); this rule is the
-   * safety net that keeps any future missed case from breaking the whole
-   * layout.
-   *
-   * `overflow-x: clip` (not `hidden`) so the body does NOT become a new
-   * scrolling context. That preserves `position: sticky` semantics for any
-   * future sticky header and avoids the "clipped ancestor" pitfall of
-   * `hidden`. Supported in all current browsers (Safari 16+, Chrome 90+,
-   * Firefox 81+).
-   */
   overflow-x: clip;
 }
 
 @media (prefers-color-scheme: dark) {
   body {
-    background: #0b1120;
-    color: #e2e8f0;
+    background: #111827;
+    color: #e5e7eb;
   }
 }
 
@@ -71,7 +59,7 @@ body {
 }
 
 .skeleton {
-  background: linear-gradient(90deg, #e2e8f0 0%, #f1f5f9 50%, #e2e8f0 100%);
+  background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
   background-size: 200% 100%;
   animation: shimmer 1.4s linear infinite;
   border-radius: 0.375rem;
@@ -79,7 +67,7 @@ body {
 
 @media (prefers-color-scheme: dark) {
   .skeleton {
-    background: linear-gradient(90deg, #1e293b 0%, #334155 50%, #1e293b 100%);
+    background: linear-gradient(90deg, #1f2937 0%, #374151 50%, #1f2937 100%);
     background-size: 200% 100%;
   }
 }

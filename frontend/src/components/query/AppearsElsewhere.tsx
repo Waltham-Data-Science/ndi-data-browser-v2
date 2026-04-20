@@ -15,8 +15,8 @@ export function AppearsElsewhere({
 
   if (!enabled) {
     return (
-      <div className="rounded border border-dashed border-slate-300 p-3">
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+      <div className="rounded border border-dashed border-gray-300 p-3">
+        <p className="text-sm text-gray-600 dark:text-gray-300">
           Find where this document is referenced across all other datasets.
         </p>
         <Button size="sm" variant="secondary" className="mt-2" onClick={() => setEnabled(true)}>
@@ -26,7 +26,7 @@ export function AppearsElsewhere({
     );
   }
 
-  if (q.isLoading) return <p className="text-sm text-slate-500">Searching cross-cloud…</p>;
+  if (q.isLoading) return <p className="text-sm text-gray-500">Searching cross-cloud…</p>;
   if (q.isError) {
     return (
       <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-900/30">
@@ -38,7 +38,7 @@ export function AppearsElsewhere({
   if (!q.data) return null;
 
   if (q.data.datasets.length === 0) {
-    return <p className="text-sm text-slate-600">Not referenced anywhere else.</p>;
+    return <p className="text-sm text-gray-600">Not referenced anywhere else.</p>;
   }
 
   return (
@@ -56,7 +56,7 @@ export function AppearsElsewhere({
               >
                 {d.datasetId}
               </a>{' '}
-              <span className="text-slate-500">— {d.count} reference{d.count === 1 ? '' : 's'}</span>
+              <span className="text-gray-500">— {d.count} reference{d.count === 1 ? '' : 's'}</span>
             </li>
           ))}
         </ul>

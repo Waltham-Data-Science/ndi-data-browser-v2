@@ -112,12 +112,12 @@ function DoiBlock({ citation }: { citation: DatasetSummaryCitation }) {
       )}
       {hasPaperDois && (
         <div
-          className="rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900"
+          className="rounded-md border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900"
           data-testid="cite-paper-dois"
         >
           <div className="mb-1 flex items-center gap-2">
             <Badge variant="outline">Paper DOI</Badge>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+            <span className="text-[11px] text-gray-500 dark:text-gray-400">
               Secondary — cite when specifically referencing the paper.
             </span>
           </div>
@@ -136,7 +136,7 @@ function DoiBlock({ citation }: { citation: DatasetSummaryCitation }) {
       )}
       {citation.year != null && (
         <p
-          className="text-[11px] text-slate-500 dark:text-slate-400"
+          className="text-[11px] text-gray-500 dark:text-gray-400"
           data-testid="cite-upload-year-note"
         >
           Upload year: <span className="font-mono">{citation.year}</span>. This
@@ -166,7 +166,7 @@ function CiteBlock({
   return (
     <section className="space-y-1.5" data-testid={testId}>
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
           {label}
         </h3>
         <CopyButton
@@ -178,8 +178,8 @@ function CiteBlock({
       <pre
         className={
           monospace
-            ? 'whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-[11px] text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
-            : 'whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
+            ? 'whitespace-pre-wrap break-words rounded-md border border-gray-200 bg-gray-50 p-3 font-mono text-[11px] text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100'
+            : 'whitespace-pre-wrap break-words rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100'
         }
         data-testid={`${testId}-content`}
       >

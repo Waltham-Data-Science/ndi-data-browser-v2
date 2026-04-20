@@ -27,10 +27,10 @@ export function ErrorState({ error, onRetry }: ErrorStateProps) {
     return (
       <div
         role="alert"
-        className="mx-auto max-w-md rounded-lg bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 text-center"
+        className="mx-auto max-w-md rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-800 text-center"
       >
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Sign in required</h2>
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{message}</p>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Sign in required</h2>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{message}</p>
         <Button
           className="mt-4"
           onClick={() => navigate(`/login?returnTo=${encodeURIComponent(here)}`)}
@@ -89,7 +89,7 @@ export function ErrorState({ error, onRetry }: ErrorStateProps) {
   return (
     <div
       role="alert"
-      className="rounded-md bg-slate-50 p-3 text-sm text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800"
+      className="rounded-md bg-gray-50 p-3 text-sm text-gray-700 ring-1 ring-gray-200 dark:bg-gray-900 dark:text-gray-300 dark:ring-gray-800"
     >
       {message}
       {code === 'QUERY_TOO_LARGE' && <QueryTooLargeHint />}
@@ -101,8 +101,8 @@ export function ErrorState({ error, onRetry }: ErrorStateProps) {
  * documents" retry message. Plan §M6 risk mitigation #4. */
 function QueryTooLargeHint() {
   return (
-    <div className="mt-3 rounded border border-amber-300/50 bg-white/60 dark:bg-slate-900/60 p-3 text-xs text-slate-700 dark:text-slate-300 space-y-1">
-      <p className="font-semibold text-slate-900 dark:text-slate-100">
+    <div className="mt-3 rounded border border-amber-300/50 bg-white/60 dark:bg-gray-900/60 p-3 text-xs text-gray-700 dark:text-gray-300 space-y-1">
+      <p className="font-semibold text-gray-900 dark:text-gray-100">
         Narrow the query to return fewer than 50,000 documents:
       </p>
       <ul className="list-disc pl-4 space-y-0.5">

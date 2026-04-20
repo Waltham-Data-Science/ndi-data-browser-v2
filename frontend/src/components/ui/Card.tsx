@@ -5,8 +5,8 @@ export function Card({ className, children, ...rest }: PropsWithChildren<HTMLAtt
   return (
     <div
       className={cn(
-        'rounded-lg bg-white shadow-sm ring-1 ring-slate-200',
-        'dark:bg-slate-900 dark:ring-slate-800',
+        'rounded-lg bg-white shadow-sm ring-1 ring-gray-200',
+        'dark:bg-gray-900 dark:ring-gray-800',
         className,
       )}
       {...rest}
@@ -20,7 +20,7 @@ export function CardHeader({ className, children }: PropsWithChildren<{ classNam
   return (
     <div
       className={cn(
-        'flex flex-col gap-1.5 px-4 py-3 border-b border-slate-200 dark:border-slate-800',
+        'flex flex-col gap-1.5 px-4 py-3 border-b border-gray-200 dark:border-gray-800',
         className,
       )}
     >
@@ -49,7 +49,7 @@ export function CardTitle({
   return (
     <Tag
       className={cn(
-        'text-base font-semibold leading-tight text-slate-900 dark:text-slate-100',
+        'text-base font-semibold leading-tight text-gray-900 dark:text-gray-100',
         className,
       )}
     >
@@ -60,6 +60,6 @@ export function CardTitle({
 
 export function CardDescription({ className, children }: PropsWithChildren<{ className?: string }>) {
   return (
-    <p className={cn('text-sm text-slate-500 dark:text-slate-400', className)}>{children}</p>
+    <p className={cn('text-sm text-gray-500 dark:text-gray-400', className)}>{children}</p>
   );
 }

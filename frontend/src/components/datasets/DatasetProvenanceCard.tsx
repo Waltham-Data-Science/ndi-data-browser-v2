@@ -67,7 +67,7 @@ export function DatasetProvenanceCard({
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+    <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
       {children}
     </h2>
   );
@@ -83,7 +83,7 @@ function BranchOfSection({ branchOf }: { branchOf: string | null }) {
       <SectionHeading>Branched from</SectionHeading>
       {branchOf === null ? (
         <p
-          className="text-[11px] italic text-slate-500 dark:text-slate-400"
+          className="text-[11px] italic text-gray-500 dark:text-gray-400"
           data-testid="provenance-not-a-branch"
         >
           Not a branch
@@ -112,7 +112,7 @@ function BranchesSection({ branches }: { branches: string[] }) {
       <SectionHeading>Branches</SectionHeading>
       {branches.length === 0 ? (
         <p
-          className="text-[11px] italic text-slate-500 dark:text-slate-400"
+          className="text-[11px] italic text-gray-500 dark:text-gray-400"
           data-testid="provenance-no-branches"
         >
           No branches
@@ -176,7 +176,7 @@ function DependenciesSection({ edges }: { edges: DatasetDependencyEdge[] }) {
       <SectionHeading>Dependencies</SectionHeading>
       {totalEdges === 0 ? (
         <p
-          className="text-[11px] italic text-slate-500 dark:text-slate-400"
+          className="text-[11px] italic text-gray-500 dark:text-gray-400"
           data-testid="provenance-no-dependencies"
         >
           No cross-dataset dependencies
@@ -185,12 +185,12 @@ function DependenciesSection({ edges }: { edges: DatasetDependencyEdge[] }) {
         <>
           <button
             type="button"
-            className="inline-flex w-full items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-xs hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+            className="inline-flex w-full items-center justify-between rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5 text-left text-xs hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800"
             onClick={() => setExpanded((v) => !v)}
             aria-expanded={expanded}
             data-testid="provenance-dependencies-toggle"
           >
-            <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+            <span className="flex items-center gap-1.5 text-gray-700 dark:text-gray-200">
               <Network className="h-3 w-3 shrink-0" aria-hidden />
               <span>
                 <span
@@ -248,7 +248,7 @@ function DependenciesSection({ edges }: { edges: DatasetDependencyEdge[] }) {
                         >
                           {e.viaDocumentClass}
                         </Badge>
-                        <span className="text-slate-600 dark:text-slate-300">
+                        <span className="text-gray-600 dark:text-gray-300">
                           {e.edgeCount} ref{e.edgeCount === 1 ? '' : 's'}
                         </span>
                       </li>

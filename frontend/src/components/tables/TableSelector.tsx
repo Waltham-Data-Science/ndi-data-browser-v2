@@ -47,7 +47,7 @@ export function TableSelector({
     <div
       role="tablist"
       aria-label="Summary table type"
-      className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-700 pb-px overflow-x-auto"
+      className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700 pb-px overflow-x-auto"
     >
       {visibleTabs.map(({ type, label, icon: Icon }) => {
         const isActive = active === type;
@@ -62,14 +62,14 @@ export function TableSelector({
             className={cn(
               'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-t-md transition-colors whitespace-nowrap shrink-0',
               isActive
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 border-b-white dark:border-b-slate-900 -mb-px'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100',
+                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 border-b-white dark:border-b-gray-900 -mb-px'
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100',
             )}
           >
             <Icon className="h-3.5 w-3.5" />
             {label}
             {count !== undefined && (
-              <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+              <span className="text-[10px] font-mono text-gray-500 dark:text-gray-400">
                 {count.toLocaleString()}
               </span>
             )}

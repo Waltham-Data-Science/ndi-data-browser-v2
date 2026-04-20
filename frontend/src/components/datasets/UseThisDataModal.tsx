@@ -171,7 +171,7 @@ function SnippetPanel({
       data-testid={testId}
     >
       <div className="flex items-center justify-between">
-        <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+        <span className="font-mono text-[11px] text-gray-500 dark:text-gray-400">
           {filename}
         </span>
         <CopyButton
@@ -182,9 +182,9 @@ function SnippetPanel({
       </div>
       <pre
         className={cn(
-          'overflow-x-auto rounded-md border border-slate-200 bg-slate-900 p-3',
-          'font-mono text-[12px] leading-relaxed text-slate-100',
-          'dark:border-slate-700',
+          'overflow-x-auto rounded-md border border-gray-200 bg-gray-900 p-3',
+          'font-mono text-[12px] leading-relaxed text-gray-100',
+          'dark:border-gray-700',
         )}
         data-language={language}
         data-testid={`${testId}-content`}

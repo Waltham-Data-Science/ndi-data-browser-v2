@@ -44,7 +44,7 @@ export function DocumentExplorerPage() {
   };
 
   if (!id) {
-    return <p className="text-sm text-slate-500">Missing dataset id.</p>;
+    return <p className="text-sm text-gray-500">Missing dataset id.</p>;
   }
 
   return (
@@ -72,7 +72,7 @@ function ModeToggle({
     <div
       role="group"
       aria-label="View mode"
-      className="flex items-center rounded-md border border-slate-200 dark:border-slate-700 overflow-hidden"
+      className="flex items-center rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden"
     >
       <button
         type="button"
@@ -81,8 +81,8 @@ function ModeToggle({
         className={cn(
           'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors',
           value === 'summary'
-            ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100',
+            ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
+            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100',
         )}
       >
         <LayoutGrid className="h-3.5 w-3.5" />
@@ -95,8 +95,8 @@ function ModeToggle({
         className={cn(
           'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors',
           value === 'raw'
-            ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100',
+            ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
+            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100',
         )}
       >
         <List className="h-3.5 w-3.5" />
@@ -156,7 +156,7 @@ function RawDocumentsPane({
           </CardHeader>
           <CardBody className="pt-0">
             {counts.isLoading ? (
-              <p className="text-xs text-slate-500">Loading…</p>
+              <p className="text-xs text-gray-500">Loading…</p>
             ) : counts.isError ? (
               <ErrorState error={counts.error} onRetry={() => counts.refetch()} />
             ) : (
@@ -195,23 +195,23 @@ function RawDocumentsPane({
             {docs.isError && <ErrorState error={docs.error} onRetry={() => docs.refetch()} />}
             {docs.data && (
               <>
-                <p className="mb-2 text-xs text-slate-500 dark:text-slate-400 font-mono">
+                <p className="mb-2 text-xs text-gray-500 dark:text-gray-400 font-mono">
                   {formatNumber(docs.data.total)} total · page {page}
                 </p>
-                <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
+                <div className="overflow-x-auto rounded border border-gray-200 dark:border-gray-700">
                   <table className="w-full text-sm">
-                    <thead className="bg-slate-50 dark:bg-slate-900 sticky top-0">
+                    <thead className="bg-gray-50 dark:bg-gray-900 sticky top-0">
                       <tr>
-                        <th className="px-3 py-2 text-left font-medium text-slate-500 dark:text-slate-300">
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-300">
                           Name
                         </th>
-                        <th className="px-3 py-2 text-left font-medium text-slate-500 dark:text-slate-300">
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-300">
                           Class
                         </th>
-                        <th className="px-3 py-2 text-left font-medium text-slate-500 dark:text-slate-300">
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-300">
                           Mongo ID
                         </th>
-                        <th className="px-3 py-2 text-left font-medium text-slate-500 dark:text-slate-300">
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-300">
                           ndiId
                         </th>
                       </tr>
@@ -219,7 +219,7 @@ function RawDocumentsPane({
                     <tbody>
                       {docs.data.documents.length === 0 ? (
                         <tr>
-                          <td colSpan={4} className="px-3 py-8 text-center text-slate-500 dark:text-slate-400">
+                          <td colSpan={4} className="px-3 py-8 text-center text-gray-500 dark:text-gray-400">
                             No documents for this class.
                           </td>
                         </tr>
@@ -229,23 +229,23 @@ function RawDocumentsPane({
                           return (
                             <tr
                               key={did}
-                              className="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                              className="border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/40"
                             >
                               <td className="px-3 py-1.5">
                                 <Link
                                   to={`/datasets/${datasetId}/documents/${did}`}
                                   className="text-brand-600 dark:text-brand-400 hover:underline"
                                 >
-                                  {d.name || <span className="text-slate-500 dark:text-slate-400" aria-hidden>—</span>}
+                                  {d.name || <span className="text-gray-500 dark:text-gray-400" aria-hidden>—</span>}
                                 </Link>
                               </td>
                               <td className="px-3 py-1.5 font-mono text-xs">
                                 {d.className || '—'}
                               </td>
-                              <td className="px-3 py-1.5 font-mono text-xs text-slate-500 dark:text-slate-400">
+                              <td className="px-3 py-1.5 font-mono text-xs text-gray-500 dark:text-gray-400">
                                 {d.id || ''}
                               </td>
-                              <td className="px-3 py-1.5 font-mono text-xs text-slate-500 dark:text-slate-400 truncate max-w-[220px] md:max-w-[340px] lg:max-w-[480px]">
+                              <td className="px-3 py-1.5 font-mono text-xs text-gray-500 dark:text-gray-400 truncate max-w-[220px] md:max-w-[340px] lg:max-w-[480px]">
                                 {d.ndiId || ''}
                               </td>
                             </tr>
@@ -268,7 +268,7 @@ function RawDocumentsPane({
                   >
                     Previous
                   </Button>
-                  <span className="text-sm text-slate-500 font-mono">Page {page}</span>
+                  <span className="text-sm text-gray-500 font-mono">Page {page}</span>
                   <Button
                     variant="secondary"
                     size="sm"

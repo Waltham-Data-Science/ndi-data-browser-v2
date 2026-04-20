@@ -82,11 +82,11 @@ export function QuickPlot({ datasetId, className, table }: QuickPlotProps) {
         <CardBody className="pt-0 space-y-3">
           <div className="flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-0.5 text-xs">
-              <span className="text-slate-500 dark:text-slate-400">Y (numeric)</span>
+              <span className="text-gray-500 dark:text-gray-400">Y (numeric)</span>
               <select
                 value={yField}
                 onChange={(e) => setYField(e.target.value)}
-                className="h-7 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2"
+                className="h-7 text-xs rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2"
               >
                 <option value="">— Pick numeric column —</option>
                 {numericCols.map((c) => (
@@ -97,13 +97,13 @@ export function QuickPlot({ datasetId, className, table }: QuickPlotProps) {
               </select>
             </label>
             <label className="flex flex-col gap-0.5 text-xs">
-              <span className="text-slate-500 dark:text-slate-400">
+              <span className="text-gray-500 dark:text-gray-400">
                 Group by (optional, categorical)
               </span>
               <select
                 value={xField}
                 onChange={(e) => setXField(e.target.value)}
-                className="h-7 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2"
+                className="h-7 text-xs rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2"
               >
                 <option value="">— None —</option>
                 {categoricalCols.map((c) => (
@@ -129,7 +129,7 @@ export function QuickPlot({ datasetId, className, table }: QuickPlotProps) {
           </div>
 
           {numericCols.length === 0 && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               This table has no numeric columns to plot.
             </p>
           )}
@@ -168,7 +168,7 @@ function UngroupedResult({
 }) {
   return (
     <div className="pt-2">
-      <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+      <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">
         n={result.n} · mean={(result.mean ?? 0).toFixed(3)} ·
         std={(result.std ?? 0).toFixed(3)}
       </p>

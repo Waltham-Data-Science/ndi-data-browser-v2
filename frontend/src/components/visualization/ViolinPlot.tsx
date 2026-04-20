@@ -129,7 +129,7 @@ export function ViolinPlot({
       <svg
         width={width}
         height={height}
-        className="font-mono text-[10px] text-slate-700 dark:text-slate-300"
+        className="font-mono text-[10px] text-gray-700 dark:text-gray-300"
       >
         <g transform={`translate(${MARGIN.left},${MARGIN.top})`}>
           {/* Grid */}

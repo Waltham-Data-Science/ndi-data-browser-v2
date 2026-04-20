@@ -124,7 +124,7 @@ function DatasetOverviewCard({
   return (
     <Card>
       <CardHeader>
-        <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 leading-tight">
+        <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100 leading-tight">
           {ds.name}
         </h1>
         <div className="flex flex-wrap gap-1.5 pt-1">
@@ -135,7 +135,7 @@ function DatasetOverviewCard({
           {ds.isPublished === false && <Badge variant="secondary">draft</Badge>}
         </div>
         {ds.affiliation && (
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight pt-1">
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight pt-1">
             {ds.affiliation}
           </p>
         )}
@@ -143,7 +143,7 @@ function DatasetOverviewCard({
 
       <CardBody className="space-y-4 text-sm">
         {abstract && (
-          <p className="text-slate-700 dark:text-slate-300 text-[13px] leading-relaxed">
+          <p className="text-gray-700 dark:text-gray-300 text-[13px] leading-relaxed">
             {abstract}
           </p>
         )}
@@ -171,7 +171,7 @@ function DatasetOverviewCard({
 
         {(ds.contributors?.length ?? 0) > 0 && (
           <div className="space-y-1.5">
-            <h2 className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+            <h2 className="text-xs font-semibold text-gray-600 dark:text-gray-300 flex items-center gap-1">
               <Users className="h-3 w-3" /> Contributors
             </h2>
             <ul className="space-y-0.5 text-xs">
@@ -184,7 +184,7 @@ function DatasetOverviewCard({
 
         {(ds.correspondingAuthors?.length ?? 0) > 0 && (
           <div className="space-y-1.5">
-            <h2 className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <h2 className="text-xs font-semibold text-gray-600 dark:text-gray-300">
               Corresponding authors
             </h2>
             <ul className="space-y-0.5 text-xs">
@@ -197,10 +197,10 @@ function DatasetOverviewCard({
 
         {(ds.funding?.length ?? 0) > 0 && (
           <div className="space-y-1">
-            <h2 className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <h2 className="text-xs font-semibold text-gray-600 dark:text-gray-300">
               Funding
             </h2>
-            <p className="text-xs text-slate-600 dark:text-slate-400">
+            <p className="text-xs text-gray-600 dark:text-gray-400">
               {ds
                 .funding!.map((f) => f.source)
                 .filter(Boolean)
@@ -211,7 +211,7 @@ function DatasetOverviewCard({
 
         {(ds.associatedPublications?.length ?? 0) > 0 && (
           <div className="space-y-1.5">
-            <h2 className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+            <h2 className="text-xs font-semibold text-gray-600 dark:text-gray-300 flex items-center gap-1">
               <BookOpen className="h-3 w-3" /> Associated publications
             </h2>
             <ul className="space-y-1 text-xs">
@@ -222,7 +222,7 @@ function DatasetOverviewCard({
           </div>
         )}
 
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400 font-mono border-t border-slate-200 dark:border-slate-700 pt-3">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px] text-gray-500 dark:text-gray-400 font-mono border-t border-gray-200 dark:border-gray-700 pt-3">
           {ds.doi && (
             <>
               <dt>DOI</dt>
@@ -261,7 +261,7 @@ function DatasetOverviewCard({
         </dl>
 
         <div
-          className="flex flex-wrap gap-2 border-t border-slate-200 pt-3 dark:border-slate-700"
+          className="flex flex-wrap gap-2 border-t border-gray-200 pt-3 dark:border-gray-700"
           data-testid="dataset-actions"
         >
           <Button
@@ -307,8 +307,8 @@ function DatasetStat({ label, value }: { label: string; value?: string | null })
   if (!value) return null;
   return (
     <>
-      <dt className="font-medium text-slate-500 dark:text-slate-400">{label}</dt>
-      <dd className="text-slate-700 dark:text-slate-300">{value}</dd>
+      <dt className="font-medium text-gray-500 dark:text-gray-400">{label}</dt>
+      <dd className="text-gray-700 dark:text-gray-300">{value}</dd>
     </>
   );
 }
@@ -324,7 +324,7 @@ function ContributorRow({ c }: { c: import('@/api/datasets').Contributor }) {
   const orcidHref = normalizeOrcid(c.orcid);
   return (
     <li className="flex items-center gap-1.5">
-      <span className="text-slate-700 dark:text-slate-300">{name || c.contact}</span>
+      <span className="text-gray-700 dark:text-gray-300">{name || c.contact}</span>
       {orcidHref && (
         <ExternalAnchor
           href={orcidHref}
@@ -344,9 +344,9 @@ function PublicationRow({ p }: { p: import('@/api/datasets').AssociatedPublicati
       {p.DOI ? (
         <ExternalAnchor href={p.DOI} label={title} className="text-xs leading-snug" />
       ) : (
-        <span className="text-slate-700 dark:text-slate-300">{title}</span>
+        <span className="text-gray-700 dark:text-gray-300">{title}</span>
       )}
-      <div className="flex flex-wrap gap-2 text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+      <div className="flex flex-wrap gap-2 text-[10px] text-gray-500 dark:text-gray-400 font-mono">
         {p.DOI && <span>DOI</span>}
         {p.PMID && (
           <ExternalAnchor
@@ -380,7 +380,7 @@ function ClassCountsList({
   const total = Math.max(1, data.totalDocuments);
   return (
     <>
-      <p className="mb-2 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+      <p className="mb-2 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
         {formatNumber(data.totalDocuments)} documents total
       </p>
       <ul className="space-y-1">
@@ -399,14 +399,14 @@ function ClassCountsList({
                 className="flex items-center gap-2 hover:text-brand-600 dark:hover:text-brand-400"
               >
                 <span className="font-mono truncate flex-1">{cls}</span>
-                <span className="text-slate-500 dark:text-slate-400">
+                <span className="text-gray-500 dark:text-gray-400">
                   {formatNumber(n)}
                 </span>
-                {isSummary && <FileText className="h-3 w-3 text-slate-400" aria-hidden />}
-                {!isSummary && <Globe className="h-3 w-3 text-slate-400" aria-hidden />}
+                {isSummary && <FileText className="h-3 w-3 text-gray-400" aria-hidden />}
+                {!isSummary && <Globe className="h-3 w-3 text-gray-400" aria-hidden />}
               </Link>
               <div
-                className="mt-0.5 h-1 rounded bg-slate-100 dark:bg-slate-800 overflow-hidden"
+                className="mt-0.5 h-1 rounded bg-gray-100 dark:bg-gray-800 overflow-hidden"
                 role="progressbar"
                 aria-label={`${cls} ${formatNumber(n)} of ${formatNumber(data.totalDocuments)}`}
               >

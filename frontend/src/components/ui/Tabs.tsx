@@ -47,7 +47,7 @@ export function Tabs<T extends string = string>({
       role="tablist"
       aria-orientation="horizontal"
       className={cn(
-        'flex items-center gap-1 border-b border-slate-200 dark:border-slate-700',
+        'flex items-center gap-1 border-b border-gray-200 dark:border-gray-700',
         className,
       )}
       data-testid="tabs"
@@ -68,7 +68,7 @@ export function Tabs<T extends string = string>({
               'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500',
               isActive
                 ? 'border-brand-500 text-brand-700 dark:border-brand-400 dark:text-brand-300'
-                : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200',
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200',
             )}
             data-testid={t.testId ?? `tab-${t.id}`}
           >

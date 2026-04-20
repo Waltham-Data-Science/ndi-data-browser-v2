@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import react from '@vitejs/plugin-react-swc';
 import path from 'node:path';
 
 export default defineConfig({
@@ -21,10 +21,16 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          react: ['react', 'react-dom', 'react-router-dom'],
-          tanstack: ['@tanstack/react-query', '@tanstack/react-table', '@tanstack/react-virtual'],
-          uplot: ['uplot'],
+        manualChunks(id) {
+          if (id.includes('react-dom') || id.includes('react-router-dom') || id.includes('/react/')) {
+            return 'react';
+          }
+          if (id.includes('@tanstack')) {
+            return 'tanstack';
+          }
+          if (id.includes('uplot')) {
+            return 'uplot';
+          }
         },
       },
     },

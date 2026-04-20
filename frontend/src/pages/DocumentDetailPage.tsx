@@ -25,7 +25,7 @@ export function DocumentDetailPage() {
   const doc = useDocument(id, docId);
 
   if (!id || !docId) {
-    return <p className="text-sm text-slate-500">Missing dataset or document id.</p>;
+    return <p className="text-sm text-gray-500">Missing dataset or document id.</p>;
   }
 
   return (

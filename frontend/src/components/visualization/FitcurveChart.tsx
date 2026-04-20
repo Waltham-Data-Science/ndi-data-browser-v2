@@ -62,7 +62,7 @@ export function FitcurveChart({ data, height = 260 }: FitcurveChartProps) {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 font-mono">
+      <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 font-mono">
         <span>Form: {data.form}</span>
         {data.parameters?.length > 0 && (
           <span>
@@ -74,7 +74,7 @@ export function FitcurveChart({ data, height = 260 }: FitcurveChartProps) {
       </div>
       <div
         ref={containerRef}
-        className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1"
+        className="rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-1"
       />
     </div>
   );

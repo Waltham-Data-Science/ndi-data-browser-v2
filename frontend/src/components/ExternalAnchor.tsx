@@ -34,7 +34,7 @@ export function ExternalAnchor({
     return (
       <span
         className={cn(
-          'inline-flex items-center gap-0.5 text-slate-700 dark:text-slate-300',
+          'inline-flex items-center gap-0.5 text-gray-700 dark:text-gray-300',
           className,
         )}
       >

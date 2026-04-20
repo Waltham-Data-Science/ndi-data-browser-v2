@@ -64,7 +64,7 @@ export function OutputShapePreview({ grains }: OutputShapePreviewProps) {
         <CardTitle className="text-sm">Output shape preview</CardTitle>
       </CardHeader>
       <CardBody className="space-y-4">
-        <p className="text-xs text-slate-600 dark:text-slate-400">
+        <p className="text-xs text-gray-600 dark:text-gray-400">
           These are the column sets a matching result table will use for each
           grain. Shape follows NDI-matlab&apos;s canonical{' '}
           <code className="font-mono text-[11px]">docTable</code> tutorial.
@@ -74,7 +74,7 @@ export function OutputShapePreview({ grains }: OutputShapePreviewProps) {
           <GrainPreview key={grain} grain={grain} />
         ))}
 
-        <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-200 dark:border-slate-700">
+        <p className="text-[11px] text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-200 dark:border-gray-700">
           Source: NDI-matlab{' '}
           <a
             href={TUTORIAL_URL}
@@ -105,23 +105,23 @@ function GrainPreview({ grain }: { grain: 'subject' | 'probe' | 'epoch' }) {
   const visibleColumns = cfg.columns.filter((c: ColumnDefault) => c.visible);
   return (
     <div>
-      <h3 className="text-xs font-medium text-slate-700 dark:text-slate-200 mb-1.5">
+      <h3 className="text-xs font-medium text-gray-700 dark:text-gray-200 mb-1.5">
         {cfg.title}{' '}
-        <code className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+        <code className="font-mono text-[11px] text-gray-500 dark:text-gray-400">
           {cfg.matlabCall}
         </code>{' '}
-        <span className="text-slate-500 dark:text-slate-400">
+        <span className="text-gray-500 dark:text-gray-400">
           ({visibleColumns.length} columns)
         </span>
       </h3>
-      <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
+      <div className="overflow-x-auto rounded border border-gray-200 dark:border-gray-700">
         <table className="w-full text-xs">
-          <thead className="bg-slate-50 dark:bg-slate-900">
+          <thead className="bg-gray-50 dark:bg-gray-900">
             <tr>
               {visibleColumns.map((col) => (
                 <th
                   key={col.id}
-                  className="px-2 py-1.5 text-left font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap"
+                  className="px-2 py-1.5 text-left font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap"
                 >
                   {col.header}
                 </th>

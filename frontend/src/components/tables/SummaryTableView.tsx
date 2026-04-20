@@ -269,7 +269,7 @@ export function SummaryTableView({
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                className="flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100 transition-colors text-left"
+                className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100 transition-colors text-left"
                 onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
               >
                 <span className="truncate max-w-[200px] md:max-w-[300px] lg:max-w-[420px]">{label}</span>
@@ -409,13 +409,13 @@ export function SummaryTableView({
             onChange={(e) => setGlobalFilter(e.target.value)}
             className="h-8 w-64 text-xs"
           />
-          <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
             {table.getFilteredRowModel().rows.length} / {data.rows.length} rows
           </span>
           {hiddenByAuto > 0 && (
             <button
               type="button"
-              className="text-[10px] text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 underline decoration-dotted"
+              className="text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline decoration-dotted"
               onClick={() => {
                 const anyHidden = Object.keys(autoHiddenColumns).some(
                   (col) => mergedVisibility[col] === false,
@@ -488,7 +488,7 @@ export function SummaryTableView({
 
       {/* Column visibility picker */}
       {showColumnPicker && (
-        <div className="flex flex-wrap gap-2 p-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+        <div className="flex flex-wrap gap-2 p-2 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
           {table.getAllLeafColumns().map((column) => {
             const colDef = tableType ? getColumnDefinition(tableType, column.id) : undefined;
             // Precedence matches the header render above — canonical header
@@ -504,7 +504,7 @@ export function SummaryTableView({
                   type="checkbox"
                   checked={column.getIsVisible()}
                   onChange={column.getToggleVisibilityHandler()}
-                  className="rounded border-slate-300 dark:border-slate-600"
+                  className="rounded border-gray-300 dark:border-gray-600"
                 />
                 <span className="font-mono truncate max-w-[180px] md:max-w-[280px] lg:max-w-[380px]">
                   {label}
@@ -559,7 +559,7 @@ function ColumnInfoTip({
         onBlur={() => setOpen(false)}
       >
         <Info
-          className="h-3 w-3 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 cursor-help"
+          className="h-3 w-3 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 cursor-help"
           aria-label={`Column info: ${label}`}
           tabIndex={0}
         />
@@ -570,7 +570,7 @@ function ColumnInfoTip({
         preferredPlacement="above"
         width={256}
         estimatedHeight={80}
-        className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 shadow-lg text-xs text-slate-600 dark:text-slate-400"
+        className="rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2 shadow-lg text-xs text-gray-600 dark:text-gray-400"
       >
         {description}
       </FloatingPanel>
@@ -590,7 +590,7 @@ function TableCell({
 }) {
   if (value === null || value === undefined) {
     // aria-hidden: the em-dash is a visual null-placeholder, not content.
-    return <span className="text-slate-500 dark:text-slate-400" aria-hidden>—</span>;
+    return <span className="text-gray-500 dark:text-gray-400" aria-hidden>—</span>;
   }
   // Let the column-level formatter override first — specifically the
   // CSV-join formatter for array cells, which matches MATLAB's
@@ -645,7 +645,7 @@ function EpochTimeCell({ value }: { value: Record<string, unknown> }) {
       >
         <span>{dev === null || dev === undefined ? '—' : String(dev)}</span>
         {global !== null && global !== undefined && (
-          <span className="text-[10px] text-slate-500 dark:text-slate-400">
+          <span className="text-[10px] text-gray-500 dark:text-gray-400">
             {String(global)}
           </span>
         )}
@@ -685,19 +685,19 @@ function VirtualizedTable({
     <div className="relative">
       <div
         ref={scrollRef}
-        className="rounded-md border border-slate-200 dark:border-slate-700 overflow-auto max-h-[calc(100vh-220px)] min-h-[320px]"
+        className="rounded-md border border-gray-200 dark:border-gray-700 overflow-auto max-h-[calc(100vh-220px)] min-h-[320px]"
       >
         <table className="w-full text-xs">
-          <thead className="sticky top-0 bg-slate-50 dark:bg-slate-900 z-10">
+          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-900 z-10">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr
                 key={headerGroup.id}
-                className="border-b border-slate-200 dark:border-slate-700"
+                className="border-b border-gray-200 dark:border-gray-700"
               >
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
-                    className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap"
+                    className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap"
                   >
                     {header.isPlaceholder
                       ? null
@@ -712,7 +712,7 @@ function VirtualizedTable({
               <tr>
                 <td
                   colSpan={columnCount}
-                  className="px-3 py-8 text-center text-slate-500 dark:text-slate-400"
+                  className="px-3 py-8 text-center text-gray-500 dark:text-gray-400"
                 >
                   No data
                 </td>
@@ -734,9 +734,9 @@ function VirtualizedTable({
                       key={row.id}
                       data-index={vr.index}
                       className={cn(
-                        'border-b border-slate-100 dark:border-slate-800',
+                        'border-b border-gray-100 dark:border-gray-800',
                         onRowClick &&
-                          'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800',
+                          'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800',
                       )}
                       style={{ height: ROW_HEIGHT }}
                       onClick={() => onRowClick?.(row.original)}

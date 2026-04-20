@@ -19,7 +19,7 @@ export function LoginPage() {
       <Card>
         <CardHeader>
           <h1 className="text-xl font-bold">Sign in</h1>
-          <p className="text-sm text-slate-500">Use your NDI Cloud credentials.</p>
+          <p className="text-sm text-gray-500">Use your NDI Cloud credentials.</p>
         </CardHeader>
         <CardBody>
           <form
@@ -63,6 +63,27 @@ export function LoginPage() {
               {login.isPending ? 'Signing in…' : 'Sign in'}
             </Button>
           </form>
+          <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-2 text-sm text-center">
+            <a
+              href="https://ndi-cloud.com/forgotPassword"
+              className="text-brand-500 hover:text-brand-600"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Forgot password?
+            </a>
+            <span className="text-gray-500 dark:text-gray-400">
+              No account?{' '}
+              <a
+                href="https://ndi-cloud.com/createAccount"
+                className="text-brand-500 hover:text-brand-600 font-medium"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Create one on NDI Cloud
+              </a>
+            </span>
+          </div>
         </CardBody>
       </Card>
     </div>

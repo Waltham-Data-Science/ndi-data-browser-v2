@@ -22,14 +22,14 @@ export function VideoPlayer({ data }: VideoPlayerProps) {
 
   if (!data.url) {
     return (
-      <div className="text-sm text-slate-500 dark:text-slate-400 p-3">
+      <div className="text-sm text-gray-500 dark:text-gray-400 p-3">
         No video URL available
       </div>
     );
   }
 
   return (
-    <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-black overflow-hidden">
+    <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-black overflow-hidden">
       <video src={data.url} controls preload="metadata" className="w-full max-h-[calc(100vh-200px)]">
         Your browser does not support video playback.
       </video>

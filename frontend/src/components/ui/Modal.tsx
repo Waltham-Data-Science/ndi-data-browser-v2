@@ -67,7 +67,7 @@ export function Modal({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/60 p-4 sm:p-6"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-gray-900/60 p-4 sm:p-6"
       onClick={(e) => {
         // Backdrop click closes, but only when the click landed on the
         // backdrop itself (not on a bubbled event from inside the panel).
@@ -77,25 +77,25 @@ export function Modal({
     >
       <div
         className={cn(
-          'mt-10 w-full rounded-lg bg-white shadow-xl ring-1 ring-slate-200',
-          'dark:bg-slate-900 dark:ring-slate-700',
+          'mt-10 w-full rounded-lg bg-white shadow-xl ring-1 ring-gray-200',
+          'dark:bg-gray-900 dark:ring-gray-700',
           SIZE[size],
           className,
         )}
         onClick={(e) => e.stopPropagation()}
         data-testid="modal-panel"
       >
-        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-3 dark:border-slate-700">
+        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-3 dark:border-gray-700">
           <div className="min-w-0 flex-1">
             <h2
-              className="text-base font-semibold leading-tight text-slate-900 dark:text-slate-100"
+              className="text-base font-semibold leading-tight text-gray-900 dark:text-gray-100"
               data-testid="modal-title"
             >
               {title}
             </h2>
             {description && (
               <p
-                className="mt-1 text-xs text-slate-500 dark:text-slate-400"
+                className="mt-1 text-xs text-gray-500 dark:text-gray-400"
                 data-testid="modal-description"
               >
                 {description}
@@ -106,9 +106,9 @@ export function Modal({
             ref={closeRef}
             type="button"
             className={cn(
-              'inline-flex shrink-0 items-center justify-center rounded-md p-1 text-slate-500 transition-colors',
-              'hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400',
-              'dark:hover:bg-slate-800 dark:hover:text-slate-200',
+              'inline-flex shrink-0 items-center justify-center rounded-md p-1 text-gray-500 transition-colors',
+              'hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400',
+              'dark:hover:bg-gray-800 dark:hover:text-gray-200',
               'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500',
             )}
             onClick={onClose}

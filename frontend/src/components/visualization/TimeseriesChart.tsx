@@ -257,7 +257,7 @@ export function TimeseriesChart({ data, height = 300 }: TimeseriesChartProps) {
 
   if (channelNames.length === 0) {
     return (
-      <div className="text-sm text-slate-500 dark:text-slate-400 p-3">
+      <div className="text-sm text-gray-500 dark:text-gray-400 p-3">
         No timeseries data available
       </div>
     );
@@ -265,7 +265,7 @@ export function TimeseriesChart({ data, height = 300 }: TimeseriesChartProps) {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+      <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
         {sweepInfo ? (
           <>
             <span className="font-mono">{sweepInfo.aiSweeps.sweeps.length} sweeps</span>
@@ -288,18 +288,18 @@ export function TimeseriesChart({ data, height = 300 }: TimeseriesChartProps) {
       <div className="flex gap-2">
         <div
           ref={containerRef}
-          className="flex-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1"
+          className="flex-1 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-1"
         />
         {sweepInfo && (
           <div className="flex flex-col items-center gap-1 py-2">
-            <span className="text-[9px] text-slate-500 dark:text-slate-400 font-mono">High</span>
+            <span className="text-[9px] text-gray-500 dark:text-gray-400 font-mono">High</span>
             <div
-              className="w-3 flex-1 rounded-sm border border-slate-200 dark:border-slate-700"
+              className="w-3 flex-1 rounded-sm border border-gray-200 dark:border-gray-700"
               style={{
                 background: `linear-gradient(to bottom, ${turboColor(1)}, ${turboColor(0.75)}, ${turboColor(0.5)}, ${turboColor(0.25)}, ${turboColor(0)})`,
               }}
             />
-            <span className="text-[9px] text-slate-500 dark:text-slate-400 font-mono">Low</span>
+            <span className="text-[9px] text-gray-500 dark:text-gray-400 font-mono">Low</span>
           </div>
         )}
       </div>

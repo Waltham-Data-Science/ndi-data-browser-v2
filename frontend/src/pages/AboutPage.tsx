@@ -18,7 +18,7 @@ import { Badge } from '@/components/ui/Badge';
 /**
  * About page — explains the NDI data model at a glance and links into
  * the main pages for hands-on exploration. Ported from v1 (187 LOC) with
- * v2 NDICloud branding and references to v2's actual feature set.
+ * v2 NDI Cloud branding and references to v2's actual feature set.
  */
 export function AboutPage() {
   return (
@@ -26,15 +26,14 @@ export function AboutPage() {
       <header className="flex items-center gap-4">
         <img
           src="/brand/ndicloud-emblem.svg"
-          alt=""
-          aria-hidden="true"
-          className="h-14 w-auto"
+          alt="NDI Cloud"
+          className="h-10 w-auto"
         />
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-            About NDICloud Data Browser
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            About NDI Cloud Data Browser
           </h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             Browse NDI Cloud datasets without downloading them. Cloud-first,
             tutorial-aligned, open source.
           </p>
@@ -147,14 +146,14 @@ export function AboutPage() {
           </Link>
           <Link
             to="/query"
-            className="inline-flex items-center gap-1.5 rounded-md bg-white px-3.5 py-1.5 text-sm font-medium text-slate-900 ring-1 ring-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700"
+            className="inline-flex items-center gap-1.5 rounded-md bg-white px-3.5 py-1.5 text-sm font-medium text-gray-900 ring-1 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-100 dark:ring-gray-700"
           >
             <Search className="h-4 w-4" /> Open query builder
           </Link>
         </CardBody>
       </Card>
 
-      <footer className="text-xs text-slate-500 dark:text-slate-400">
+      <footer className="text-xs text-gray-500 dark:text-gray-400">
         This browser is open source under MIT. Powered by{' '}
         <a
           href="https://ndi-cloud.com"
@@ -162,7 +161,7 @@ export function AboutPage() {
           target="_blank"
           rel="noopener noreferrer"
         >
-          NDICloud
+          NDI Cloud
         </a>{' '}
         +{' '}
         <a
@@ -192,8 +191,8 @@ function ModelRow({
     <div className="flex items-start gap-2">
       <span className="mt-0.5">{icon}</span>
       <div className="space-y-0.5">
-        <code className="font-mono text-xs text-slate-900 dark:text-slate-100">{name}</code>
-        <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">{desc}</p>
+        <code className="font-mono text-xs text-gray-900 dark:text-gray-100">{name}</code>
+        <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">{desc}</p>
       </div>
     </div>
   );
@@ -212,8 +211,8 @@ function FeatureRow({
     <div className="flex items-start gap-2">
       <span className="mt-0.5">{icon}</span>
       <div className="space-y-0.5">
-        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{title}</p>
-        <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">{body}</p>
+        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{title}</p>
+        <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">{body}</p>
       </div>
     </div>
   );

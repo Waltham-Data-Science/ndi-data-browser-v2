@@ -62,8 +62,8 @@ function TypeRow({
       className={cn(
         'w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded text-xs transition-colors',
         selected
-          ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800',
+          ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
+          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800',
       )}
     >
       <span className="font-mono truncate flex-1 text-left">{label}</span>

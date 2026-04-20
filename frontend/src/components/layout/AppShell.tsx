@@ -1,65 +1,62 @@
-import { Database, Info, LogOut, Search, User } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 
 import { useLogout, useMe } from '@/api/auth';
 import { cn } from '@/lib/cn';
+import { useDocumentTitle } from '@/lib/useDocumentTitle';
 
 /**
- * App chrome — brand refresh landed in M7. Header carries the NDI Cloud
- * emblem; footer reads "Powered by NDICloud" per plan §M7 step 2.
+ * App chrome — aligned with NDI Cloud design system (April 2026).
+ * Glassmorphism header, Geist typography, wordmark logo.
  */
 export function AppShell() {
   const me = useMe();
   const logout = useLogout();
   const signedIn = me.isSuccess;
 
+  useDocumentTitle();
+
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950">
-      <header className="bg-brand-navy text-white shadow-sm">
+    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-950">
+      <header className="sticky top-0 z-50 bg-black/92 backdrop-blur-[14px] text-white border-b border-white/6">
         <div className="mx-auto flex max-w-7xl items-center gap-6 px-4 py-3">
-          <Link to="/" className="flex items-center gap-2 font-semibold" aria-label="NDI Data Browser home">
+          <Link
+            to="/"
+            className="flex items-center gap-2 transition-all hover:opacity-90"
+            aria-label="NDI Data Browser home"
+          >
             <img
-              src="/brand/ndicloud-emblem.svg"
-              alt=""
-              aria-hidden="true"
-              className="h-6 w-auto"
+              src="/brand/ndicloud-wordmark-white.svg"
+              alt="NDI Cloud"
+              className="h-5 w-auto"
             />
-            <span className="hidden sm:inline">NDICloud Data Browser</span>
           </Link>
+
           <nav className="flex items-center gap-1 text-sm" aria-label="Primary">
-            <NavItem to="/datasets" icon={<Database className="h-4 w-4" />}>
-              Datasets
-            </NavItem>
-            <NavItem to="/query" icon={<Search className="h-4 w-4" />}>
-              Query
-            </NavItem>
-            {signedIn && (
-              <NavItem to="/my" icon={<User className="h-4 w-4" />}>
-                My org
-              </NavItem>
-            )}
-            <NavItem to="/about" icon={<Info className="h-4 w-4" />}>
-              About
-            </NavItem>
+            <NavItem to="/datasets">Datasets</NavItem>
+            <NavItem to="/query">Query</NavItem>
+            {signedIn && <NavItem to="/my">My Org</NavItem>}
+            <NavItem to="/about">About</NavItem>
           </nav>
+
           <div className="ml-auto flex items-center gap-2 text-sm">
             {signedIn ? (
               <>
-                <span className="hidden sm:inline text-slate-300" data-testid="me">
+                <span className="hidden sm:inline text-gray-400 text-xs" data-testid="me">
                   Signed in
                 </span>
                 <button
                   type="button"
                   onClick={() => logout.mutate()}
-                  className="flex items-center gap-1 rounded px-2 py-1 text-slate-200 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-brand-logo"
+                  className="flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1 text-xs font-medium text-gray-200 hover:bg-white/8 hover:border-white/25 hover:text-white transition-all focus-visible:outline-2 focus-visible:outline-brand-logo"
                 >
-                  <LogOut className="h-4 w-4" /> Sign out
+                  <LogOut className="h-3.5 w-3.5" /> Sign out
                 </button>
               </>
             ) : (
               <Link
                 to="/login"
-                className="rounded bg-white/10 px-3 py-1 text-slate-100 hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-brand-logo"
+                className="rounded-full border border-white/15 px-4 py-1 text-xs font-semibold text-gray-100 hover:bg-white/8 hover:border-white/25 hover:text-white transition-all focus-visible:outline-2 focus-visible:outline-brand-logo"
               >
                 Sign in
               </Link>
@@ -72,18 +69,20 @@ export function AppShell() {
         <Outlet />
       </main>
 
-      <footer className="border-t border-slate-200 dark:border-slate-800 py-4 px-4 text-center text-xs text-slate-500 dark:text-slate-400">
-        <div className="mx-auto max-w-7xl flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-2">
-          <span className="flex items-center gap-2">
+      <footer className="border-t border-gray-200 dark:border-gray-800 py-4 px-4">
+        <div className="mx-auto max-w-7xl flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
             <img
-              src="/brand/ndicloud-logo.svg"
-              alt="NDICloud"
-              className="h-4 w-auto opacity-80"
+              src="/brand/ndicloud-wordmark-white.svg"
+              alt="NDI Cloud"
+              className="h-4 w-auto opacity-60 dark:opacity-80 invert dark:invert-0"
             />
-            <span>Powered by NDICloud</span>
-          </span>
-          <span className="text-[11px]">
-            NDI Data Browser v2 · Waltham Data Science
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              NDI Data Browser · Waltham Data Science
+            </span>
+          </div>
+          <span className="text-[11px] text-gray-400 dark:text-gray-500">
+            &copy; {new Date().getFullYear()} Waltham Data Science
           </span>
         </div>
       </footer>
@@ -93,11 +92,9 @@ export function AppShell() {
 
 function NavItem({
   to,
-  icon,
   children,
 }: {
   to: string;
-  icon: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -105,12 +102,11 @@ function NavItem({
       to={to}
       className={({ isActive }) =>
         cn(
-          'flex items-center gap-1.5 rounded px-2 py-1 text-slate-200 hover:bg-white/10',
-          isActive && 'bg-white/15 text-white',
+          'rounded-md px-3 py-1 text-sm font-medium text-white/80 hover:bg-white/5 hover:text-white transition-all',
+          isActive && 'text-[#5DC1FF]',
         )
       }
     >
-      {icon}
       {children}
     </NavLink>
   );

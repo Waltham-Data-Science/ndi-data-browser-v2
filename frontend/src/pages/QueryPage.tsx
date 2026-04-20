@@ -71,10 +71,10 @@ export function QueryPage() {
   return (
     <div className="space-y-4">
       <header>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
           Query builder
         </h1>
-        <p className="text-sm text-slate-600 dark:text-slate-400">
+        <p className="text-sm text-gray-600 dark:text-gray-400">
           Build an NDI query. Every field search auto-narrows to the class, so
           searches stay fast even across public datasets. Filters default to{' '}
           <code className="font-mono text-xs">contains</code> (case-insensitive) —
@@ -125,24 +125,24 @@ function ResultsCard({ results }: { results: QueryResponse }) {
       </CardHeader>
       <CardBody>
         {docs.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             No matching documents.
           </p>
         ) : (
-          <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
+          <div className="overflow-x-auto rounded border border-gray-200 dark:border-gray-700">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 dark:bg-slate-900">
+              <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium text-slate-500 dark:text-slate-300">
+                  <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-300">
                     Name
                   </th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-500 dark:text-slate-300">
+                  <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-300">
                     Class
                   </th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-500 dark:text-slate-300">
+                  <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-300">
                     Dataset
                   </th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-500 dark:text-slate-300">
+                  <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-300">
                     ndiId
                   </th>
                 </tr>
@@ -154,7 +154,7 @@ function ResultsCard({ results }: { results: QueryResponse }) {
                   return (
                     <tr
                       key={id}
-                      className="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                      className="border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/40"
                     >
                       <td className="px-3 py-1.5">
                         {dsId && d.id ? (
@@ -171,7 +171,7 @@ function ResultsCard({ results }: { results: QueryResponse }) {
                       <td className="px-3 py-1.5 font-mono text-xs">
                         {String(d.className ?? '—')}
                       </td>
-                      <td className="px-3 py-1.5 font-mono text-xs text-slate-500 dark:text-slate-400">
+                      <td className="px-3 py-1.5 font-mono text-xs text-gray-500 dark:text-gray-400">
                         {dsId ? (
                           <Link to={`/datasets/${dsId}`} className="hover:underline">
                             {dsId.slice(0, 8)}…
@@ -180,7 +180,7 @@ function ResultsCard({ results }: { results: QueryResponse }) {
                           '—'
                         )}
                       </td>
-                      <td className="px-3 py-1.5 font-mono text-xs text-slate-500 dark:text-slate-400 truncate max-w-[220px] md:max-w-[340px] lg:max-w-[480px]">
+                      <td className="px-3 py-1.5 font-mono text-xs text-gray-500 dark:text-gray-400 truncate max-w-[220px] md:max-w-[340px] lg:max-w-[480px]">
                         {String(d.ndiId ?? '')}
                       </td>
                     </tr>
@@ -189,7 +189,7 @@ function ResultsCard({ results }: { results: QueryResponse }) {
               </tbody>
             </table>
             {docs.length > 200 && (
-              <p className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+              <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
                 Showing first 200 of {formatNumber(docs.length)} returned documents.
               </p>
             )}
