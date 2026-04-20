@@ -117,6 +117,7 @@ export function QueryBuilder({
   // seedConditions prop was provided, prefer it over URL params so the
   // facet-click integration path is deterministic and doesn't depend on
   // URL state side effects.
+  /* eslint-disable react-hooks/set-state-in-effect -- mount-only URL/seed hydration, intentional one-time setState */
   useEffect(() => {
     if (seedConditions && seedConditions.length > 0) {
       setShowAdvanced(true);
@@ -134,6 +135,7 @@ export function QueryBuilder({
     if (urlScope) setScope(urlScope);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const persistToUrl = (cond: QueryNode | null, nextScope: Scope) => {
     const next = new URLSearchParams(searchParams);
