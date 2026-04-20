@@ -237,6 +237,123 @@ def test_my_datasets_with_no_orgs_returns_empty(
     assert body == {"totalNumber": 0, "datasets": []}
 
 
+def test_my_datasets_scope_all_admin_falls_back_to_legacy_firehose(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """``/api/datasets/my?scope=all`` with an ``is_admin=True`` session
+    opts into the legacy cross-org in-review firehose — cloud's
+    ``GET /datasets/unpublished`` admin-bypass path. Intended for
+    platform-admin debugging (\"what does the old /my show me across
+    every org\").
+
+    The org-scoped fan-out endpoints (``/organizations/:orgId/datasets``)
+    must NOT be called when ``scope=all`` is honored — that's a
+    different branch and we don't want the double-cost.
+    """
+    import asyncio
+
+    from backend.auth.session import SessionStore
+
+    client, router = app_and_cloud
+
+    store: SessionStore = client.app.state.session_store
+
+    async def _plant():  # type: ignore[no-untyped-def]
+        return await store.create(
+            user_id="admin-user",
+            email="admin@example.test",
+            access_token="admin-token",
+            access_token_expires_in_seconds=3600,
+            ip="127.0.0.1",
+            user_agent="testclient",
+            organization_ids=["org-alpha"],
+            is_admin=True,
+        )
+
+    session = asyncio.get_event_loop().run_until_complete(_plant())
+    client.cookies.set("session", session.session_id)
+
+    unpublished_route = router.get(
+        "/datasets/unpublished",
+        headers={"Authorization": "Bearer admin-token"},
+    ).respond(
+        200,
+        json={
+            "totalNumber": 2,
+            "datasets": [
+                {"id": "firehose-1", "name": "Cross-org IR 1", "isPublished": False},
+                {"id": "firehose-2", "name": "Cross-org IR 2", "isPublished": False},
+            ],
+        },
+    )
+
+    r = client.get(
+        "/api/datasets/my?scope=all",
+        headers={"User-Agent": "testclient"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["totalNumber"] == 2
+    ids = sorted(d["id"] for d in body["datasets"])
+    assert ids == ["firehose-1", "firehose-2"]
+    assert unpublished_route.called, "scope=all admin should hit legacy endpoint"
+
+
+def test_my_datasets_scope_all_non_admin_silently_downgrades(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """A non-admin caller requesting ``?scope=all`` is silently downgraded
+    to the default ``mine`` behaviour. No leak of the admin firehose to
+    regular users — we fan out ``/organizations/:orgId/datasets`` like
+    the unparameterized case.
+    """
+    import asyncio
+
+    from backend.auth.session import SessionStore
+
+    client, router = app_and_cloud
+
+    store: SessionStore = client.app.state.session_store
+
+    async def _plant():  # type: ignore[no-untyped-def]
+        return await store.create(
+            user_id="regular-user",
+            email="user@example.test",
+            access_token="user-token",
+            access_token_expires_in_seconds=3600,
+            ip="127.0.0.1",
+            user_agent="testclient",
+            organization_ids=["org-gamma"],
+            is_admin=False,  # key: non-admin
+        )
+
+    session = asyncio.get_event_loop().run_until_complete(_plant())
+    client.cookies.set("session", session.session_id)
+
+    org_route = router.get("/organizations/org-gamma/datasets").respond(
+        200,
+        json={
+            "totalNumber": 1,
+            "datasets": [{"id": "g1", "name": "Gamma One"}],
+        },
+    )
+    # If the admin bypass had leaked, this would be hit. Assert it's NOT.
+    leaked_route = router.get("/datasets/unpublished").respond(
+        200, json={"totalNumber": 99, "datasets": []},
+    )
+
+    r = client.get(
+        "/api/datasets/my?scope=all",
+        headers={"User-Agent": "testclient"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["totalNumber"] == 1
+    assert body["datasets"][0]["id"] == "g1"
+    assert org_route.called, "fanout should still hit the org endpoint"
+    assert not leaked_route.called, "non-admin must not reach legacy firehose"
+
+
 def test_me_includes_organization_ids_and_admin_flag(
     app_and_cloud,
 ) -> None:  # type: ignore[no-untyped-def]

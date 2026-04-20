@@ -56,13 +56,32 @@ async def my(
     session: Annotated[SessionData, Depends(require_session)],
     svc: Annotated[DatasetService, Depends(dataset_service)],
     summary_svc: Annotated[DatasetSummaryService, Depends(dataset_summary_service)],
+    scope: str = Query(
+        "mine",
+        pattern="^(mine|all)$",
+        description=(
+            "`mine` (default): datasets owned by the caller's orgs "
+            "(published + in-review + drafts). `all`: ADMIN ONLY — "
+            "legacy cross-org in-review firehose via the cloud's "
+            "`/datasets/unpublished` admin bypass. Silently treated as "
+            "`mine` when the caller isn't admin."
+        ),
+    ),
 ) -> dict[str, Any]:
-    """Authenticated ``/my`` list mirroring ``/published`` but over the
-    caller's organization's unpublished datasets. Same compact-summary
-    shape per row.
+    """Authenticated list — default `scope=mine` returns every dataset
+    owned by any org on the caller's session (published + in-review +
+    drafts), aggregated via the cloud's ``/organizations/:orgId/datasets``
+    endpoint. Admins can opt into the legacy cross-org firehose via
+    ``?scope=all``; non-admins requesting ``scope=all`` get silently
+    downgraded to the default (no leak of the admin bypass).
+
+    Same compact-summary-per-row shape as ``/published``.
     """
+    use_admin_firehose = scope == "all" and session.is_admin
     return await svc.list_mine_with_summaries(
-        session=session, summary_service=summary_svc,
+        session=session,
+        summary_service=summary_svc,
+        admin_all_orgs=use_admin_firehose,
     )
 
 

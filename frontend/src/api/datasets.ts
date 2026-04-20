@@ -99,10 +99,26 @@ export function usePublishedDatasets(page: number, pageSize: number) {
   });
 }
 
-export function useMyDatasets(enabled: boolean) {
+export type MyScope = 'mine' | 'all';
+
+/**
+ * Authenticated "My organization's datasets" list.
+ *
+ * `scope='mine'` (default): per-org aggregation — every dataset owned
+ * by any org the caller is a member of (published + in-review + drafts).
+ *
+ * `scope='all'`: **admin-only** opt-in fallback to the legacy cloud
+ * `/datasets/unpublished` admin-bypass firehose (cross-org in-review).
+ * The backend silently downgrades `scope=all` to `mine` for non-admins,
+ * so there's no leak if a non-admin manages to pass the param.
+ */
+export function useMyDatasets(enabled: boolean, scope: MyScope = 'mine') {
   return useQuery({
-    queryKey: ['datasets', 'my'],
-    queryFn: () => apiFetch<DatasetListResponse>('/api/datasets/my'),
+    queryKey: ['datasets', 'my', scope],
+    queryFn: () =>
+      apiFetch<DatasetListResponse>(
+        scope === 'all' ? '/api/datasets/my?scope=all' : '/api/datasets/my',
+      ),
     enabled,
   });
 }

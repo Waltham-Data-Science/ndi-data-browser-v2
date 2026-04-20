@@ -1,9 +1,12 @@
-import { useMyDatasets } from '@/api/datasets';
+import { useState } from 'react';
+
+import { useMyDatasets, type MyScope } from '@/api/datasets';
 import { useMe } from '@/api/auth';
 import { DatasetCard } from '@/components/datasets/DatasetCard';
 import { Badge } from '@/components/ui/Badge';
 import { CardSkeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/errors/ErrorState';
+import { cn } from '@/lib/cn';
 import { formatNumber } from '@/lib/format';
 
 /**
@@ -25,14 +28,21 @@ import { formatNumber } from '@/lib/format';
  */
 export function MyDatasetsPage() {
   const me = useMe();
-  const q = useMyDatasets(me.isSuccess);
+  const isAdmin = me.data?.isAdmin ?? false;
+  // Scope toggle — admins only. `mine` = per-org aggregation (default);
+  // `all` = legacy cross-org in-review firehose (see backend
+  // `datasets.my` route for details). Non-admins never see the toggle
+  // UI; and the backend silently downgrades `scope=all` if they try to
+  // pass it manually.
+  const [scope, setScope] = useState<MyScope>('mine');
+  const activeScope: MyScope = isAdmin ? scope : 'mine';
+  const q = useMyDatasets(me.isSuccess, activeScope);
 
   if (me.isError) return <ErrorState error={me.error} />;
   if (me.isLoading) return <CardSkeleton />;
 
   const total = q.data?.totalNumber ?? q.data?.datasets?.length ?? 0;
   const orgCount = me.data?.organizationIds?.length ?? 0;
-  const isAdmin = me.data?.isAdmin ?? false;
 
   return (
     <div className="space-y-5">
@@ -44,14 +54,19 @@ export function MyDatasetsPage() {
           {isAdmin && <Badge variant="secondary">admin</Badge>}
         </div>
         <p className="text-sm text-gray-600 dark:text-gray-300">
-          Every dataset owned by your organization — published, in-review,
-          and drafts. Click any card for full detail (subjects, probes,
-          epochs, raw documents) just like the public catalog.
+          {activeScope === 'all'
+            ? 'Admin debug view — every in-review dataset across every org in the cloud (legacy /datasets/unpublished firehose).'
+            : 'Every dataset owned by your organization — published, in-review, and drafts. Click any card for full detail (subjects, probes, epochs, raw documents) just like the public catalog.'}
         </p>
+        {isAdmin && (
+          <ScopeToggle value={scope} onChange={setScope} />
+        )}
         {q.data && (
           <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">
             {formatNumber(total)} {total === 1 ? 'dataset' : 'datasets'}
-            {orgCount > 1 ? ` · ${orgCount} organizations` : ''}
+            {activeScope === 'mine' && orgCount > 1
+              ? ` · ${orgCount} organizations`
+              : ''}
           </p>
         )}
       </header>
@@ -69,11 +84,14 @@ export function MyDatasetsPage() {
       {!q.isLoading && !q.isError && q.data && q.data.datasets.length === 0 && (
         <div className="rounded-lg border border-dashed border-gray-200 dark:border-gray-700 p-10 text-center">
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            No unpublished datasets in your organization yet.
+            {activeScope === 'all'
+              ? 'No in-review datasets in any org — the cloud\u2019s cross-org admin view is empty.'
+              : 'No datasets in your organization yet.'}
           </p>
           <p className="mt-2 text-xs text-gray-500 dark:text-gray-500">
-            Datasets you upload via NDI Cloud will appear here before they are
-            published.
+            {activeScope === 'all'
+              ? 'Switch back to "My org only" for your org-scoped view.'
+              : 'Datasets you upload via NDI Cloud will appear here — published work, in-review submissions, and drafts.'}
           </p>
         </div>
       )}
@@ -86,5 +104,61 @@ export function MyDatasetsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function ScopeToggle({
+  value,
+  onChange,
+}: {
+  value: MyScope;
+  onChange: (next: MyScope) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Dataset scope"
+      className="inline-flex items-center rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden text-xs"
+      data-testid="my-scope-toggle"
+    >
+      <ToggleButton
+        active={value === 'mine'}
+        onClick={() => onChange('mine')}
+      >
+        My org only
+      </ToggleButton>
+      <ToggleButton
+        active={value === 'all'}
+        onClick={() => onChange('all')}
+      >
+        All orgs (admin)
+      </ToggleButton>
+    </div>
+  );
+}
+
+function ToggleButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'px-3 py-1.5 font-medium transition-colors',
+        active
+          ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
+          : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100',
+      )}
+    >
+      {children}
+    </button>
   );
 }

@@ -67,28 +67,39 @@ class DatasetService:
         )
 
     async def list_mine(
-        self, *, session: SessionData,
+        self, *, session: SessionData, admin_all_orgs: bool = False,
     ) -> dict[str, Any]:
         """Aggregate every dataset owned by any org the caller belongs to.
 
-        The cloud's ``/datasets/unpublished`` is a narrow slice (filter:
-        ``isPublished=false AND isSubmitted=true``) that hides the common
-        cases a scientist expects on their "My org" view — their own
-        published work, and drafts they haven't submitted yet. Instead we
-        fan out to ``GET /organizations/:orgId/datasets`` for each org in
-        ``session.organization_ids`` (captured at login from the cloud's
-        ``UserWithOrganizationsResult``) and return the union.
+        Default path: fan out ``GET /organizations/:orgId/datasets`` for
+        each org in ``session.organization_ids`` (captured at login from
+        the cloud's ``UserWithOrganizationsResult``) and return the
+        union. Published + in-review + drafts. See ADR-worthy note in
+        CLAUDE.md "My Org datasets" for the rationale — ``/datasets/
+        unpublished`` was the pre-2026-04-20 path and is too narrow.
 
-        If the caller has zero orgs on their session, we return the
-        empty shape. This is the right answer for admins who aren't
-        enrolled in any org — they can still see everything via the
-        public catalog; the frontend renders a helpful empty-state.
+        Admin firehose (``admin_all_orgs=True``): re-enters the legacy
+        ``cloud.get_my_datasets()`` path (calls ``/datasets/unpublished``)
+        which the cloud, for admin callers, bypasses org-scoping on —
+        returning every org's in-review datasets. Used for platform-
+        admin debugging via ``GET /api/datasets/my?scope=all``. The
+        router enforces that this flag only flips true when
+        ``session.is_admin``; we don't re-check here.
 
-        Cache key is per-user so two members of the same org don't share
-        a cached aggregation (each user's permission filter on the cloud
-        side may expose a slightly different set).
+        Cache keys are scoped per-user AND per-mode so toggling the
+        admin firehose doesn't serve a stale per-org result (and vice
+        versa). Both branches still benefit from the normal
+        ``datasets_list`` TTL.
         """
-        key = f"mine:{user_scope_for(session)}"
+        mode = "all" if admin_all_orgs else "mine"
+        key = f"mine:{mode}:{user_scope_for(session)}"
+        if admin_all_orgs:
+            return await ProxyCaches.datasets_list.get_or_compute(
+                key,
+                lambda: self.cloud.get_my_datasets(
+                    access_token=session.access_token,
+                ),
+            )
         return await ProxyCaches.datasets_list.get_or_compute(
             key,
             lambda: self._aggregate_org_datasets(session=session),
@@ -197,14 +208,23 @@ class DatasetService:
         *,
         session: SessionData,
         summary_service: DatasetSummaryService,
+        admin_all_orgs: bool = False,
     ) -> dict[str, Any]:
         """Authenticated ``/my`` list + embedded per-row compact summary.
 
-        Mirrors :meth:`list_published_with_summaries`; a per-user cache
-        scope protects cross-user leakage of the raw list (summaries have
-        their own scoping via B1's cache key).
+        Default (``admin_all_orgs=False``): per-org aggregation via
+        :meth:`list_mine`. Set ``admin_all_orgs=True`` (router enforces
+        this flag requires ``session.is_admin``) to fall back to the
+        legacy cloud ``/datasets/unpublished`` admin-bypass firehose —
+        cross-org in-review listing — intended for platform-admin
+        debugging only.
+
+        Cache-key scope distinguishes the two modes so toggling doesn't
+        serve stale results.
         """
-        payload = await self.list_mine(session=session)
+        payload = await self.list_mine(
+            session=session, admin_all_orgs=admin_all_orgs,
+        )
         await self._enrich_list_response(
             payload, summary_service=summary_service, session=session,
         )
