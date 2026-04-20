@@ -101,6 +101,83 @@ def test_published_datasets_calls_cloud(app_and_cloud) -> None:  # type: ignore[
     assert body["datasets"][0]["summary"] is None
 
 
+def test_my_datasets_requires_session(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
+    """``/api/datasets/my`` is gated by ``require_session``. An unauthed
+    caller must get the typed AUTH_REQUIRED 401, not a leaky 500.
+    """
+    client, _ = app_and_cloud
+    r = client.get("/api/datasets/my")
+    assert r.status_code == 401
+    body = r.json()
+    assert body["error"]["code"] == "AUTH_REQUIRED"
+    assert body["error"]["recovery"] == "login"
+
+
+def test_my_datasets_authenticated_proxies_to_unpublished(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """Authenticated ``/api/datasets/my`` proxies to the cloud's
+    ``/datasets/unpublished`` endpoint (see ``CLAUDE.md`` cloud API
+    reference table) and shapes the response exactly like ``/published``
+    with an embedded compact-summary slot per row. When the synthesizer
+    has no cloud endpoints to call for a given row (respx's
+    ``assert_all_called=False`` returns 404 for unmocked routes), the
+    row renders with ``summary: null`` rather than propagating the error.
+
+    Also verifies the session's access token is forwarded to the cloud
+    — without the Bearer header, ndi-cloud-node would refuse to surface
+    unpublished datasets at all.
+    """
+    import asyncio
+
+    from backend.auth.session import SessionStore
+
+    client, router = app_and_cloud
+
+    # Plant a live session with a known access token.
+    store: SessionStore = client.app.state.session_store
+
+    async def _plant():  # type: ignore[no-untyped-def]
+        return await store.create(
+            user_id="org-user-1",
+            email="wds@example.test",
+            access_token="my-access-token",
+            access_token_expires_in_seconds=3600,
+            ip="127.0.0.1",
+            user_agent="testclient",
+        )
+
+    session = asyncio.get_event_loop().run_until_complete(_plant())
+    client.cookies.set("session", session.session_id)
+
+    # Assert the Bearer token is threaded through to the cloud.
+    unpublished_route = router.get(
+        "/datasets/unpublished",
+        headers={"Authorization": "Bearer my-access-token"},
+    ).respond(
+        200,
+        json={
+            "totalNumber": 2,
+            "datasets": [
+                {"id": "draft-1", "name": "Draft Alpha", "isPublished": False},
+                {"id": "draft-2", "name": "Draft Bravo", "isPublished": False},
+            ],
+        },
+    )
+
+    r = client.get("/api/datasets/my", headers={"User-Agent": "testclient"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["totalNumber"] == 2
+    ids = [d["id"] for d in body["datasets"]]
+    assert ids == ["draft-1", "draft-2"]
+    # Compact-summary slot is always present (null when synth has nothing).
+    for row in body["datasets"]:
+        assert "summary" in row
+        assert row["summary"] is None
+    assert unpublished_route.called, "cloud /datasets/unpublished should have been hit"
+
+
 def test_me_with_ua_mismatch_returns_401(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
     """PR-5: UA hash change on a live session → revoke + AUTH_REQUIRED.
 
