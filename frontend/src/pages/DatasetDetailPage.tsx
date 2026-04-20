@@ -148,7 +148,7 @@ function DatasetOverviewCard({
           </p>
         )}
 
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-xs">
           <DatasetStat label="Species" value={ds.species} />
           <DatasetStat label="Brain regions" value={ds.brainRegions} />
           <DatasetStat
@@ -222,7 +222,7 @@ function DatasetOverviewCard({
           </div>
         )}
 
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px] text-gray-500 dark:text-gray-400 font-mono border-t border-gray-200 dark:border-gray-700 pt-3">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px] text-gray-500 dark:text-gray-400 font-mono border-t border-gray-200 dark:border-gray-700 pt-3">
           {ds.doi && (
             <>
               <dt>DOI</dt>
@@ -339,12 +339,17 @@ function ContributorRow({ c }: { c: import('@/api/datasets').Contributor }) {
 
 function PublicationRow({ p }: { p: import('@/api/datasets').AssociatedPublication }) {
   const title = p.title || p.DOI || p.PMID || 'Publication';
+  // `min-w-0 overflow-hidden` on the <li> so the ExternalAnchor / long
+  // title can truncate with ellipsis rather than pushing the sidebar
+  // card wider. Publication titles are a full sentence; DOIs are long
+  // URLs. Same class of bug Steve caught on the dataset DOI row
+  // (2026-04-20).
   return (
-    <li className="space-y-0.5">
+    <li className="min-w-0 space-y-0.5 overflow-hidden">
       {p.DOI ? (
         <ExternalAnchor href={p.DOI} label={title} className="text-xs leading-snug" />
       ) : (
-        <span className="text-gray-700 dark:text-gray-300">{title}</span>
+        <span className="block truncate text-gray-700 dark:text-gray-300">{title}</span>
       )}
       <div className="flex flex-wrap gap-2 text-[10px] text-gray-500 dark:text-gray-400 font-mono">
         {p.DOI && <span>DOI</span>}

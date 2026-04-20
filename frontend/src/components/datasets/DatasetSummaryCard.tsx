@@ -182,7 +182,7 @@ function ProbeTypesSection({
     >
       <SectionHeading>Probe types</SectionHeading>
       <dl className="space-y-1.5">
-        <div className="grid grid-cols-[max-content_1fr] items-start gap-x-3 gap-y-1">
+        <div className="grid grid-cols-[max-content_minmax(0,1fr)] items-start gap-x-3 gap-y-1">
           <dt className="pt-0.5 text-xs font-medium text-gray-600 dark:text-gray-300">
             Types
           </dt>
@@ -212,7 +212,7 @@ function ScaleSection({
   return (
     <section aria-label="Scale" className="space-y-2" data-testid="scale">
       <SectionHeading>Scale</SectionHeading>
-      <dl className="grid grid-cols-[max-content_1fr] items-start gap-x-3 gap-y-1 text-xs">
+      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-xs">
         <dt className="font-medium text-gray-600 dark:text-gray-300">
           Date range
         </dt>
@@ -362,7 +362,7 @@ function LabeledOntologyList({
 }) {
   return (
     <div
-      className="grid grid-cols-[max-content_1fr] items-start gap-x-3 gap-y-1"
+      className="grid grid-cols-[max-content_minmax(0,1fr)] items-start gap-x-3 gap-y-1"
       data-testid={`biology-${slugify(label)}`}
     >
       <dt className="pt-0.5 text-xs font-medium text-gray-600 dark:text-gray-300">
