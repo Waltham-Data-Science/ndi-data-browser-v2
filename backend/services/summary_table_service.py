@@ -210,8 +210,20 @@ class SummaryTableService:
         build_start = time.perf_counter()
         # NDI's canonical chain is subject → element → element_epoch. Some
         # datasets use older "probe" / "epoch" class names; try both.
-        subjects, elements, element_epochs, om_subjects, probe_locations, treatments = (
-            await asyncio.gather(
+        #
+        # Required classes (subject / element / element_epoch) drive the
+        # row shape — if any fails, the whole build fails and we skip
+        # caching (the user retries against a healthy cloud).
+        #
+        # Optional classes (openminds_subject / probe_location / treatment)
+        # only add context columns that SummaryTableView's auto-hide-empty
+        # falloff will handle gracefully. A transient cloud hiccup on one
+        # of those shouldn't fail the whole build — log a warning and
+        # treat it as empty. Matches the `_REQUIRED_ENRICHMENTS` pattern
+        # already used by `_build_single_class`. Post-Steve 2026-04-20
+        # report on the 70k-doc ferret dataset.
+        required_results, optional_results = await asyncio.gather(
+            asyncio.gather(
                 self._fetch_class(dataset_id, "subject", access_token=access_token),
                 self._fetch_class_any(
                     dataset_id, ["element", "probe"], access_token=access_token,
@@ -219,6 +231,8 @@ class SummaryTableService:
                 self._fetch_class_any(
                     dataset_id, ["element_epoch", "epoch"], access_token=access_token,
                 ),
+            ),
+            asyncio.gather(
                 self._fetch_class(
                     dataset_id, "openminds_subject", access_token=access_token,
                 ),
@@ -228,8 +242,29 @@ class SummaryTableService:
                 self._fetch_class(
                     dataset_id, "treatment", access_token=access_token,
                 ),
-            )
+                return_exceptions=True,
+            ),
         )
+        subjects, elements, element_epochs = required_results
+        om_subjects_r, probe_locations_r, treatments_r = optional_results
+
+        def _accept_optional(name: str, r: object) -> list[dict[str, Any]]:
+            if isinstance(r, BaseException):
+                log.warning(
+                    "combined.optional_class_failed",
+                    dataset_id=dataset_id,
+                    class_name=name,
+                    error=str(r),
+                )
+                return []
+            # At this point mypy/pyright needs the narrow; the gather branch
+            # above always yields list[dict[str, Any]] for non-exception
+            # results.
+            return r  # type: ignore[return-value]
+
+        om_subjects = _accept_optional("openminds_subject", om_subjects_r)
+        probe_locations = _accept_optional("probe_location", probe_locations_r)
+        treatments = _accept_optional("treatment", treatments_r)
         enriched: dict[str, list[dict[str, Any]]] = {
             "subject": subjects,
             "element": elements,
