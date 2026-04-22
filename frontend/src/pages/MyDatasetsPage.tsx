@@ -346,22 +346,22 @@ function DatasetTable({ datasets }: { datasets: DatasetRecord[] }) {
       <table className="w-full border-collapse text-[13.5px]">
         <thead>
           <tr>
-            <th className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted" style={{ width: '40%' }}>
+            <th scope="col" className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted" style={{ width: '40%' }}>
               Dataset
             </th>
-            <th className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted">
+            <th scope="col" className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted">
               Status
             </th>
-            <th className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted hidden md:table-cell">
+            <th scope="col" className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted hidden md:table-cell">
               Species
             </th>
-            <th className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted">
+            <th scope="col" className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted">
               Docs
             </th>
-            <th className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted hidden lg:table-cell">
+            <th scope="col" className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted hidden lg:table-cell">
               DOI
             </th>
-            <th className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted hidden sm:table-cell">
+            <th scope="col" className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted hidden sm:table-cell">
               Updated
             </th>
           </tr>
@@ -385,7 +385,7 @@ function DatasetRow({ dataset, isLast }: { dataset: DatasetRecord; isLast: boole
   return (
     <tr
       className={cn(
-        'hover:bg-bg-muted transition-colors cursor-pointer',
+        'group hover:bg-bg-muted transition-colors cursor-pointer',
         isLast ? '' : 'border-b border-border-subtle/60',
       )}
     >
@@ -406,7 +406,7 @@ function DatasetRow({ dataset, isLast }: { dataset: DatasetRecord; isLast: boole
             <FileText className="h-3.5 w-3.5" />
           </span>
           <div className="min-w-0">
-            <div className="font-semibold text-fg-primary truncate group-hover:text-ndi-teal">
+            <div className="font-semibold text-fg-primary truncate transition-colors group-hover:text-ndi-teal">
               {dataset.name}
             </div>
             {dataset.id && (
@@ -479,7 +479,7 @@ function HeroStat({
         {value}
       </div>
       {hint && (
-        <div className="text-[11.5px] text-white/45 font-mono">{hint}</div>
+        <div className="text-[11.5px] text-white/65 font-mono">{hint}</div>
       )}
     </div>
   );
@@ -515,7 +515,7 @@ function FilterChip({
         <span
           className={cn(
             'font-mono text-[11px] px-1.5 py-0 rounded-full',
-            active ? 'bg-white/70' : 'bg-gray-100',
+            active ? 'bg-white/70' : 'bg-bg-muted',
           )}
         >
           {count}

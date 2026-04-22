@@ -5,9 +5,15 @@
  * in-place (no portal) which is acceptable for our use: every caller
  * mounts the Modal at the top of its own subtree under the App shell.
  *
- * Intentional non-goals for this first iteration:
- *   - No focus trap (single-screen modals; `autoFocus` on the close
- *     button is the minimum accessibility bar we commit to here).
+ * Focus behavior (updated 2026-04-22 audit):
+ *   - On open, focus moves into the dialog (close button by default).
+ *   - Tab / Shift+Tab cycle through focusable children inside the
+ *     dialog without escaping to page content behind the backdrop.
+ *   - Escape closes the dialog.
+ *   - On close, focus returns to whatever element was focused when the
+ *     modal opened — keyboard users don't lose their place.
+ *
+ * Non-goals:
  *   - No animation (Tailwind transitions noise for a test-visible open
  *     state).
  *   - No portal. React 19 + our flat component tree means the Modal
@@ -16,7 +22,7 @@
  * Design tokens: brand-navy backdrop (matches marketing overlays),
  * bg-bg-surface panel, border-border-subtle separator.
  */
-import { useEffect, useRef, type PropsWithChildren } from 'react';
+import { useCallback, useEffect, useRef, type PropsWithChildren } from 'react';
 import { X } from 'lucide-react';
 
 import { cn } from '@/lib/cn';
@@ -39,6 +45,16 @@ const SIZE: Record<NonNullable<ModalProps['size']>, string> = {
   xl: 'max-w-3xl',
 };
 
+// Focusable element query — standard WAI-ARIA list.
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'textarea:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ');
+
 export function Modal({
   open,
   onClose,
@@ -48,20 +64,70 @@ export function Modal({
   className,
   children,
 }: PropsWithChildren<ModalProps>) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  // Snapshot of the element that had focus when the modal opened, so
+  // we can restore focus on close.
+  const openerRef = useRef<HTMLElement | null>(null);
+
+  const focusableWithin = useCallback((): HTMLElement[] => {
+    if (!panelRef.current) return [];
+    return Array.from(
+      panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+    ).filter((el) => !el.hasAttribute('aria-hidden'));
+  }, []);
 
   useEffect(() => {
     if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-    window.addEventListener('keydown', onKey);
-    // Auto-focus the close button so keyboard users land somewhere
-    // inside the modal on open. Close is the one control we can
-    // guarantee every Modal has.
+
+    openerRef.current =
+      (document.activeElement as HTMLElement | null) ?? null;
+
+    // Initial focus — close button is present on every Modal, so it's
+    // the safest anchor. Consumers with a better "primary action" can
+    // autoFocus it themselves within children.
     closeRef.current?.focus();
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const focusables = focusableWithin();
+      if (focusables.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const first = focusables[0]!;
+      const last = focusables[focusables.length - 1]!;
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (active === first || !panelRef.current?.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (active === last || !panelRef.current?.contains(active)) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      // Restore focus to the opener on close. Null-check because it
+      // may have been removed from the DOM while the modal was open.
+      const opener = openerRef.current;
+      if (opener && document.contains(opener)) {
+        opener.focus();
+      }
+      openerRef.current = null;
+    };
+  }, [open, onClose, focusableWithin]);
 
   if (!open) return null;
 
@@ -79,6 +145,7 @@ export function Modal({
       data-testid="modal-backdrop"
     >
       <div
+        ref={panelRef}
         className={cn(
           'mt-10 w-full rounded-lg bg-bg-surface shadow-[var(--shadow-xl)] ring-1 ring-border-subtle',
           SIZE[size],

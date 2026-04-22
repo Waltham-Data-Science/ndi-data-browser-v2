@@ -178,7 +178,7 @@ export function LoginPage() {
           <div className="mt-6 pt-5 border-t border-border-subtle flex flex-col gap-2 text-sm text-center">
             <a
               href={marketingHref('/forgotPassword')}
-              className="text-brand-500 hover:text-brand-600"
+              className="text-ndi-teal hover:brightness-110"
             >
               Forgot password?
             </a>
@@ -186,7 +186,7 @@ export function LoginPage() {
               No account?{' '}
               <a
                 href={marketingHref('/createAccount')}
-                className="text-brand-500 hover:text-brand-600 font-medium"
+                className="text-ndi-teal hover:brightness-110 font-medium"
               >
                 Create one on NDI Cloud
               </a>

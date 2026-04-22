@@ -36,7 +36,7 @@ export function FacetPanel({
         <CardTitle className="text-sm">
           Research vocabulary
           {facets && (
-            <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">
+            <span className="ml-2 text-xs font-normal text-fg-muted">
               ({facets.datasetCount} datasets)
             </span>
           )}
@@ -44,13 +44,18 @@ export function FacetPanel({
       </CardHeader>
       <CardBody className="space-y-4">
         {isLoading && (
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-fg-muted">
             Loading facets…
           </p>
         )}
-        {error && !facets && (
-          <p className="text-xs text-rose-600 dark:text-rose-400">
-            Couldn&apos;t load research facets.
+        {/* Show the error banner whenever there's an error — even when
+            cached data remains visible. Hiding errors during background
+            refetch hides staleness from the user. */}
+        {error && (
+          <p className="text-xs text-rose-600">
+            {facets
+              ? 'Facet counts may be stale — a background refresh failed.'
+              : 'Couldn\u2019t load research facets.'}
           </p>
         )}
         {facets && (
@@ -98,7 +103,7 @@ function FacetList({
   if (terms.length === 0) return null;
   return (
     <div>
-      <h3 className="text-xs font-medium text-gray-700 dark:text-gray-200 mb-1.5">
+      <h3 className="text-xs font-medium text-fg-secondary mb-1.5">
         {title}
       </h3>
       <div className="flex flex-wrap gap-1.5">
@@ -134,7 +139,7 @@ function ProbeTypeList({
   if (probeTypes.length === 0) return null;
   return (
     <div>
-      <h3 className="text-xs font-medium text-gray-700 dark:text-gray-200 mb-1.5">
+      <h3 className="text-xs font-medium text-fg-secondary mb-1.5">
         Probe types
       </h3>
       <div className="flex flex-wrap gap-1.5">

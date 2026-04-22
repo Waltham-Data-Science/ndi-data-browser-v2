@@ -541,14 +541,14 @@ function ClassCountsList({
                 <span className="font-mono truncate flex-1">{cls}</span>
                 <span className="text-fg-muted">{formatNumber(n)}</span>
                 {isSummary && (
-                  <FileText className="h-3 w-3 text-gray-400" aria-hidden />
+                  <FileText className="h-3 w-3 text-fg-muted" aria-hidden />
                 )}
                 {!isSummary && (
-                  <Globe className="h-3 w-3 text-gray-400" aria-hidden />
+                  <Globe className="h-3 w-3 text-fg-muted" aria-hidden />
                 )}
               </Link>
               <div
-                className="mt-0.5 h-1 rounded bg-gray-100 overflow-hidden"
+                className="mt-0.5 h-1 rounded bg-bg-muted overflow-hidden"
                 role="progressbar"
                 aria-label={`${cls} ${formatNumber(n)} of ${formatNumber(data.totalDocuments)}`}
               >
