@@ -20,6 +20,7 @@ Cached in Redis for 10 min per `(dataset_id, doc_id)`.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from typing import Any
 
@@ -30,6 +31,9 @@ from ..observability.logging import get_logger
 from .document_service import _normalize_document
 
 log = get_logger(__name__)
+
+# Shared with document_service; duplicated here to avoid a cyclic import.
+_MONGO_OBJECT_ID = re.compile(r"^[0-9a-fA-F]{24}$")
 
 DEP_GRAPH_TTL_SECONDS = 600  # 10 minutes
 MAX_DEPTH_HARD_CAP = 3  # plan §M5 backend step 2
@@ -80,8 +84,24 @@ class DependencyGraphService:
         access_token: str | None,
     ) -> dict[str, Any]:
         t0 = time.perf_counter()
+        # Accept either a 24-char Mongo _id or an ndiId — summary-table
+        # rows and depends_on edges both surface ndiIds, and the frontend
+        # passes those straight through. ndi-cloud-node's get_document
+        # rejects ndiIds (Mongoose CastError → CLOUD_INTERNAL_ERROR), so
+        # resolve first when we're handed one.
+        target_id = document_id
+        if not _MONGO_OBJECT_ID.match(document_id):
+            resolved = await self._resolve_ndi_ids(
+                dataset_id, [document_id], access_token=access_token,
+            )
+            meta = resolved.get(document_id)
+            if not meta or not meta.get("id"):
+                log.info("dep_graph.target_ndi_unresolvable", ndi=document_id)
+                return _empty_graph(document_id, reason="ndiId not found in dataset")
+            target_id = meta["id"]
+
         target_raw = await self.cloud.get_document(
-            dataset_id, document_id, access_token=access_token,
+            dataset_id, target_id, access_token=access_token,
         )
         target = _normalize_document(target_raw)
         target_ndi = _ndi_id(target)

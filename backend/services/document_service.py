@@ -1,12 +1,22 @@
 """Document list + detail via cloud."""
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from ..clients.ndi_cloud import NdiCloudClient
+from ..errors import NotFound
+from ..observability.logging import get_logger
+
+log = get_logger(__name__)
 
 # Keys that live OUTSIDE `data` on either detail or bulk-fetch responses.
 _DOC_METADATA_KEYS = {"id", "_id", "ndiId", "name", "className", "datasetId"}
+
+# MongoDB ObjectId — 24 hex chars. NDI ndiIds use an underscore-separated
+# hex format (e.g., `41269345148e40b8_40ddef57dbdd8c93`) which fails this
+# check, triggering ndiquery fallback in `detail()`.
+_MONGO_OBJECT_ID = re.compile(r"^[0-9a-fA-F]{24}$")
 
 
 class DocumentService:
@@ -16,10 +26,66 @@ class DocumentService:
     async def detail(
         self, dataset_id: str, document_id: str, *, access_token: str | None,
     ) -> dict[str, Any]:
+        """Fetch a single document's full body.
+
+        Accepts EITHER a 24-char Mongo `_id` OR an NDI ndiId (the
+        `base.id` field used by `depends_on` references and summary
+        table row identifiers). ndi-cloud-node's
+        `GET /datasets/:id/documents/:docId` only accepts Mongo `_id`
+        (Mongoose `findById` throws CastError on ndiIds), so when the
+        caller passes an ndiId we do an `ndiquery exact_string
+        base.id=<ndiId>` first to resolve it, then fetch by `_id`.
+
+        This is the same resolution DependencyGraphService uses; it
+        keeps the frontend's table-row → document-detail links working
+        regardless of whether the row exposed a Mongo id or an ndiId.
+        """
+        resolved_id = document_id
+        if not _MONGO_OBJECT_ID.match(document_id):
+            resolved_id = await self._resolve_ndi_id(
+                dataset_id, document_id, access_token=access_token,
+            )
         raw = await self.cloud.get_document(
-            dataset_id, document_id, access_token=access_token,
+            dataset_id, resolved_id, access_token=access_token,
         )
         return _normalize_document(raw)
+
+    async def _resolve_ndi_id(
+        self,
+        dataset_id: str,
+        ndi_id: str,
+        *,
+        access_token: str | None,
+    ) -> str:
+        """Resolve an ndiId (`base.id`) to its Mongo `_id` via ndiquery.
+
+        Raises :class:`NotFound` if no document in `dataset_id` matches
+        the ndiId, so the route returns a clean 404 instead of a
+        `CLOUD_INTERNAL_ERROR` from Mongoose's CastError.
+        """
+        try:
+            body = await self.cloud.ndiquery(
+                searchstructure=[
+                    {"operation": "exact_string", "field": "base.id", "param1": ndi_id},
+                ],
+                scope=dataset_id,
+                access_token=access_token,
+                page_size=5,
+                fetch_all=False,
+            )
+        except Exception as e:
+            # Re-raise so the caller's circuit breaker / error handling
+            # sees the real upstream failure. Only map the empty-match
+            # case to NotFound below.
+            log.warning("document_service.ndi_id_resolve_failed", ndi=ndi_id, error=str(e))
+            raise
+        docs = body.get("documents") or []
+        if not docs:
+            raise NotFound(f"No document with ndiId {ndi_id} in this dataset.")
+        resolved = docs[0].get("id") or docs[0].get("_id")
+        if not resolved:
+            raise NotFound(f"Document {ndi_id} found but has no Mongo _id.")
+        return str(resolved)
 
     async def list_by_class(
         self,

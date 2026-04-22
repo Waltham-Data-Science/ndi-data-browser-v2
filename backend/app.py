@@ -135,10 +135,52 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
         redis=redis, ttl_seconds=FACETS_CACHE_TTL_SECONDS,
     )
 
+    # Upstream keep-warm — pokes ndi-cloud-node on AWS Lambda every 4
+    # minutes so the Node/Mongoose container stays hot. Without this a
+    # user's first page visit eats the full cold-start (~6–10s) → the
+    # SPA shows empty skeletons for that long and users think nothing
+    # loaded. A lightweight `GET /datasets/published?pageSize=1` keeps
+    # the Lambda execution environment resident. Fire-and-forget; we
+    # swallow all errors because the pinger is a performance nicety,
+    # not a correctness requirement.
+    async def _keep_warm() -> None:
+        # AWS Lambda keeps execution environments warm for ~5–15 min of
+        # idleness. 4 min stays well inside that window without wasting
+        # Lambda invocations during active periods (when traffic keeps
+        # it warm for free).
+        interval_seconds = 240
+        while True:
+            try:
+                await cloud_client._request(
+                    "GET",
+                    "/datasets/published",
+                    endpoint_label="keepwarm",
+                    params={"page": 1, "pageSize": 1},
+                )
+            except Exception as e:
+                # Circuit breaker or network hiccup — log and keep going.
+                log.debug("keepwarm.skip", error=str(e))
+            await _asyncio.sleep(interval_seconds)
+
+    if settings.ENVIRONMENT == "production":
+        # Only worth the tiny ongoing cost in prod — dev/test don't
+        # suffer the Lambda cold-start problem.
+        app.state.keepwarm_task = _asyncio.create_task(_keep_warm())
+        log.info("keepwarm.started", interval_seconds=240)
+
     log.info("app.startup", environment=settings.ENVIRONMENT)
     try:
         yield
     finally:
+        # Cancel keep-warm loop before tearing down the cloud client so
+        # we don't race a request-in-flight against `cloud_client.close`.
+        task = getattr(app.state, "keepwarm_task", None)
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except (Exception, _asyncio.CancelledError):
+                pass
         await cloud_client.close()
         await ontology_service.close()
         try:
