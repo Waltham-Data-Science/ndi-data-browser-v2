@@ -1,0 +1,85 @@
+/**
+ * NDI Cloud — Tailwind v4 theme layer
+ * Consumed by ndi-data-browser-v2's src/index.css.
+ * Maps the shared tokens (tokens.css) into Tailwind's `@theme` so utilities like
+ *   bg-brand-navy, text-ndi-teal, font-display, rounded-lg, shadow-cta
+ * resolve to the correct token values.
+ *
+ * Usage (in ndi-data-browser-v2/frontend/src/index.css):
+ *   @import "@ndi/design-tokens/css";
+ *   @import "@ndi/design-tokens/tailwind";
+ *
+ * New colors / sizes added to tokens.css must also be added here if Tailwind
+ * utilities should reference them. Otherwise use arbitrary values: `bg-[var(--my-token)]`.
+ */
+
+@theme inline {
+  /* ── Colors (Tailwind sees --color-* as semantic color utilities) ──── */
+  --color-brand-navy:        var(--brand-navy);
+  --color-brand-blue:        var(--brand-blue);
+  --color-brand-blue-2:      var(--brand-blue-2);
+  --color-brand-blue-3:      var(--brand-blue-3);
+  --color-brand-cream:       var(--brand-cream);
+
+  --color-ndi-primary-blue:  var(--ndi-primary-blue);
+  --color-ndi-primary-dark:  var(--ndi-primary-dark);
+  --color-ndi-teal:          var(--ndi-teal);
+  --color-ndi-teal-light:    var(--ndi-teal-light);
+  --color-ndi-teal-border:   var(--ndi-teal-border);
+
+  --color-gray-50:   var(--gray-50);
+  --color-gray-100:  var(--gray-100);
+  --color-gray-200:  var(--gray-200);
+  --color-gray-300:  var(--gray-300);
+  --color-gray-500:  var(--gray-500);
+  --color-gray-700:  var(--gray-700);
+  --color-gray-900:  var(--gray-900);
+
+  --color-bg-canvas:    var(--bg-canvas);
+  --color-bg-surface:   var(--bg-surface);
+  --color-bg-muted:     var(--bg-muted);
+  --color-bg-inverse:   var(--bg-inverse);
+  --color-bg-depth:     var(--bg-depth);
+
+  --color-fg-primary:   var(--fg-primary);
+  --color-fg-secondary: var(--fg-secondary);
+  --color-fg-muted:     var(--fg-muted);
+  --color-fg-inverse:   var(--fg-inverse);
+  --color-fg-link:      var(--fg-link);
+  --color-fg-accent:    var(--fg-accent);
+
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+  --color-border-focus:  var(--border-focus);
+
+  /* ── Font families ─────────────────────────────────────────────────── */
+  --font-display: var(--font-display);
+  --font-sans:    var(--font-sans);
+  --font-mono:    var(--font-mono);
+
+  /* ── Radii ─────────────────────────────────────────────────────────── */
+  --radius-xs:   var(--radius-xs);
+  --radius-sm:   var(--radius-sm);
+  --radius-md:   var(--radius-md);
+  --radius-lg:   var(--radius-lg);
+  --radius-xl:   var(--radius-xl);
+  --radius-pill: var(--radius-pill);
+
+  /* ── Shadows (Tailwind --shadow-* → shadow-* utilities) ────────────── */
+  --shadow-xs:  var(--shadow-xs);
+  --shadow-sm:  var(--shadow-sm);
+  --shadow-md:  var(--shadow-md);
+  --shadow-lg:  var(--shadow-lg);
+  --shadow-xl:  var(--shadow-xl);
+  --shadow-cta: var(--shadow-cta);
+  --shadow-nav: var(--shadow-nav);
+
+  /* ── Breakpoints ───────────────────────────────────────────────────── */
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+
+  /* ── Motion (ease + duration) ──────────────────────────────────────── */
+  --ease-out: var(--ease-out);
+}

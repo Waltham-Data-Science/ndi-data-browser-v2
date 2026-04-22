@@ -45,10 +45,18 @@ export function DatasetCard({ dataset }: DatasetCardProps) {
   return (
     <Link
       to={`/datasets/${dataset.id}`}
-      className="block group focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded-lg"
+      className="block group focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue-3 rounded-lg"
       aria-label={`Open dataset ${dataset.name}`}
     >
-      <Card className="h-full transition-shadow group-hover:shadow-md group-hover:ring-brand-400">
+      {/*
+        Hover treatment from the search.html mockup: border shifts from
+        subtle → strong, a shadow-md lifts the card, and it translates up
+        1px. Transition uses var(--ease-out) for the shared feel.
+      */}
+      <Card
+        className="h-full transition-all group-hover:-translate-y-[1px] group-hover:shadow-md group-hover:ring-border-strong"
+        style={{ transitionDuration: 'var(--dur-base)', transitionTimingFunction: 'var(--ease-out)' }}
+      >
         <CardHeader className="pb-2">
           {/* line-clamp-4 not -2 — scientific dataset titles are long
               (post-Steve feedback 2026-04-18, "We scientists tend to use

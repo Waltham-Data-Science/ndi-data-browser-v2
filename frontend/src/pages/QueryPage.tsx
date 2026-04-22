@@ -11,16 +11,30 @@ import { formatNumber } from '@/lib/format';
 import type { OntologyTerm } from '@/types/facets';
 
 /**
- * Cross-cloud query page.
+ * Cross-cloud query page — `/query`.
  *
- * Plan B B3 surface:
- * - FacetPanel (left sidebar) — cross-dataset distinct-values chips from
- *   ``GET /api/facets``. Clicking a chip appends a filter to the builder.
- * - QueryBuilder (center) — ported v1 builder with MATLAB ``contains``
- *   default string match (amendment §4.B3). Also hydrates from URL for
- *   ontology "Find everywhere" cross-links.
- * - OutputShapePreview (right sidebar) — static NDI-matlab tutorial
- *   column sets for the subject/probe/epoch grains.
+ * Layout:
+ *   1. Depth-gradient hero band (eyebrow + H1 + educational sub-copy).
+ *      Full-bleed, matches the design bar shared by DatasetsPage,
+ *      MyDatasetsPage, and DatasetDetailPage. Pattern overlay uses the
+ *      NDI brandmark at 5% opacity.
+ *   2. Body grid (max-w 1200px): FacetPanel (left sidebar) + QueryBuilder
+ *      (center) + OutputShapePreview (right sidebar), with the ResultsCard
+ *      rendered directly below the builder when results are present.
+ *
+ * Plan B B3 surface (preserved end-to-end from the prior revision):
+ *   - FacetPanel — cross-dataset distinct-values chips from
+ *     ``GET /api/facets``. Clicking a chip appends a filter to the builder.
+ *   - QueryBuilder — ported v1 builder with MATLAB ``contains`` default
+ *     string match (amendment §4.B3); also hydrates from URL for ontology
+ *     "Find everywhere" cross-links.
+ *   - OutputShapePreview — static NDI-matlab tutorial column sets for the
+ *     subject/probe/epoch grains.
+ *
+ * All functionality preserved: `useFacets`/`useRunQuery`/`useQueryOperations`
+ * hooks, feature-flag gate + 503 probe (upstream of this component),
+ * `seedKey` force-remount pattern so successive facet clicks always reach
+ * the builder's initialization useEffect. This file is visual-layer-only.
  */
 export function QueryPage() {
   const [results, setResults] = useState<QueryResponse | null>(null);
@@ -69,47 +83,77 @@ export function QueryPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <header>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-          Query builder
-        </h1>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          Build an NDI query. Every field search auto-narrows to the class, so
-          searches stay fast even across public datasets. Filters default to{' '}
-          <code className="font-mono text-xs">contains</code> (case-insensitive) —
-          matches the NDI-matlab tutorial convention.
-        </p>
-      </header>
+    <>
+      {/* ── Hero band (full bleed) ──────────────────────────────────── */}
+      <section
+        className="relative overflow-hidden text-white"
+        style={{ background: 'var(--grad-depth)' }}
+        aria-labelledby="query-hero"
+      >
+        {/* Pattern overlay — NDI brandmark at 5% opacity */}
+        <div
+          aria-hidden
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            backgroundImage: "url('/brand/ndicloud-emblem.svg')",
+            backgroundSize: '120px',
+            backgroundRepeat: 'repeat',
+            opacity: 0.05,
+          }}
+        />
 
-      <div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)_20rem]">
-        <aside className="space-y-4">
-          <FacetPanel
-            onSelectOntologyFacet={handleSelectOntologyFacet}
-            onSelectProbeType={handleSelectProbeType}
-          />
-        </aside>
+        <div className="relative mx-auto max-w-[1200px] px-7 py-12 md:py-14">
+          <div className="eyebrow mb-4">
+            <span className="eyebrow-dot" aria-hidden />
+            NDI QUERY · BETA
+          </div>
+          <h1
+            id="query-hero"
+            className="text-white font-display font-extrabold tracking-tight leading-tight text-[2rem] md:text-[2.25rem] mb-2"
+          >
+            Query across every dataset.
+          </h1>
+          <p className="text-white/70 text-[14.5px] leading-relaxed max-w-[620px]">
+            Filter by species, brain region, probe, subject, session, epoch.
+            Every field search auto-narrows to the class, so queries stay fast
+            even across public datasets. Filters default to{' '}
+            <code className="font-mono text-[13px] text-white/85">contains</code>{' '}
+            (case-insensitive) — matches the NDI-matlab tutorial convention.
+          </p>
+        </div>
+      </section>
 
-        <section className="space-y-4">
-          {/*
-            Use `key` to force a re-mount on each facet click so the builder's
-            initialization useEffect picks up the fresh seed. Without this a
-            second click on a different chip would not reach the state.
-          */}
-          <QueryBuilder
-            key={seed?.key ?? 'initial'}
-            onResults={setResults}
-            onClear={() => setResults(null)}
-            seedConditions={seed?.conditions}
-          />
-          {results && <ResultsCard results={results} />}
-        </section>
+      {/* ── Body ─────────────────────────────────────────────────────── */}
+      <section className="mx-auto max-w-[1200px] px-7 py-7">
+        <div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)_20rem]">
+          <aside className="space-y-4 min-w-0">
+            <FacetPanel
+              onSelectOntologyFacet={handleSelectOntologyFacet}
+              onSelectProbeType={handleSelectProbeType}
+            />
+          </aside>
 
-        <aside className="space-y-4">
-          <OutputShapePreview />
-        </aside>
-      </div>
-    </div>
+          <section className="space-y-4 min-w-0">
+            {/*
+              Use `key` to force a re-mount on each facet click so the builder's
+              initialization useEffect picks up the fresh seed. Without this a
+              second click on a different chip would not reach the state.
+            */}
+            <QueryBuilder
+              key={seed?.key ?? 'initial'}
+              onResults={setResults}
+              onClear={() => setResults(null)}
+              seedConditions={seed?.conditions}
+            />
+            {results && <ResultsCard results={results} />}
+          </section>
+
+          <aside className="space-y-4 min-w-0">
+            <OutputShapePreview />
+          </aside>
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -125,24 +169,24 @@ function ResultsCard({ results }: { results: QueryResponse }) {
       </CardHeader>
       <CardBody>
         {docs.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-fg-muted">
             No matching documents.
           </p>
         ) : (
-          <div className="overflow-x-auto rounded border border-gray-200 dark:border-gray-700">
+          <div className="overflow-x-auto rounded border border-border-subtle">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 dark:bg-gray-900">
+              <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-300">
+                  <th className="px-3 py-2 text-left font-medium text-fg-muted">
                     Name
                   </th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-300">
+                  <th className="px-3 py-2 text-left font-medium text-fg-muted">
                     Class
                   </th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-300">
+                  <th className="px-3 py-2 text-left font-medium text-fg-muted">
                     Dataset
                   </th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-300">
+                  <th className="px-3 py-2 text-left font-medium text-fg-muted">
                     ndiId
                   </th>
                 </tr>
@@ -154,13 +198,13 @@ function ResultsCard({ results }: { results: QueryResponse }) {
                   return (
                     <tr
                       key={id}
-                      className="border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/40"
+                      className="border-t border-border-subtle hover:bg-gray-50"
                     >
                       <td className="px-3 py-1.5">
                         {dsId && d.id ? (
                           <Link
                             to={`/datasets/${dsId}/documents/${d.id}`}
-                            className="text-brand-600 dark:text-brand-400 hover:underline"
+                            className="text-brand-600 hover:underline"
                           >
                             {String(d.name ?? d.id)}
                           </Link>
@@ -171,7 +215,7 @@ function ResultsCard({ results }: { results: QueryResponse }) {
                       <td className="px-3 py-1.5 font-mono text-xs">
                         {String(d.className ?? '—')}
                       </td>
-                      <td className="px-3 py-1.5 font-mono text-xs text-gray-500 dark:text-gray-400">
+                      <td className="px-3 py-1.5 font-mono text-xs text-fg-muted">
                         {dsId ? (
                           <Link to={`/datasets/${dsId}`} className="hover:underline">
                             {dsId.slice(0, 8)}…
@@ -180,7 +224,7 @@ function ResultsCard({ results }: { results: QueryResponse }) {
                           '—'
                         )}
                       </td>
-                      <td className="px-3 py-1.5 font-mono text-xs text-gray-500 dark:text-gray-400 truncate max-w-[220px] md:max-w-[340px] lg:max-w-[480px]">
+                      <td className="px-3 py-1.5 font-mono text-xs text-fg-muted truncate max-w-[220px] md:max-w-[340px] lg:max-w-[480px]">
                         {String(d.ndiId ?? '')}
                       </td>
                     </tr>
@@ -189,7 +233,7 @@ function ResultsCard({ results }: { results: QueryResponse }) {
               </tbody>
             </table>
             {docs.length > 200 && (
-              <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
+              <p className="px-3 py-2 text-xs text-fg-muted">
                 Showing first 200 of {formatNumber(docs.length)} returned documents.
               </p>
             )}

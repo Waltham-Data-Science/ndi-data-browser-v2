@@ -1,0 +1,132 @@
+/**
+ * NDI Cloud — Design Tokens (CSS)
+ * Source of truth for brand palette, type scale, spacing, radii, shadows, motion.
+ * Consumed by:
+ *   - ndi-web-app-wds (imported from globals.scss `@import "@ndi/design-tokens/css"`)
+ *   - ndi-data-browser-v2 (imported from src/index.css + mapped via Tailwind @theme)
+ *
+ * Do NOT hardcode these values in component CSS. Always use var(--token-name).
+ * When adding a new token, update both this file AND src/tokens.ts so the JS mirror stays in sync.
+ */
+
+:root {
+  /* ── Brand palette (brandbook Softriver v1.0) ──────────────────────── */
+  --brand-navy:          #002054;  /* primary — deep navy, logo, H1       */
+  --brand-blue:          #17A7FF;  /* primary — electric brand blue       */
+  --brand-blue-2:        #2EB0FF;  /* secondary — saturated blue          */
+  --brand-blue-3:        #5DC1FF;  /* secondary — softer blue             */
+  --brand-cream:         #FDF7FA;  /* secondary — warm off-white bg       */
+
+  /* ── App-derived extensions ────────────────────────────────────────── */
+  --ndi-primary-blue:    #002054;  /* alias of brand-navy                 */
+  --ndi-primary-dark:    #001a44;  /* depth-gradient stop                 */
+  --ndi-teal:            #0F6E56;  /* product action / CTA                */
+  --ndi-teal-light:      #E8F5F0;  /* teal tint — pills, chips            */
+  --ndi-teal-border:     #C4E6D9;  /* teal tint — borders                 */
+
+  /* ── Neutral ramp ──────────────────────────────────────────────────── */
+  --white:               #FFFFFF;
+  --gray-50:             #F9FAFB;
+  --gray-100:            #F3F4F6;
+  --gray-200:            #E5E7EB;
+  --gray-300:            #D1D5DB;
+  --gray-500:            #6B7280;
+  --gray-700:            #374151;
+  --gray-900:            #111827;
+  --black:               #000000;
+
+  /* ── Semantic surface / text ───────────────────────────────────────── */
+  --bg-canvas:           var(--brand-cream);
+  --bg-surface:          var(--white);
+  --bg-muted:            var(--gray-50);
+  --bg-inverse:          var(--brand-navy);
+  --bg-depth:            #0d1117;
+
+  --fg-primary:          var(--brand-navy);
+  --fg-secondary:        var(--gray-700);
+  --fg-muted:            var(--gray-500);
+  --fg-inverse:          var(--white);
+  --fg-link:             var(--ndi-teal);
+  --fg-accent:           var(--brand-blue);
+
+  --border-subtle:       var(--gray-200);
+  --border-strong:       var(--gray-300);
+  --border-focus:        var(--ndi-teal);
+
+  /* ── Signature depth gradient (hero + search header) ───────────────── */
+  --grad-depth: linear-gradient(135deg,
+                  #000000 0%,
+                  var(--ndi-primary-dark) 50%,
+                  var(--brand-navy) 100%);
+
+  /* ── Radii ─────────────────────────────────────────────────────────── */
+  --radius-xs:           4px;
+  --radius-sm:           6px;
+  --radius-md:           8px;
+  --radius-lg:           12px;
+  --radius-xl:           16px;
+  --radius-pill:         100px;
+
+  /* ── Shadows ───────────────────────────────────────────────────────── */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 12px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.10);
+  --shadow-xl: 0 12px 40px rgba(0, 32, 84, 0.30);  /* brand-navy tinted    */
+  --shadow-cta: 0 4px 16px rgba(15, 110, 86, 0.25); /* teal CTA glow       */
+  --shadow-nav: 0 1px 12px rgba(0, 0, 0, 0.40);     /* app header          */
+
+  /* ── Spacing scale (4px base, rem) ─────────────────────────────────── */
+  --sp-1:  0.25rem;  /*  4 */
+  --sp-2:  0.5rem;   /*  8 */
+  --sp-3:  0.75rem;  /* 12 */
+  --sp-4:  1rem;     /* 16 */
+  --sp-5:  1.25rem;  /* 20 */
+  --sp-6:  1.5rem;   /* 24 */
+  --sp-8:  2rem;     /* 32 */
+  --sp-10: 2.5rem;   /* 40 */
+  --sp-12: 3rem;     /* 48 */
+  --sp-16: 4rem;     /* 64 */
+  --sp-20: 5rem;     /* 80 */
+
+  /* ── Breakpoints ───────────────────────────────────────────────────── */
+  --bp-sm: 640px;
+  --bp-md: 768px;
+  --bp-lg: 1024px;
+  --bp-xl: 1280px;
+
+  /* ── Typography families ───────────────────────────────────────────── */
+  --font-display: 'Geist', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-sans:    'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                  Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  --font-mono:    'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-family:  var(--font-sans);
+
+  /* ── Type scale ────────────────────────────────────────────────────── */
+  --type-display-xl: 700 4rem/1.1    var(--font-display);
+  --type-display-lg: 700 3rem/1.15   var(--font-display);
+  --type-display-md: 700 2.25rem/1.2 var(--font-display);
+
+  --type-h1:       700 2rem/1.25    var(--font-sans);
+  --type-h2:       700 1.5rem/1.3   var(--font-sans);
+  --type-h3:       700 1.25rem/1.35 var(--font-sans);
+  --type-h4:       600 1.1rem/1.4   var(--font-sans);
+  --type-body-lg:  400 1.05rem/1.6  var(--font-sans);
+  --type-body:     400 0.95rem/1.6  var(--font-sans);
+  --type-body-sm:  400 0.875rem/1.55 var(--font-sans);
+  --type-caption:  400 0.8rem/1.5   var(--font-sans);
+  --type-meta:     600 0.68rem/1.4  var(--font-sans);
+  --type-code:     400 0.875rem/1.55 var(--font-mono);
+
+  /* ── Letter-spacing ────────────────────────────────────────────────── */
+  --tracking-tight:   -0.015em;
+  --tracking-normal:  0;
+  --tracking-wide:    0.04em;
+  --tracking-eyebrow: 0.1em;
+
+  /* ── Motion ────────────────────────────────────────────────────────── */
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur-fast: 150ms;
+  --dur-base: 200ms;
+  --dur-slow: 300ms;
+}
