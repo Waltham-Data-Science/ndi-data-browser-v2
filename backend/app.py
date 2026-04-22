@@ -26,6 +26,7 @@ from .cache.redis_table import RedisTableCache
 from .clients.ndi_cloud import NdiCloudClient
 from .config import get_settings
 from .errors import BrowserError, Internal, NotFound, ValidationFailed
+from .middleware.cache_control import CacheControlMiddleware
 from .middleware.csrf import CsrfMiddleware
 from .middleware.metrics import MetricsMiddleware
 from .middleware.rate_limit import RateLimiter
@@ -221,6 +222,19 @@ def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, i
     )
 
     # --- Middleware ---
+    # Order matters — Starlette applies in reverse of add order, so
+    # the last-added middleware wraps closest to the route handler
+    # and the first-added wraps the whole stack.
+    #
+    # Outermost (first-added): MetricsMiddleware — measures
+    # end-to-end latency including every other middleware.
+    # Then:  SecurityHeaders → RequestId → CORS → CacheControl → CSRF
+    # → handler.
+    #
+    # CacheControl runs AFTER CSRF so the response body's ETag is
+    # computed over the final payload. It runs BEFORE SecurityHeaders
+    # so the 304-response path still gets security headers added on
+    # the way back out.
     app.add_middleware(MetricsMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestIdMiddleware)
@@ -230,8 +244,13 @@ def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, i
         allow_credentials=True,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["*"],
-        expose_headers=["X-Request-ID"],
+        expose_headers=["X-Request-ID", "ETag"],
     )
+    # Conditional-GET caching for GET /api/* responses. Computes an
+    # ETag over the response body, handles If-None-Match for 304s,
+    # and adds Cache-Control: private|public depending on whether a
+    # session cookie is present.
+    app.add_middleware(CacheControlMiddleware)
     # CSRF last (outermost invocation is first so we want CSRF nearest the app).
     app.add_middleware(CsrfMiddleware)
 
