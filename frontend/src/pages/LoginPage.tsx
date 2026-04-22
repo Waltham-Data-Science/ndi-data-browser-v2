@@ -65,14 +65,14 @@ export function LoginPage() {
           </div>
 
           <h2 className="font-display text-white text-[2rem] md:text-[2.5rem] font-extrabold leading-[1.08] tracking-tight mb-4 text-balance">
-            Your lab's data,{' '}
+            Your lab&apos;s data,{' '}
             <em className="not-italic text-brand-blue">
               right where you left it.
             </em>
           </h2>
 
           <p className="text-white/75 text-[1.05rem] leading-relaxed mb-8 max-w-[440px]">
-            Sign in to browse your organization's datasets, query across
+            Sign in to browse your organization&apos;s datasets, query across
             species, region, probe, and subject, and save bookmarks with
             persistent DOIs.
           </p>
@@ -111,7 +111,7 @@ export function LoginPage() {
             Log in
           </h1>
           <p className="text-fg-secondary text-[0.95rem] mb-7">
-            Sign in to your lab's workspace.
+            Sign in to your lab&apos;s workspace.
           </p>
 
           <form
