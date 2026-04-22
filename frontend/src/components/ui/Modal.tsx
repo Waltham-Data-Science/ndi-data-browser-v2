@@ -12,6 +12,9 @@
  *     state).
  *   - No portal. React 19 + our flat component tree means the Modal
  *     always mounts above the content stacking context already.
+ *
+ * Design tokens: brand-navy backdrop (matches marketing overlays),
+ * bg-bg-surface panel, border-border-subtle separator.
  */
 import { useEffect, useRef, type PropsWithChildren } from 'react';
 import { X } from 'lucide-react';
@@ -67,7 +70,7 @@ export function Modal({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-gray-900/60 p-4 sm:p-6"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-brand-navy/60 p-4 sm:p-6 backdrop-blur-sm"
       onClick={(e) => {
         // Backdrop click closes, but only when the click landed on the
         // backdrop itself (not on a bubbled event from inside the panel).
@@ -77,25 +80,24 @@ export function Modal({
     >
       <div
         className={cn(
-          'mt-10 w-full rounded-lg bg-white shadow-xl ring-1 ring-gray-200',
-          'dark:bg-gray-900 dark:ring-gray-700',
+          'mt-10 w-full rounded-lg bg-bg-surface shadow-[var(--shadow-xl)] ring-1 ring-border-subtle',
           SIZE[size],
           className,
         )}
         onClick={(e) => e.stopPropagation()}
         data-testid="modal-panel"
       >
-        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-3 dark:border-gray-700">
+        <div className="flex items-start justify-between gap-4 border-b border-border-subtle px-5 py-3">
           <div className="min-w-0 flex-1">
             <h2
-              className="text-base font-semibold leading-tight text-gray-900 dark:text-gray-100"
+              className="font-display text-base font-semibold leading-tight tracking-[-0.01em] text-fg-primary"
               data-testid="modal-title"
             >
               {title}
             </h2>
             {description && (
               <p
-                className="mt-1 text-xs text-gray-500 dark:text-gray-400"
+                className="mt-1 text-xs text-fg-muted"
                 data-testid="modal-description"
               >
                 {description}
@@ -106,10 +108,9 @@ export function Modal({
             ref={closeRef}
             type="button"
             className={cn(
-              'inline-flex shrink-0 items-center justify-center rounded-md p-1 text-gray-500 transition-colors',
-              'hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400',
-              'dark:hover:bg-gray-800 dark:hover:text-gray-200',
-              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500',
+              'inline-flex shrink-0 items-center justify-center rounded-md p-1 text-fg-muted transition-colors',
+              'hover:bg-bg-muted hover:text-fg-secondary',
+              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ndi-teal',
             )}
             onClick={onClose}
             aria-label="Close"
