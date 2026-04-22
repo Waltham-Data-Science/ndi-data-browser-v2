@@ -149,6 +149,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
         # Lambda invocations during active periods (when traffic keeps
         # it warm for free).
         interval_seconds = 240
+        consecutive_failures = 0
         while True:
             try:
                 await cloud_client._request(
@@ -157,9 +158,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
                     endpoint_label="keepwarm",
                     params={"page": 1, "pageSize": 1},
                 )
+                if consecutive_failures >= 3:
+                    # Recovery after a sustained outage is worth noting.
+                    log.warning("keepwarm.recovered", after_failures=consecutive_failures)
+                consecutive_failures = 0
+            except _asyncio.CancelledError:
+                raise
             except Exception as e:
-                # Circuit breaker or network hiccup — log and keep going.
-                log.debug("keepwarm.skip", error=str(e))
+                # Transient hiccups are expected (breaker open during
+                # upstream outage, etc.). Escalate to WARNING after 3
+                # consecutive misses so a sustained outage surfaces in
+                # logs instead of silently ticking along at DEBUG.
+                consecutive_failures += 1
+                if consecutive_failures <= 2:
+                    log.debug("keepwarm.skip", error=str(e))
+                else:
+                    log.warning(
+                        "keepwarm.sustained_failure",
+                        count=consecutive_failures,
+                        error=str(e),
+                    )
             await _asyncio.sleep(interval_seconds)
 
     if settings.ENVIRONMENT == "production":
@@ -177,9 +195,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
         task = getattr(app.state, "keepwarm_task", None)
         if task is not None:
             task.cancel()
+            # Await-after-cancel expects CancelledError; any *other*
+            # exception from the loop (e.g. a crash in `_request`) must
+            # propagate so it surfaces in logs instead of disappearing.
             try:
                 await task
-            except (Exception, _asyncio.CancelledError):
+            except _asyncio.CancelledError:
                 pass
         await cloud_client.close()
         await ontology_service.close()

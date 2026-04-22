@@ -13,16 +13,17 @@ from ..services.dependency_graph_service import (
 )
 from ..services.document_service import DocumentService
 from ._deps import dependency_graph_service, document_service, limit_reads
+from ._validators import DatasetId, DocumentId
 
 router = APIRouter(prefix="/api/datasets/{dataset_id}/documents", tags=["documents"], dependencies=[Depends(limit_reads)])
 
 
 @router.get("")
 async def list_docs(
-    dataset_id: str,
+    dataset_id: DatasetId,
     svc: Annotated[DocumentService, Depends(document_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
-    class_name: str | None = Query(default=None, alias="class"),
+    class_name: str | None = Query(default=None, alias="class", max_length=128, pattern=r"^[a-zA-Z0-9_\-]+$"),
     page: int = Query(1, ge=1),
     pageSize: int = Query(50, ge=1, le=200),
 ) -> dict[str, Any]:
@@ -37,8 +38,8 @@ async def list_docs(
 
 @router.get("/{document_id}")
 async def detail(
-    dataset_id: str,
-    document_id: str,
+    dataset_id: DatasetId,
+    document_id: DocumentId,
     svc: Annotated[DocumentService, Depends(document_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
 ) -> dict[str, Any]:
@@ -49,8 +50,8 @@ async def detail(
 
 @router.get("/{document_id}/dependencies")
 async def dependencies(
-    dataset_id: str,
-    document_id: str,
+    dataset_id: DatasetId,
+    document_id: DocumentId,
     svc: Annotated[DependencyGraphService, Depends(dependency_graph_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
     max_depth: int = Query(3, ge=1, le=MAX_DEPTH_HARD_CAP, alias="max_depth"),

@@ -10,6 +10,7 @@ from ..auth.session import SessionData
 from ..services.binary_service import BinaryService
 from ..services.document_service import DocumentService
 from ._deps import binary_service, document_service, limit_reads
+from ._validators import DatasetId, DocumentId
 
 router = APIRouter(
     prefix="/api/datasets/{dataset_id}/documents/{document_id}/data",
@@ -19,8 +20,8 @@ router = APIRouter(
 
 
 async def _document(
-    dataset_id: str,
-    document_id: str,
+    dataset_id: DatasetId,
+    document_id: DocumentId,
     svc: DocumentService,
     session: SessionData | None,
 ) -> dict[str, Any]:
@@ -31,8 +32,8 @@ async def _document(
 
 @router.get("/type")
 async def detect_type(
-    dataset_id: str,
-    document_id: str,
+    dataset_id: DatasetId,
+    document_id: DocumentId,
     docs: Annotated[DocumentService, Depends(document_service)],
     bs: Annotated[BinaryService, Depends(binary_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
@@ -43,8 +44,8 @@ async def detect_type(
 
 @router.get("/timeseries")
 async def timeseries(
-    dataset_id: str,
-    document_id: str,
+    dataset_id: DatasetId,
+    document_id: DocumentId,
     docs: Annotated[DocumentService, Depends(document_service)],
     bs: Annotated[BinaryService, Depends(binary_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
@@ -55,8 +56,8 @@ async def timeseries(
 
 @router.get("/image")
 async def image(
-    dataset_id: str,
-    document_id: str,
+    dataset_id: DatasetId,
+    document_id: DocumentId,
     docs: Annotated[DocumentService, Depends(document_service)],
     bs: Annotated[BinaryService, Depends(binary_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
@@ -67,8 +68,8 @@ async def image(
 
 @router.get("/video")
 async def video(
-    dataset_id: str,
-    document_id: str,
+    dataset_id: DatasetId,
+    document_id: DocumentId,
     docs: Annotated[DocumentService, Depends(document_service)],
     bs: Annotated[BinaryService, Depends(binary_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
@@ -79,8 +80,8 @@ async def video(
 
 @router.get("/fitcurve")
 async def fitcurve(
-    dataset_id: str,
-    document_id: str,
+    dataset_id: DatasetId,
+    document_id: DocumentId,
     docs: Annotated[DocumentService, Depends(document_service)],
     bs: Annotated[BinaryService, Depends(binary_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],

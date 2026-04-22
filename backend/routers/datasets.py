@@ -25,6 +25,7 @@ from ._deps import (
     limit_reads,
     pivot_service,
 )
+from ._validators import DatasetId
 
 router = APIRouter(prefix="/api/datasets", tags=["datasets"], dependencies=[Depends(limit_reads)])
 
@@ -87,7 +88,7 @@ async def my(
 
 @router.get("/{dataset_id}")
 async def detail(
-    dataset_id: str,
+    dataset_id: DatasetId,
     svc: Annotated[DatasetService, Depends(dataset_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
 ) -> dict[str, Any]:
@@ -96,7 +97,7 @@ async def detail(
 
 @router.get("/{dataset_id}/class-counts")
 async def class_counts(
-    dataset_id: str,
+    dataset_id: DatasetId,
     svc: Annotated[DatasetService, Depends(dataset_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
 ) -> dict[str, Any]:
@@ -105,7 +106,7 @@ async def class_counts(
 
 @router.get("/{dataset_id}/doc-types")
 async def doc_types(
-    dataset_id: str,
+    dataset_id: DatasetId,
     svc: Annotated[DatasetService, Depends(dataset_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
 ) -> dict[str, Any]:
@@ -117,7 +118,7 @@ async def doc_types(
 
 @router.get("/{dataset_id}/summary", response_model=DatasetSummary)
 async def summary(
-    dataset_id: str,
+    dataset_id: DatasetId,
     svc: Annotated[DatasetSummaryService, Depends(dataset_summary_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
 ) -> DatasetSummary:
@@ -131,7 +132,7 @@ async def summary(
 
 @router.get("/{dataset_id}/provenance", response_model=DatasetProvenance)
 async def provenance(
-    dataset_id: str,
+    dataset_id: DatasetId,
     svc: Annotated[
         DatasetProvenanceService, Depends(dataset_provenance_service),
     ],
@@ -155,7 +156,7 @@ async def provenance(
 
 @router.get("/{dataset_id}/pivot/{grain}")
 async def pivot(
-    dataset_id: str,
+    dataset_id: DatasetId,
     grain: str,
     svc: Annotated[PivotService, Depends(pivot_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],

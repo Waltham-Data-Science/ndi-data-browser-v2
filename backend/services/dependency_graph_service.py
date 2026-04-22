@@ -162,6 +162,13 @@ class DependencyGraphService:
                             bodies.extend(chunk)
                         except Exception as e:
                             log.warning("dep_graph.upstream_bulk_fetch_failed", error=str(e))
+                            # The bodies we fail to fetch can't be
+                            # walked for further upstream edges, so the
+                            # returned graph is strictly incomplete.
+                            # Signal that to the caller so the frontend
+                            # can render the "truncated" banner instead
+                            # of silently misrepresenting the graph.
+                            truncated = True
                 by_ndi_body = {_ndi_id(b): b for b in bodies if _ndi_id(b)}
 
                 current_ndi = _ndi_id(doc) or target_ndi

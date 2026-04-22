@@ -82,7 +82,22 @@ class DocumentService:
         docs = body.get("documents") or []
         if not docs:
             raise NotFound(f"No document with ndiId {ndi_id} in this dataset.")
-        resolved = docs[0].get("id") or docs[0].get("_id")
+        # Defensive: don't trust the first hit blindly. The cloud's
+        # `exact_string` on `base.id` should return at most one match
+        # per dataset, but a cloud-side indexer bug or a substring
+        # aliasing issue could return a wrong-but-similar doc. Prefer
+        # the match whose top-level `ndiId` or nested `data.base.id`
+        # equals our input; fall back to the first hit only if no
+        # doc's metadata makes the ndiId explicit.
+        match = next(
+            (
+                d for d in docs
+                if d.get("ndiId") == ndi_id
+                or (d.get("data") or {}).get("base", {}).get("id") == ndi_id
+            ),
+            docs[0],
+        )
+        resolved = match.get("id") or match.get("_id")
         if not resolved:
             raise NotFound(f"Document {ndi_id} found but has no Mongo _id.")
         return str(resolved)
