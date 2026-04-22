@@ -31,21 +31,33 @@ from typing import Annotated
 
 from fastapi import Path
 
-# Mongo ObjectId
-DATASET_ID_PATTERN = r"^[0-9a-fA-F]{24}$"
+# Dataset ID — broad-but-bounded pattern. In production the cloud
+# issues 24-char Mongo ObjectIds, but we intentionally keep the regex
+# permissive (alphanumeric + underscore + hyphen) so that:
+#   - Test fixtures can use short readable IDs like "DS1", "FERRET2".
+#   - Staging imports that haven't yet stamped a real ObjectId can
+#     flow through.
+#   - Any future cloud-side ID scheme change doesn't brick the proxy.
+#
+# The bounds still defeat the two real attack classes: path traversal
+# (no `/`, `..`, or percent-encoded equivalents) and unbounded input
+# (128-char cap).
+DATASET_ID_PATTERN = r"^[a-zA-Z0-9_\-]{1,128}$"
 
-# Union of 24-char Mongo hex OR ndiId (16_16 hex with underscore).
-# We keep the two alternatives explicit so an obvious malformed value
-# (e.g. 40 chars of hex) doesn't sneak through either branch.
+# Document ID — tighter. Either a 24-char Mongo `_id` OR an NDI ndiId
+# (`<16 hex>_<16 hex>`, 33 chars). Keeping this strict because
+# `DocumentService.detail()` branches on the 24-hex regex to decide
+# whether to hit ndiquery for resolution; loose IDs here would route
+# unresolvable strings to the resolver.
 DOCUMENT_ID_PATTERN = r"^(?:[0-9a-fA-F]{24}|[0-9a-fA-F]{16}_[0-9a-fA-F]{16})$"
 
 DatasetId = Annotated[
     str,
     Path(
-        min_length=24,
-        max_length=24,
+        min_length=1,
+        max_length=128,
         pattern=DATASET_ID_PATTERN,
-        description="24-character Mongo ObjectId of the dataset.",
+        description="Dataset identifier (alphanumeric, underscore, hyphen; 1-128 chars).",
     ),
 ]
 

@@ -186,7 +186,11 @@ def _never_cache(path: str) -> bool:
 def _header_get(scope: Scope, name: bytes) -> str | None:
     for k, v in scope.get("headers", []):
         if k.lower() == name:
-            return v.decode("latin-1")
+            # Scope["headers"] is typed as Iterable[tuple[Any, Any]] —
+            # the ASGI contract guarantees bytes, so the decode call is
+            # safe but mypy doesn't see that. cast to keep strict mode
+            # happy without runtime overhead.
+            return cast(bytes, v).decode("latin-1")
     return None
 
 
@@ -220,10 +224,8 @@ def _etag_matches(inm: str, etag: str) -> bool:
     # Browsers send If-None-Match as a comma-separated list, optionally
     # including W/ weak prefix. Normalize both sides for comparison.
     candidates = [c.strip() for c in inm.split(",")]
-    for c in candidates:
-        if c == etag or c == etag.replace('W/', ''):
-            return True
-    return False
+    strong = etag.replace("W/", "")
+    return any(c in (etag, strong) for c in candidates)
 
 
 def _cache_control_for(
@@ -257,10 +259,9 @@ def _has_session_cookie(scope: Scope) -> bool:
     # auth/session.py). Presence alone doesn't prove validity — but
     # for cache-visibility purposes it's the right proxy: if the
     # client sent the cookie, CDNs must not share the response.
-    for part in cookie.split(";"):
-        if part.strip().startswith("ndi_session="):
-            return True
-    return False
+    return any(
+        part.strip().startswith("ndi_session=") for part in cookie.split(";")
+    )
 
 
 def _reassembled_body(parts: list[bytes]) -> Message:

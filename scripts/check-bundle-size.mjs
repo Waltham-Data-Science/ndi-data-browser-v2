@@ -27,7 +27,11 @@ const args = Object.fromEntries(
 );
 
 const DIST = args.dist ?? 'frontend/dist';
-const BUDGET_BYTES = Number(args.budget ?? 200 * 1024);
+// 210 KB gz. Raised from 200 KB on 2026-04-22 to accommodate
+// @tanstack/react-query-persist-client + the sync-storage persister
+// (+~3 KB gz). The persistence layer lets the SPA skip a network
+// round-trip on every return visit, worth the small budget bump.
+const BUDGET_BYTES = Number(args.budget ?? 210 * 1024);
 
 /**
  * Lazy-loaded chunks. Each entry is a filename prefix Vite uses when

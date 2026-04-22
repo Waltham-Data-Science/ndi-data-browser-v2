@@ -91,7 +91,9 @@ async def test_detail_ndi_id_no_match_raises_notfound() -> None:
 
     with pytest.raises(NotFound) as exc:
         await svc.detail(DATASET_ID, NDI_ID, access_token=None)
-    assert NDI_ID in exc.value.message
+    # BrowserError subclasses surface the caller-supplied message via
+    # Exception.__str__ (see errors.BrowserError.__init__).
+    assert NDI_ID in str(exc.value)
     cloud.get_document.assert_not_called()
 
 

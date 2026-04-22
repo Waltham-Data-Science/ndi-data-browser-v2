@@ -51,12 +51,19 @@ def configure_logging() -> None:
         structlog.stdlib.add_logger_name,
         timestamper,
         structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
     ]
 
     if settings.LOG_FORMAT == "json":
+        # JSONRenderer needs format_exc_info as a processor to serialize
+        # any captured traceback into the JSON payload.
         renderer: Any = structlog.processors.JSONRenderer()
+        shared.append(structlog.processors.format_exc_info)
     else:
+        # ConsoleRenderer formats exceptions natively using
+        # `rich`/`better-exceptions` when available, and emits a
+        # UserWarning if `format_exc_info` is also in the chain (which
+        # `pytest -W error::UserWarning` then escalates to a test
+        # failure). Leave it out for console mode.
         renderer = structlog.dev.ConsoleRenderer(colors=True)
 
     structlog.configure(

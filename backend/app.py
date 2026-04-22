@@ -138,14 +138,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
 
     # Upstream keep-warm — pokes ndi-cloud-node on AWS Lambda every 4
     # minutes so the Node/Mongoose container stays hot. Without this a
-    # user's first page visit eats the full cold-start (~6–10s) → the
+    # user's first page visit eats the full cold-start (~6-10s) → the
     # SPA shows empty skeletons for that long and users think nothing
     # loaded. A lightweight `GET /datasets/published?pageSize=1` keeps
     # the Lambda execution environment resident. Fire-and-forget; we
     # swallow all errors because the pinger is a performance nicety,
     # not a correctness requirement.
     async def _keep_warm() -> None:
-        # AWS Lambda keeps execution environments warm for ~5–15 min of
+        # AWS Lambda keeps execution environments warm for ~5-15 min of
         # idleness. 4 min stays well inside that window without wasting
         # Lambda invocations during active periods (when traffic keeps
         # it warm for free).
@@ -199,10 +199,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
             # Await-after-cancel expects CancelledError; any *other*
             # exception from the loop (e.g. a crash in `_request`) must
             # propagate so it surfaces in logs instead of disappearing.
-            try:
+            import contextlib as _contextlib
+            with _contextlib.suppress(_asyncio.CancelledError):
                 await task
-            except _asyncio.CancelledError:
-                pass
         await cloud_client.close()
         await ontology_service.close()
         try:
