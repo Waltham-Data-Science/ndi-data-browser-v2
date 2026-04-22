@@ -7,6 +7,9 @@
  * a jsdom polyfill) the button falls back to a selection-based
  * ``document.execCommand('copy')`` via a detached textarea. Same call
  * signature either way — consumers don't branch.
+ *
+ * Design tokens: border-border-strong + text-fg-secondary match the
+ * "ghost" button aesthetic in data-browser.html.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
@@ -73,10 +76,9 @@ export function CopyButton({
       aria-label={ariaLabel ?? 'Copy to clipboard'}
       aria-live="polite"
       className={cn(
-        'inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs',
-        'text-gray-700 transition-colors hover:bg-gray-50',
-        'dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700',
-        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500',
+        'inline-flex items-center gap-1 rounded-md border border-border-strong bg-bg-surface px-2 py-1 text-xs',
+        'text-fg-secondary transition-colors hover:bg-bg-muted hover:text-brand-navy',
+        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ndi-teal',
         className,
       )}
       data-testid={testId}

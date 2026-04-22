@@ -13,6 +13,10 @@ export interface ErrorStateProps {
  * - login: full-page lockout, auto-redirects
  * - contact_support: message + request ID copy + mailto
  * - none: inline message
+ *
+ * All surface colors go through design tokens (bg-bg-surface,
+ * text-fg-primary, etc.) — the product is light-mode-only by design,
+ * matching ndi-cloud.com.
  */
 export function ErrorState({ error, onRetry }: ErrorStateProps) {
   const navigate = useNavigate();
@@ -27,10 +31,10 @@ export function ErrorState({ error, onRetry }: ErrorStateProps) {
     return (
       <div
         role="alert"
-        className="mx-auto max-w-md rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-800 text-center"
+        className="mx-auto max-w-md rounded-lg bg-bg-surface p-6 shadow-sm ring-1 ring-border-subtle text-center"
       >
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Sign in required</h2>
-        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{message}</p>
+        <h2 className="text-lg font-semibold text-fg-primary">Sign in required</h2>
+        <p className="mt-2 text-sm text-fg-secondary">{message}</p>
         <Button
           className="mt-4"
           onClick={() => navigate(`/login?returnTo=${encodeURIComponent(here)}`)}
@@ -45,16 +49,16 @@ export function ErrorState({ error, onRetry }: ErrorStateProps) {
     return (
       <div
         role="alert"
-        className="rounded-lg bg-amber-50 p-4 ring-1 ring-amber-200 dark:bg-amber-950 dark:ring-amber-900"
+        className="rounded-lg bg-amber-50 p-4 ring-1 ring-amber-200"
       >
-        <p className="text-sm text-amber-800 dark:text-amber-200">{message}</p>
+        <p className="text-sm text-amber-800">{message}</p>
         {code === 'QUERY_TOO_LARGE' && <QueryTooLargeHint />}
         {onRetry && (
           <Button className="mt-3" size="sm" variant="secondary" onClick={onRetry}>
             Try again
           </Button>
         )}
-        <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">code {code}</p>
+        <p className="mt-2 text-[11px] text-amber-700">code {code}</p>
       </div>
     );
   }
@@ -63,15 +67,15 @@ export function ErrorState({ error, onRetry }: ErrorStateProps) {
     return (
       <div
         role="alert"
-        className="rounded-lg bg-red-50 p-4 ring-1 ring-red-200 dark:bg-red-950 dark:ring-red-900"
+        className="rounded-lg bg-red-50 p-4 ring-1 ring-red-200"
       >
-        <p className="text-sm font-medium text-red-900 dark:text-red-100">{message}</p>
+        <p className="text-sm font-medium text-red-900">{message}</p>
         {requestId && (
-          <p className="mt-2 text-xs text-red-700 dark:text-red-300">
+          <p className="mt-2 text-xs text-red-700">
             Request ID: <code className="font-mono">{requestId}</code>
           </p>
         )}
-        <p className="mt-2 text-xs text-red-700 dark:text-red-300">
+        <p className="mt-2 text-xs text-red-700">
           Please{' '}
           <a
             href={`mailto:support@ndi-cloud.com?subject=Browser%20error%20${encodeURIComponent(code)}&body=Request%20ID:%20${encodeURIComponent(requestId ?? 'none')}`}
@@ -89,7 +93,7 @@ export function ErrorState({ error, onRetry }: ErrorStateProps) {
   return (
     <div
       role="alert"
-      className="rounded-md bg-gray-50 p-3 text-sm text-gray-700 ring-1 ring-gray-200 dark:bg-gray-900 dark:text-gray-300 dark:ring-gray-800"
+      className="rounded-md bg-bg-muted p-3 text-sm text-fg-secondary ring-1 ring-border-subtle"
     >
       {message}
       {code === 'QUERY_TOO_LARGE' && <QueryTooLargeHint />}
@@ -101,8 +105,8 @@ export function ErrorState({ error, onRetry }: ErrorStateProps) {
  * documents" retry message. Plan §M6 risk mitigation #4. */
 function QueryTooLargeHint() {
   return (
-    <div className="mt-3 rounded border border-amber-300/50 bg-white/60 dark:bg-gray-900/60 p-3 text-xs text-gray-700 dark:text-gray-300 space-y-1">
-      <p className="font-semibold text-gray-900 dark:text-gray-100">
+    <div className="mt-3 rounded border border-amber-300/50 bg-white/60 p-3 text-xs text-fg-secondary space-y-1">
+      <p className="font-semibold text-fg-primary">
         Narrow the query to return fewer than 50,000 documents:
       </p>
       <ul className="list-disc pl-4 space-y-0.5">

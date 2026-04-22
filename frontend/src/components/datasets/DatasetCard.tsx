@@ -90,13 +90,13 @@ export function DatasetCard({ dataset }: DatasetCardProps) {
           </div>
 
           {contributors.length > 0 && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">
+            <p className="text-xs text-fg-muted line-clamp-1">
               {contributors.slice(0, 3).join(', ')}
               {contributors.length > 3 && ` +${contributors.length - 3}`}
             </p>
           )}
 
-          <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+          <div className="flex flex-wrap items-center gap-3 text-[11px] text-fg-muted font-mono">
             {/* Doc count: prefer the synthesizer's count (always authoritative,
                 comes from indexed class-counts) over the cloud's documentCount
                 (can drift per the IDataset schema). Fall back to raw record. */}
@@ -128,11 +128,10 @@ export function DatasetCard({ dataset }: DatasetCardProps) {
             )}
           </div>
 
-          {/* Date metadata uses gray-500 on white (ratio 4.78:1) rather
-              than gray-400 (2.63:1) to satisfy WCAG AA; darker dark-mode
-              pairing kept as gray-400 since the contrast ratio against
-              gray-900 is already fine. */}
-          <div className="flex items-center gap-2 text-[10px] text-gray-500 dark:text-gray-400">
+          {/* Date metadata uses fg-muted (gray-500 on white, contrast
+              ratio 4.78:1) to satisfy WCAG AA on our light-only design
+              surface. */}
+          <div className="flex items-center gap-2 text-[10px] text-fg-muted">
             {dataset.createdAt && <span>Created {formatDate(dataset.createdAt)}</span>}
             {dataset.updatedAt && dataset.updatedAt !== dataset.createdAt && (
               <span>Updated {formatDate(dataset.updatedAt)}</span>
@@ -184,7 +183,7 @@ function CompactSummarySection({
       )}
       {hasSubjectCount && (
         <span
-          className="inline-flex items-center gap-1 text-[11px] font-mono text-gray-600 dark:text-gray-300"
+          className="inline-flex items-center gap-1 text-[11px] font-mono text-fg-secondary"
           data-testid="dataset-card-summary-subjects"
         >
           <Users className="h-3 w-3" />
@@ -220,7 +219,7 @@ function PillRow({
       ))}
       {extra > 0 && (
         <span
-          className="text-[10px] text-gray-500 dark:text-gray-400"
+          className="text-[10px] text-fg-muted"
           data-testid={`${testId}-overflow`}
         >
           +{extra}

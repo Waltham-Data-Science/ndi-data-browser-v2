@@ -62,7 +62,7 @@ export function TableLoadingPanel({
 
 export function CardSkeleton() {
   return (
-    <div className="space-y-2 p-4 rounded-lg bg-white ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-800">
+    <div className="space-y-2 p-4 rounded-lg bg-bg-surface ring-1 ring-border-subtle">
       <Skeleton className="h-5 w-2/3" />
       <Skeleton className="h-4 w-full" />
       <Skeleton className="h-4 w-5/6" />

@@ -76,7 +76,14 @@ class CsrfMiddleware:
                 for raw_part in v.decode(errors="replace").split(";"):
                     part = raw_part.strip()
                     if part.startswith(f"{CSRF_COOKIE}="):
-                        cookie_token = part.split("=", 1)[1]
+                        # Cookie values occasionally carry surrounding
+                        # whitespace (Safari adds a space after ";") or
+                        # wrap a RFC6265 "quoted-string" in double
+                        # quotes. Either would produce a spurious
+                        # header/cookie mismatch below → bogus 403.
+                        cookie_token = (
+                            part.split("=", 1)[1].strip().strip('"')
+                        )
                         break
             elif k.decode().lower() == CSRF_HEADER:
                 header_token = v.decode()

@@ -5,15 +5,24 @@
  * in-place (no portal) which is acceptable for our use: every caller
  * mounts the Modal at the top of its own subtree under the App shell.
  *
- * Intentional non-goals for this first iteration:
- *   - No focus trap (single-screen modals; `autoFocus` on the close
- *     button is the minimum accessibility bar we commit to here).
+ * Focus behavior (updated 2026-04-22 audit):
+ *   - On open, focus moves into the dialog (close button by default).
+ *   - Tab / Shift+Tab cycle through focusable children inside the
+ *     dialog without escaping to page content behind the backdrop.
+ *   - Escape closes the dialog.
+ *   - On close, focus returns to whatever element was focused when the
+ *     modal opened — keyboard users don't lose their place.
+ *
+ * Non-goals:
  *   - No animation (Tailwind transitions noise for a test-visible open
  *     state).
  *   - No portal. React 19 + our flat component tree means the Modal
  *     always mounts above the content stacking context already.
+ *
+ * Design tokens: brand-navy backdrop (matches marketing overlays),
+ * bg-bg-surface panel, border-border-subtle separator.
  */
-import { useEffect, useRef, type PropsWithChildren } from 'react';
+import { useCallback, useEffect, useRef, type PropsWithChildren } from 'react';
 import { X } from 'lucide-react';
 
 import { cn } from '@/lib/cn';
@@ -36,6 +45,16 @@ const SIZE: Record<NonNullable<ModalProps['size']>, string> = {
   xl: 'max-w-3xl',
 };
 
+// Focusable element query — standard WAI-ARIA list.
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'textarea:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ');
+
 export function Modal({
   open,
   onClose,
@@ -45,20 +64,70 @@ export function Modal({
   className,
   children,
 }: PropsWithChildren<ModalProps>) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  // Snapshot of the element that had focus when the modal opened, so
+  // we can restore focus on close.
+  const openerRef = useRef<HTMLElement | null>(null);
+
+  const focusableWithin = useCallback((): HTMLElement[] => {
+    if (!panelRef.current) return [];
+    return Array.from(
+      panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+    ).filter((el) => !el.hasAttribute('aria-hidden'));
+  }, []);
 
   useEffect(() => {
     if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-    window.addEventListener('keydown', onKey);
-    // Auto-focus the close button so keyboard users land somewhere
-    // inside the modal on open. Close is the one control we can
-    // guarantee every Modal has.
+
+    openerRef.current =
+      (document.activeElement as HTMLElement | null) ?? null;
+
+    // Initial focus — close button is present on every Modal, so it's
+    // the safest anchor. Consumers with a better "primary action" can
+    // autoFocus it themselves within children.
     closeRef.current?.focus();
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const focusables = focusableWithin();
+      if (focusables.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const first = focusables[0]!;
+      const last = focusables[focusables.length - 1]!;
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (active === first || !panelRef.current?.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (active === last || !panelRef.current?.contains(active)) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      // Restore focus to the opener on close. Null-check because it
+      // may have been removed from the DOM while the modal was open.
+      const opener = openerRef.current;
+      if (opener && document.contains(opener)) {
+        opener.focus();
+      }
+      openerRef.current = null;
+    };
+  }, [open, onClose, focusableWithin]);
 
   if (!open) return null;
 
@@ -67,7 +136,7 @@ export function Modal({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-gray-900/60 p-4 sm:p-6"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-brand-navy/60 p-4 sm:p-6 backdrop-blur-sm"
       onClick={(e) => {
         // Backdrop click closes, but only when the click landed on the
         // backdrop itself (not on a bubbled event from inside the panel).
@@ -76,26 +145,26 @@ export function Modal({
       data-testid="modal-backdrop"
     >
       <div
+        ref={panelRef}
         className={cn(
-          'mt-10 w-full rounded-lg bg-white shadow-xl ring-1 ring-gray-200',
-          'dark:bg-gray-900 dark:ring-gray-700',
+          'mt-10 w-full rounded-lg bg-bg-surface shadow-[var(--shadow-xl)] ring-1 ring-border-subtle',
           SIZE[size],
           className,
         )}
         onClick={(e) => e.stopPropagation()}
         data-testid="modal-panel"
       >
-        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-3 dark:border-gray-700">
+        <div className="flex items-start justify-between gap-4 border-b border-border-subtle px-5 py-3">
           <div className="min-w-0 flex-1">
             <h2
-              className="text-base font-semibold leading-tight text-gray-900 dark:text-gray-100"
+              className="font-display text-base font-semibold leading-tight tracking-[-0.01em] text-fg-primary"
               data-testid="modal-title"
             >
               {title}
             </h2>
             {description && (
               <p
-                className="mt-1 text-xs text-gray-500 dark:text-gray-400"
+                className="mt-1 text-xs text-fg-muted"
                 data-testid="modal-description"
               >
                 {description}
@@ -106,10 +175,9 @@ export function Modal({
             ref={closeRef}
             type="button"
             className={cn(
-              'inline-flex shrink-0 items-center justify-center rounded-md p-1 text-gray-500 transition-colors',
-              'hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400',
-              'dark:hover:bg-gray-800 dark:hover:text-gray-200',
-              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500',
+              'inline-flex shrink-0 items-center justify-center rounded-md p-1 text-fg-muted transition-colors',
+              'hover:bg-bg-muted hover:text-fg-secondary',
+              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ndi-teal',
             )}
             onClick={onClose}
             aria-label="Close"

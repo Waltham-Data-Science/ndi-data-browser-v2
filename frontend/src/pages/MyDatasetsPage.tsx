@@ -1,16 +1,26 @@
-import { HardDrive, FileCheck, Layers, Quote } from 'lucide-react';
+import {
+  HardDrive,
+  FileCheck,
+  Layers,
+  Quote,
+  LayoutGrid,
+  List,
+  FileText,
+} from 'lucide-react';
 import { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 
 import { useMe } from '@/api/auth';
-import { useMyDatasets, type MyScope } from '@/api/datasets';
+import { useMyDatasets, type DatasetRecord, type MyScope } from '@/api/datasets';
 import { DatasetCard } from '@/components/datasets/DatasetCard';
 import { ErrorState } from '@/components/errors/ErrorState';
 import { Badge } from '@/components/ui/Badge';
 import { CardSkeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
-import { formatBytes, formatNumber } from '@/lib/format';
+import { formatBytes, formatDate, formatNumber } from '@/lib/format';
 
 type StatusFilter = 'all' | 'published' | 'draft';
+type ViewMode = 'grid' | 'table';
 
 /**
  * Private workspace — `/my`. Logged-in-user view of every dataset
@@ -42,6 +52,11 @@ export function MyDatasetsPage() {
   const q = useMyDatasets(me.isSuccess, activeScope);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  // Table vs grid — mockup's data-browser.html has a dense row layout
+  // (row icons, status tags, mono DOI, updated-at) that's much faster
+  // for power users scanning a long workspace list. Grid stays the
+  // default for visual browsability.
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
 
   // Filter counts + visible list — computed from the loaded datasets.
   const { visible, counts, totalSize } = useMemo(() => {
@@ -152,7 +167,7 @@ export function MyDatasetsPage() {
 
       {/* ── Body ─────────────────────────────────────────────────────── */}
       <section className="mx-auto max-w-[1200px] px-7 py-7">
-        {/* Filter chip row */}
+        {/* Filter chip row + view toggle */}
         <div className="flex flex-wrap items-center gap-2 mb-5">
           <FilterChip
             active={statusFilter === 'all'}
@@ -175,6 +190,9 @@ export function MyDatasetsPage() {
           >
             Draft / in-review
           </FilterChip>
+          <div className="ml-auto">
+            <ViewToggle value={viewMode} onChange={setViewMode} />
+          </div>
         </div>
 
         {/* Loading */}
@@ -228,17 +246,211 @@ export function MyDatasetsPage() {
             </div>
           )}
 
-        {/* Cards */}
+        {/* Cards or table */}
         {!q.isLoading && visible.length > 0 && (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {visible.map((d) => (
-              <DatasetCard key={d.id} dataset={d} />
-            ))}
-          </div>
+          viewMode === 'grid' ? (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {visible.map((d) => (
+                <DatasetCard key={d.id} dataset={d} />
+              ))}
+            </div>
+          ) : (
+            <DatasetTable datasets={visible} />
+          )
         )}
       </section>
     </>
   );
+}
+
+/* ─── View mode toggle (list / grid) ─────────────────────────────── */
+
+function ViewToggle({
+  value,
+  onChange,
+}: {
+  value: ViewMode;
+  onChange: (next: ViewMode) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="View mode"
+      className="inline-flex items-center gap-0 rounded-md border border-border-subtle overflow-hidden bg-white"
+      data-testid="view-toggle"
+    >
+      <ViewToggleButton
+        active={value === 'grid'}
+        onClick={() => onChange('grid')}
+        label="Grid view"
+      >
+        <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
+      </ViewToggleButton>
+      <ViewToggleButton
+        active={value === 'table'}
+        onClick={() => onChange('table')}
+        label="Table view"
+      >
+        <List className="h-3.5 w-3.5" aria-hidden />
+      </ViewToggleButton>
+    </div>
+  );
+}
+
+function ViewToggleButton({
+  active,
+  onClick,
+  label,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      aria-label={label}
+      className={cn(
+        'inline-flex items-center justify-center px-2.5 py-1.5 transition-colors',
+        active
+          ? 'bg-bg-muted text-brand-navy'
+          : 'text-fg-muted hover:text-brand-navy hover:bg-bg-muted/60',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* ─── Dense table view ──────────────────────────────────────────── */
+
+/**
+ * Dense workspace table — mirrors the data-browser.html mockup's row
+ * layout. One row per dataset with a colored status squircle, title +
+ * slug subline, status badge, species, document count, DOI, updated
+ * timestamp. Clicking a row navigates to the dataset detail page.
+ *
+ * No horizontal scrolling by design — we collapse the less-critical
+ * columns (DOI, species) on narrow widths rather than scroll.
+ */
+function DatasetTable({ datasets }: { datasets: DatasetRecord[] }) {
+  return (
+    <div
+      className="bg-white border border-border-subtle rounded-xl overflow-hidden"
+      style={{ boxShadow: 'var(--shadow-xs)' }}
+    >
+      <table className="w-full border-collapse text-[13.5px]">
+        <thead>
+          <tr>
+            <th scope="col" className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted" style={{ width: '40%' }}>
+              Dataset
+            </th>
+            <th scope="col" className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted">
+              Status
+            </th>
+            <th scope="col" className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted hidden md:table-cell">
+              Species
+            </th>
+            <th scope="col" className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted">
+              Docs
+            </th>
+            <th scope="col" className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted hidden lg:table-cell">
+              DOI
+            </th>
+            <th scope="col" className="text-left font-bold tracking-[0.1em] uppercase text-[10px] text-fg-muted px-4 py-3 border-b border-border-subtle bg-bg-muted hidden sm:table-cell">
+              Updated
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {datasets.map((d, i) => (
+            <DatasetRow key={d.id} dataset={d} isLast={i === datasets.length - 1} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function DatasetRow({ dataset, isLast }: { dataset: DatasetRecord; isLast: boolean }) {
+  const published = dataset.publishStatus === 'published' || dataset.isPublished;
+  const statusKey = published ? 'pub' : 'draft';
+  const updatedAt = dataset.updatedAt || dataset.uploadedAt || dataset.createdAt;
+  const docCount = dataset.summary?.counts?.totalDocuments ?? dataset.documentCount;
+
+  return (
+    <tr
+      className={cn(
+        'group hover:bg-bg-muted transition-colors cursor-pointer',
+        isLast ? '' : 'border-b border-border-subtle/60',
+      )}
+    >
+      <td className="px-4 py-3 align-middle">
+        <Link
+          to={`/datasets/${dataset.id}`}
+          className="flex items-center gap-3 min-w-0"
+        >
+          <span
+            className={cn(
+              'shrink-0 flex items-center justify-center h-8 w-8 rounded-md',
+              statusKey === 'pub'
+                ? 'bg-[rgba(23,167,255,0.12)] text-brand-blue'
+                : 'bg-bg-muted text-fg-muted',
+            )}
+            aria-hidden
+          >
+            <FileText className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0">
+            <div className="font-semibold text-fg-primary truncate transition-colors group-hover:text-ndi-teal">
+              {dataset.name}
+            </div>
+            {dataset.id && (
+              <div className="font-mono text-[10.5px] text-fg-muted truncate">
+                {dataset.id}
+              </div>
+            )}
+          </div>
+        </Link>
+      </td>
+      <td className="px-4 py-3 align-middle">
+        <Badge variant={published ? 'pub' : 'secondary'}>
+          {published ? '● Published' : 'Draft'}
+        </Badge>
+      </td>
+      <td className="px-4 py-3 align-middle hidden md:table-cell text-fg-secondary">
+        {dataset.species ? <span className="truncate">{shortenSpecies(dataset.species)}</span> : <span className="text-fg-muted">&mdash;</span>}
+      </td>
+      <td className="px-4 py-3 align-middle font-mono text-[12px] text-fg-secondary">
+        {docCount != null ? formatNumber(docCount) : <span className="text-fg-muted">&mdash;</span>}
+      </td>
+      <td className="px-4 py-3 align-middle hidden lg:table-cell">
+        {dataset.doi ? (
+          <span className="font-mono text-[11px] text-fg-secondary truncate max-w-[200px] inline-block" title={dataset.doi}>
+            {dataset.doi.replace(/^https?:\/\//, '')}
+          </span>
+        ) : (
+          <span className="text-fg-muted">&mdash;</span>
+        )}
+      </td>
+      <td className="px-4 py-3 align-middle hidden sm:table-cell text-[12px] text-fg-muted">
+        {updatedAt ? formatDate(updatedAt) : <span>&mdash;</span>}
+      </td>
+    </tr>
+  );
+}
+
+/** NDI datasets typically list species as a comma-separated string
+ *  with parenthesized scientific names (e.g., "Ferrets (Mustelo putorius
+ *  furo), Rats (Rattus norvegicus)"). For a table row we just want the
+ *  first primary species name; preserve the full string in title. */
+function shortenSpecies(species: string): string {
+  const first = species.split(',')[0]?.trim() ?? species;
+  return first.length > 32 ? `${first.slice(0, 32)}…` : first;
 }
 
 /* ─── Hero stat card ─────────────────────────────────────────────── */
@@ -267,7 +479,7 @@ function HeroStat({
         {value}
       </div>
       {hint && (
-        <div className="text-[11.5px] text-white/45 font-mono">{hint}</div>
+        <div className="text-[11.5px] text-white/65 font-mono">{hint}</div>
       )}
     </div>
   );
@@ -303,7 +515,7 @@ function FilterChip({
         <span
           className={cn(
             'font-mono text-[11px] px-1.5 py-0 rounded-full',
-            active ? 'bg-white/70' : 'bg-gray-100',
+            active ? 'bg-white/70' : 'bg-bg-muted',
           )}
         >
           {count}

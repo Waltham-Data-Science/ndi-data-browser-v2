@@ -258,6 +258,15 @@ function AppNavLink({
   );
 }
 
+/**
+ * Cross-domain link.
+ *
+ * `showIcon=true` is the tell for "truly external reference" — Docs on
+ * GitHub Pages, GitHub repos, LinkedIn. Those open in a new tab so
+ * users keep the app open. Links WITHOUT `showIcon` (LabChat, Platform,
+ * About) are our own marketing site — same product, same tab, no "this
+ * will open in a new window" surprise.
+ */
 function ExtNavLink({
   href,
   children,
@@ -267,11 +276,13 @@ function ExtNavLink({
   children: React.ReactNode;
   showIcon?: boolean;
 }) {
+  const external = showIcon === true;
   return (
     <a
       href={href}
-      target="_blank"
-      rel="noopener noreferrer"
+      {...(external
+        ? { target: '_blank', rel: 'noopener noreferrer' }
+        : {})}
       className="inline-flex items-center gap-1 rounded-md px-3 py-2 font-medium text-white/75 hover:text-white hover:bg-white/5 transition-colors"
     >
       {children}
@@ -316,12 +327,14 @@ function MobileExtItem({
   children: React.ReactNode;
   showIcon?: boolean;
 }) {
+  const external = showIcon === true;
   return (
     <li>
       <a
         href={href}
-        target="_blank"
-        rel="noopener noreferrer"
+        {...(external
+          ? { target: '_blank', rel: 'noopener noreferrer' }
+          : {})}
         className="flex items-center gap-1.5 rounded-md px-3 py-2 text-white/80 hover:bg-white/8 hover:text-white"
       >
         {children}

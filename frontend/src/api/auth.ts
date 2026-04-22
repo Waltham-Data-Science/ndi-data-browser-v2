@@ -49,7 +49,20 @@ export function useLogout() {
   return useMutation({
     mutationFn: () => apiFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
     onSuccess: () => {
+      // Wipe in-memory cache + the persisted localStorage snapshot so
+      // a later visitor on the same machine can't see the previous
+      // user's datasets from a stale dehydrated state. The persister
+      // wrote to localStorage under the `ndi-query-cache` key (see
+      // App.tsx `makePersister`).
       qc.clear();
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          window.localStorage.removeItem('ndi-query-cache');
+        } catch {
+          // Ignore quota / access errors — in-memory clear is the
+          // correctness fence; persistence wipe is best-effort.
+        }
+      }
     },
   });
 }

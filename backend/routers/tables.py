@@ -9,6 +9,7 @@ from ..auth.dependencies import get_current_session
 from ..auth.session import SessionData
 from ..services.summary_table_service import SummaryTableService
 from ._deps import limit_reads, summary_table_service
+from ._validators import DatasetId
 
 router = APIRouter(
     prefix="/api/datasets/{dataset_id}/tables",
@@ -26,7 +27,7 @@ SUPPORTED_CLASSES = {
 
 @router.get("/combined")
 async def combined(
-    dataset_id: str,
+    dataset_id: DatasetId,
     svc: Annotated[SummaryTableService, Depends(summary_table_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
 ) -> dict[str, Any]:
@@ -35,7 +36,7 @@ async def combined(
 
 @router.get("/ontology")
 async def ontology_tables(
-    dataset_id: str,
+    dataset_id: DatasetId,
     svc: Annotated[SummaryTableService, Depends(summary_table_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
 ) -> dict[str, Any]:
@@ -47,7 +48,7 @@ async def ontology_tables(
 
 @router.get("/{class_name}")
 async def single(
-    dataset_id: str,
+    dataset_id: DatasetId,
     class_name: str,
     svc: Annotated[SummaryTableService, Depends(summary_table_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],

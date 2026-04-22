@@ -26,6 +26,7 @@ from .cache.redis_table import RedisTableCache
 from .clients.ndi_cloud import NdiCloudClient
 from .config import get_settings
 from .errors import BrowserError, Internal, NotFound, ValidationFailed
+from .middleware.cache_control import CacheControlMiddleware
 from .middleware.csrf import CsrfMiddleware
 from .middleware.metrics import MetricsMiddleware
 from .middleware.rate_limit import RateLimiter
@@ -135,10 +136,72 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
         redis=redis, ttl_seconds=FACETS_CACHE_TTL_SECONDS,
     )
 
+    # Upstream keep-warm — pokes ndi-cloud-node on AWS Lambda every 4
+    # minutes so the Node/Mongoose container stays hot. Without this a
+    # user's first page visit eats the full cold-start (~6-10s) → the
+    # SPA shows empty skeletons for that long and users think nothing
+    # loaded. A lightweight `GET /datasets/published?pageSize=1` keeps
+    # the Lambda execution environment resident. Fire-and-forget; we
+    # swallow all errors because the pinger is a performance nicety,
+    # not a correctness requirement.
+    async def _keep_warm() -> None:
+        # AWS Lambda keeps execution environments warm for ~5-15 min of
+        # idleness. 4 min stays well inside that window without wasting
+        # Lambda invocations during active periods (when traffic keeps
+        # it warm for free).
+        interval_seconds = 240
+        consecutive_failures = 0
+        while True:
+            try:
+                await cloud_client._request(
+                    "GET",
+                    "/datasets/published",
+                    endpoint_label="keepwarm",
+                    params={"page": 1, "pageSize": 1},
+                )
+                if consecutive_failures >= 3:
+                    # Recovery after a sustained outage is worth noting.
+                    log.warning("keepwarm.recovered", after_failures=consecutive_failures)
+                consecutive_failures = 0
+            except _asyncio.CancelledError:
+                raise
+            except Exception as e:
+                # Transient hiccups are expected (breaker open during
+                # upstream outage, etc.). Escalate to WARNING after 3
+                # consecutive misses so a sustained outage surfaces in
+                # logs instead of silently ticking along at DEBUG.
+                consecutive_failures += 1
+                if consecutive_failures <= 2:
+                    log.debug("keepwarm.skip", error=str(e))
+                else:
+                    log.warning(
+                        "keepwarm.sustained_failure",
+                        count=consecutive_failures,
+                        error=str(e),
+                    )
+            await _asyncio.sleep(interval_seconds)
+
+    if settings.ENVIRONMENT == "production":
+        # Only worth the tiny ongoing cost in prod — dev/test don't
+        # suffer the Lambda cold-start problem.
+        app.state.keepwarm_task = _asyncio.create_task(_keep_warm())
+        log.info("keepwarm.started", interval_seconds=240)
+
     log.info("app.startup", environment=settings.ENVIRONMENT)
     try:
         yield
     finally:
+        # Cancel keep-warm loop before tearing down the cloud client so
+        # we don't race a request-in-flight against `cloud_client.close`.
+        task = getattr(app.state, "keepwarm_task", None)
+        if task is not None:
+            task.cancel()
+            # Await-after-cancel expects CancelledError; any *other*
+            # exception from the loop (e.g. a crash in `_request`) must
+            # propagate so it surfaces in logs instead of disappearing.
+            import contextlib as _contextlib
+            with _contextlib.suppress(_asyncio.CancelledError):
+                await task
         await cloud_client.close()
         await ontology_service.close()
         try:
@@ -158,6 +221,19 @@ def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, i
     )
 
     # --- Middleware ---
+    # Order matters — Starlette applies in reverse of add order, so
+    # the last-added middleware wraps closest to the route handler
+    # and the first-added wraps the whole stack.
+    #
+    # Outermost (first-added): MetricsMiddleware — measures
+    # end-to-end latency including every other middleware.
+    # Then:  SecurityHeaders → RequestId → CORS → CacheControl → CSRF
+    # → handler.
+    #
+    # CacheControl runs AFTER CSRF so the response body's ETag is
+    # computed over the final payload. It runs BEFORE SecurityHeaders
+    # so the 304-response path still gets security headers added on
+    # the way back out.
     app.add_middleware(MetricsMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestIdMiddleware)
@@ -167,8 +243,13 @@ def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, i
         allow_credentials=True,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["*"],
-        expose_headers=["X-Request-ID"],
+        expose_headers=["X-Request-ID", "ETag"],
     )
+    # Conditional-GET caching for GET /api/* responses. Computes an
+    # ETag over the response body, handles If-None-Match for 304s,
+    # and adds Cache-Control: private|public depending on whether a
+    # session cookie is present.
+    app.add_middleware(CacheControlMiddleware)
     # CSRF last (outermost invocation is first so we want CSRF nearest the app).
     app.add_middleware(CsrfMiddleware)
 
