@@ -49,11 +49,13 @@ export function App() {
                 <Route index element={<Navigate to="tables/subject" replace />} />
                 {/* Legacy class slugs with hyphens/underscores resolved in TableTab */}
                 <Route path="tables/:className" element={<TableTab />} />
-                {/* M4c: Summary Tables / Raw Documents toggle. */}
-                <Route path="documents" element={<DocumentExplorerPage />} />
                 {/* Plan B B6e: grain-selectable pivot (subject/session/element). */}
                 <Route path="pivot/:grain" element={<PivotView />} />
               </Route>
+              {/* M4c: Summary Tables / Raw Documents toggle. Owns its own
+                  depth-gradient hero, so it renders as a top-level page
+                  (not nested under DatasetDetailPage's sidebar layout). */}
+              <Route path="datasets/:id/documents" element={<DocumentExplorerPage />} />
               <Route path="datasets/:id/documents/:docId" element={<DocumentDetailPage />} />
               <Route path="my" element={<MyDatasetsPage />} />
               <Route path="query" element={<QueryPage />} />

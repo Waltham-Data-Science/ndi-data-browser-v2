@@ -1,36 +1,52 @@
+/* ─────────────────────────────────────────────────────────────────────
+   NDI Data Browser — design system entry
+
+   Source of truth for brand tokens: `ndi-design-tokens` sibling repo.
+   For build-time portability (Railway clones only this repo, not
+   siblings), the canonical tokens are *copied* into this repo at:
+
+     - src/ndi-tokens.css           — CSS custom properties
+     - src/ndi-tailwind-theme.css   — Tailwind v4 @theme mapping
+
+   When updating tokens, edit the canonical files in ndi-design-tokens/
+   first, then re-copy here. A sync script lives in the top-level
+   package; or publish ndi-design-tokens to npm and re-install.
+
+   Import order matters — Tailwind v4 needs to see the @theme block
+   before scanning the source tree so utilities like `bg-ndi-teal` and
+   `text-brand-navy` resolve:
+
+     1. CSS custom properties (var(--brand-navy), var(--ndi-teal), …)
+     2. Tailwind @theme mapping (color/font/shadow utilities)
+     3. Tailwind itself
+     4. Local v2 additions (brand-50/100/500/600/700 ramp kept as aliases
+        while we reskin incrementally)
+   ───────────────────────────────────────────────────────────────────── */
+
+@import "./ndi-tokens.css";
+@import "./ndi-tailwind-theme.css";
 @import "tailwindcss";
 
+/* ─── v2 legacy palette (kept for backwards compat during reskin) ──── */
 @theme {
-  /* Brand tokens — aligned to NDI Cloud design system (April 2026).
-     Primary = NDI Cloud emblem sky blue (#17A7FF) with a matched 500/600/700
-     progression for hover + focus states. Navy (#002054) is the header +
-     emphasis color. 50/100 reserved for light-mode bubble fills. 200/300
-     are lighter sky blues used on the glassmorphism header's active nav
-     link (300) and hover surfaces (200). */
-  --color-brand-50: #e6f4ff;
-  --color-brand-100: #c9e8ff;
-  --color-brand-300: #5dc1ff;
-  --color-brand-400: #17a7ff;
-  --color-brand-500: #0b8bd6;
-  --color-brand-600: #0671ab;
-  --color-brand-700: #04547f;
+  /* Brand sky-blue ramp — 400 is the brand-blue from shared tokens; the
+     other steps are v2-originated hover/focus shades. Consolidate with
+     the shared palette once all components are migrated. */
+  --color-brand-50:   #e6f4ff;
+  --color-brand-100:  #c9e8ff;
+  --color-brand-300:  #5dc1ff;
+  --color-brand-400:  #17a7ff;
+  --color-brand-500:  #0b8bd6;
+  --color-brand-600:  #0671ab;
+  --color-brand-700:  #04547f;
   --color-brand-logo: #17a7ff;
-  --color-brand-navy: #002054;
-  /* Teal — used for primary CTAs, matching ndi-web-app */
-  --color-brand-teal: #0F6E56;
-  /* Background — clean neutral gray, not the old pink tint */
-  --color-brand-bg: #F9FAFB;
-  /* Typography — Geist font family (self-hosted via fontsource; see
-     `src/main.tsx` for the imports). The variable-font packages
-     register as "Geist Variable" / "Geist Mono Variable" — we list
-     those first, then graceful-degrade to the OS system stack if the
-     woff2 hasn't arrived yet (font-display: swap prevents FOIT). */
-  --font-sans: 'Geist Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --color-brand-bg:   #F9FAFB;
+  /* Teal alias — new code should use `bg-ndi-teal` etc. */
+  --color-brand-teal: var(--ndi-teal);
 }
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
 html, body, #root {
@@ -39,22 +55,15 @@ html, body, #root {
 
 body {
   font-family: var(--font-sans);
-  background: var(--color-brand-bg);
-  color: #111827;
+  background: var(--bg-muted);
+  color: var(--fg-secondary);
   -webkit-font-smoothing: antialiased;
   overflow-x: clip;
 }
 
-@media (prefers-color-scheme: dark) {
-  body {
-    background: #111827;
-    color: #e5e7eb;
-  }
-}
-
-/* Focus-visible polish */
+/* Focus-visible polish — uses new token */
 :focus-visible {
-  outline: 2px solid var(--color-brand-500);
+  outline: 2px solid var(--border-focus);
   outline-offset: 2px;
   border-radius: 2px;
 }
@@ -66,19 +75,44 @@ body {
 }
 
 .skeleton {
-  background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
+  background: linear-gradient(90deg, var(--gray-200) 0%, var(--gray-100) 50%, var(--gray-200) 100%);
   background-size: 200% 100%;
   animation: shimmer 1.4s linear infinite;
-  border-radius: 0.375rem;
-}
-
-@media (prefers-color-scheme: dark) {
-  .skeleton {
-    background: linear-gradient(90deg, #1f2937 0%, #374151 50%, #1f2937 100%);
-    background-size: 200% 100%;
-  }
+  border-radius: var(--radius-sm);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; }
+}
+
+/* ─── Shared visual primitives matching ndi-web-app-wds ────────────── */
+
+/* Depth gradient — used on hero bands + search headers. Pattern overlay
+   is applied via an absolutely-positioned ::before in component styles. */
+.grad-depth {
+  background: var(--grad-depth);
+}
+
+/* Eyebrow pill — brand-blue-3 tint on navy, used above hero headings.
+   Mirrors the `.eyebrow` class in ndi-web-app-wds globals.scss. */
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brand-blue-3);
+  background: rgba(23, 167, 255, 0.12);
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+}
+
+.eyebrow-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-blue-3);
+  box-shadow: 0 0 0 3px rgba(93, 193, 255, 0.25);
 }

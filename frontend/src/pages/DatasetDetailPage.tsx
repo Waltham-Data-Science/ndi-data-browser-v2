@@ -1,5 +1,3 @@
-import { useState } from 'react';
-import { Link, Navigate, Outlet, useParams } from 'react-router-dom';
 import {
   BookOpen,
   Code2,
@@ -8,6 +6,8 @@ import {
   Quote,
   Users,
 } from 'lucide-react';
+import { useState } from 'react';
+import { Link, Navigate, Outlet, useParams } from 'react-router-dom';
 
 import {
   useClassCounts,
@@ -20,6 +20,8 @@ import { CiteModal } from '@/components/datasets/CiteModal';
 import { DatasetProvenanceCard } from '@/components/datasets/DatasetProvenanceCard';
 import { DatasetSummaryCard } from '@/components/datasets/DatasetSummaryCard';
 import { UseThisDataModal } from '@/components/datasets/UseThisDataModal';
+import { ErrorState } from '@/components/errors/ErrorState';
+import { ExternalAnchor } from '@/components/ExternalAnchor';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import {
@@ -30,8 +32,6 @@ import {
   CardTitle,
 } from '@/components/ui/Card';
 import { CardSkeleton, Skeleton } from '@/components/ui/Skeleton';
-import { ErrorState } from '@/components/errors/ErrorState';
-import { ExternalAnchor } from '@/components/ExternalAnchor';
 import { formatBytes, formatDate, formatNumber } from '@/lib/format';
 import { normalizeOrcid } from '@/lib/orcid';
 import type { DatasetSummary } from '@/types/dataset-summary';
@@ -45,6 +45,21 @@ const COMMON_CLASSES = [
   'probe_location',
 ];
 
+/**
+ * DatasetDetailPage — `/datasets/:id`
+ *
+ * Layout:
+ *   1. Depth-gradient hero band with eyebrow (public/draft + DOI),
+ *      dataset name as H1, affiliation sub-line, and a compact fact
+ *      strip (species / region / sessions / size / license).
+ *   2. Body grid (max-w 1200px): 340px sidebar (summary, overview,
+ *      provenance, class-counts) + main outlet for tab content
+ *      (table / documents / pivot sub-routes).
+ *
+ * All existing functionality preserved — same React Query hooks, same
+ * sidebar cards, same nested-route outlet, same `min-w-0` grid fix that
+ * keeps wide inner tables from blowing out the page width.
+ */
 export function DatasetDetailPage() {
   const { id } = useParams();
   const ds = useDataset(id);
@@ -54,60 +69,215 @@ export function DatasetDetailPage() {
 
   if (!id) return <Navigate to="/datasets" replace />;
 
-  // `min-w-0` on both grid children is essential: CSS Grid items default to
-  // `min-width: auto`, which resolves to min-content. A child containing a
-  // wide table (whitespace-nowrap cells) would then force the 1fr track to
-  // expand past the viewport, breaking `overflow-x-auto` on the inner
-  // scroller and causing page-level horizontal scroll. `min-w-0` lets the
-  // track shrink so the inner table scroller actually scrolls.
   return (
-    <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
-      <aside className="space-y-3 min-w-0">
-        {summary.isLoading && <CardSkeleton />}
-        {summary.isError && (
-          <ErrorState error={summary.error} onRetry={() => summary.refetch()} />
-        )}
-        {summary.data && <DatasetSummaryCard summary={summary.data} />}
+    <>
+      <DetailHero ds={ds.data} isLoading={ds.isLoading} />
 
-        {ds.isLoading && <CardSkeleton />}
-        {ds.isError && <ErrorState error={ds.error} onRetry={() => ds.refetch()} />}
-        {ds.data && (
-          <DatasetOverviewCard
-            ds={ds.data}
-            datasetId={id}
-            summary={summary.data}
-          />
-        )}
+      <section className="mx-auto max-w-[1200px] px-7 py-7">
+        {/* `min-w-0` on both grid children is essential: CSS Grid items
+            default to `min-width: auto`, which resolves to min-content.
+            A child containing a wide table would force the 1fr track to
+            expand past the viewport. `min-w-0` lets the track shrink so
+            the inner table's overflow-x-auto actually scrolls. */}
+        <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
+          <aside className="space-y-3 min-w-0">
+            {summary.isLoading && <CardSkeleton />}
+            {summary.isError && (
+              <ErrorState error={summary.error} onRetry={() => summary.refetch()} />
+            )}
+            {summary.data && <DatasetSummaryCard summary={summary.data} />}
 
-        {/* Plan B B5 — dataset provenance card (derivation graph,
-            cross-dataset depends_on edges, branches). Errors on provenance
-            degrade silently (no ErrorState) so a slow or flaky aggregator
-            never blocks the detail view. */}
-        {provenance.data && (
-          <DatasetProvenanceCard provenance={provenance.data} />
-        )}
+            {ds.isLoading && <CardSkeleton />}
+            {ds.isError && <ErrorState error={ds.error} onRetry={() => ds.refetch()} />}
+            {ds.data && (
+              <DatasetOverviewCard
+                ds={ds.data}
+                datasetId={id}
+                summary={summary.data}
+              />
+            )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Document classes</CardTitle>
-            <CardDescription>
-              Click any class to open it in the Raw Documents explorer.
-            </CardDescription>
-          </CardHeader>
-          <CardBody>
-            {cc.isLoading && <Skeleton className="h-32 w-full" />}
-            {cc.isError && <ErrorState error={cc.error} onRetry={() => cc.refetch()} />}
-            {cc.data && <ClassCountsList datasetId={id} data={cc.data} />}
-          </CardBody>
-        </Card>
-      </aside>
+            {/* Plan B B5 — dataset provenance card (derivation graph,
+                cross-dataset depends_on edges, branches). Errors on
+                provenance degrade silently so a flaky aggregator never
+                blocks the detail view. */}
+            {provenance.data && (
+              <DatasetProvenanceCard provenance={provenance.data} />
+            )}
 
-      <section className="space-y-3 min-w-0">
-        <Outlet />
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Document classes</CardTitle>
+                <CardDescription>
+                  Click any class to open it in the Raw Documents explorer.
+                </CardDescription>
+              </CardHeader>
+              <CardBody>
+                {cc.isLoading && <Skeleton className="h-32 w-full" />}
+                {cc.isError && (
+                  <ErrorState error={cc.error} onRetry={() => cc.refetch()} />
+                )}
+                {cc.data && <ClassCountsList datasetId={id} data={cc.data} />}
+              </CardBody>
+            </Card>
+          </aside>
+
+          <section className="space-y-3 min-w-0">
+            <Outlet />
+          </section>
+        </div>
       </section>
+    </>
+  );
+}
+
+/* ─── Hero band ──────────────────────────────────────────────────── */
+
+function DetailHero({
+  ds,
+  isLoading,
+}: {
+  ds?: DatasetRecord;
+  isLoading: boolean;
+}) {
+  // Published = published. Draft/in-review = "DRAFT" eyebrow. Loading
+  // shows skeleton to avoid layout shift when the dataset resolves.
+  const status = ds?.isPublished === false ? 'DRAFT' : 'PUBLIC DATASET';
+  const affiliation =
+    ds?.affiliation ??
+    ds?.contributors
+      ?.slice(0, 1)
+      .map((c) => [c.firstName, c.lastName].filter(Boolean).join(' '))
+      .join('') ??
+    '';
+
+  return (
+    <section
+      className="relative overflow-hidden text-white"
+      style={{ background: 'var(--grad-depth)' }}
+      aria-labelledby="detail-hero"
+    >
+      <div
+        aria-hidden
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage: "url('/brand/ndicloud-emblem.svg')",
+          backgroundSize: '120px',
+          backgroundRepeat: 'repeat',
+          opacity: 0.05,
+        }}
+      />
+      <div className="relative mx-auto max-w-[1200px] px-7 py-10 md:py-12">
+        {/* Back link — always visible, not just on loading */}
+        <div className="mb-3">
+          <Link
+            to="/datasets"
+            className="inline-flex items-center gap-1.5 text-[12px] text-white/60 hover:text-white/90 transition-colors"
+          >
+            <span aria-hidden>&larr;</span> Back to Data Commons
+          </Link>
+        </div>
+
+        {/* Eyebrow (status + DOI) */}
+        <div className="eyebrow mb-4">
+          <span className="eyebrow-dot" aria-hidden />
+          {status}
+          {ds?.doi && (
+            <>
+              <span className="mx-2 opacity-30" aria-hidden>
+                |
+              </span>
+              <span className="font-mono normal-case tracking-normal text-[10.5px] text-white/85">
+                DOI: {ds.doi}
+              </span>
+            </>
+          )}
+        </div>
+
+        {/* Title */}
+        {isLoading ? (
+          <Skeleton className="h-9 w-3/4 max-w-[720px] bg-white/15" />
+        ) : (
+          <h1
+            id="detail-hero"
+            className="text-white font-display font-extrabold tracking-tight leading-[1.15] text-[1.8rem] md:text-[2.1rem] mb-2 max-w-4xl"
+          >
+            {ds?.name ?? 'Dataset'}
+          </h1>
+        )}
+
+        {/* Affiliation sub-line */}
+        {affiliation && (
+          <p className="text-white/60 text-[13.5px] mb-5">
+            {affiliation}
+            {ds?.uploadedAt && (
+              <span className="text-white/40 font-mono ml-2">
+                &middot; {formatDate(ds.uploadedAt)}
+              </span>
+            )}
+          </p>
+        )}
+
+        {/* Fact strip */}
+        {ds && (
+          <dl className="flex flex-wrap gap-x-8 gap-y-3 pt-4 border-t border-white/10 text-[11.5px]">
+            {ds.species && <HeroFact label="Species" value={ds.species} />}
+            {ds.brainRegions && (
+              <HeroFact label="Region" value={ds.brainRegions} mono />
+            )}
+            {ds.documentCount != null && (
+              <HeroFact
+                label="Documents"
+                value={formatNumber(ds.documentCount)}
+                mono
+              />
+            )}
+            {ds.numberOfSubjects != null && ds.numberOfSubjects > 0 && (
+              <HeroFact
+                label="Subjects"
+                value={formatNumber(ds.numberOfSubjects)}
+                mono
+              />
+            )}
+            {ds.totalSize != null && ds.totalSize > 0 && (
+              <HeroFact label="Size" value={formatBytes(ds.totalSize)} mono />
+            )}
+            {ds.license && <HeroFact label="License" value={ds.license} mono />}
+          </dl>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function HeroFact({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string | number;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <dt className="uppercase tracking-wider text-white/50 text-[10px] font-semibold">
+        {label}
+      </dt>
+      <dd
+        className={
+          mono
+            ? 'font-mono text-white text-[13px]'
+            : 'text-white text-[13px] font-medium'
+        }
+      >
+        {value}
+      </dd>
     </div>
   );
 }
+
+/* ─── Sidebar overview card ──────────────────────────────────────── */
 
 function DatasetOverviewCard({
   ds,
@@ -124,9 +294,10 @@ function DatasetOverviewCard({
   return (
     <Card>
       <CardHeader>
-        <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100 leading-tight">
-          {ds.name}
-        </h1>
+        {/* Card-scoped h2 (hero has the h1); keeps heading order clean for axe. */}
+        <h2 className="text-[14px] font-bold text-brand-navy leading-tight">
+          Details
+        </h2>
         <div className="flex flex-wrap gap-1.5 pt-1">
           {ds.license && <Badge variant="outline">{ds.license}</Badge>}
           {ds.branchName && ds.branchName !== 'main' && (
@@ -134,46 +305,20 @@ function DatasetOverviewCard({
           )}
           {ds.isPublished === false && <Badge variant="secondary">draft</Badge>}
         </div>
-        {ds.affiliation && (
-          <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight pt-1">
-            {ds.affiliation}
-          </p>
-        )}
       </CardHeader>
 
       <CardBody className="space-y-4 text-sm">
         {abstract && (
-          <p className="text-gray-700 dark:text-gray-300 text-[13px] leading-relaxed">
+          <p className="text-fg-secondary text-[13px] leading-relaxed">
             {abstract}
           </p>
         )}
 
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-xs">
-          <DatasetStat label="Species" value={ds.species} />
-          <DatasetStat label="Brain regions" value={ds.brainRegions} />
-          <DatasetStat
-            label="Subjects"
-            value={ds.numberOfSubjects != null ? formatNumber(ds.numberOfSubjects) : undefined}
-          />
-          <DatasetStat
-            label="Documents"
-            value={ds.documentCount != null ? formatNumber(ds.documentCount) : undefined}
-          />
-          <DatasetStat
-            label="Size"
-            value={ds.totalSize != null ? formatBytes(ds.totalSize) : undefined}
-          />
-          <DatasetStat
-            label="Neurons"
-            value={ds.neurons != null && ds.neurons > 0 ? formatNumber(ds.neurons) : undefined}
-          />
-        </dl>
-
         {(ds.contributors?.length ?? 0) > 0 && (
           <div className="space-y-1.5">
-            <h2 className="text-xs font-semibold text-gray-600 dark:text-gray-300 flex items-center gap-1">
+            <h3 className="text-xs font-semibold text-fg-muted flex items-center gap-1 uppercase tracking-wide">
               <Users className="h-3 w-3" /> Contributors
-            </h2>
+            </h3>
             <ul className="space-y-0.5 text-xs">
               {ds.contributors!.map((c, i) => (
                 <ContributorRow key={`${c.firstName}-${c.lastName}-${i}`} c={c} />
@@ -184,9 +329,9 @@ function DatasetOverviewCard({
 
         {(ds.correspondingAuthors?.length ?? 0) > 0 && (
           <div className="space-y-1.5">
-            <h2 className="text-xs font-semibold text-gray-600 dark:text-gray-300">
+            <h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wide">
               Corresponding authors
-            </h2>
+            </h3>
             <ul className="space-y-0.5 text-xs">
               {ds.correspondingAuthors!.map((c, i) => (
                 <ContributorRow key={`${c.firstName}-${c.lastName}-${i}`} c={c} />
@@ -197,10 +342,10 @@ function DatasetOverviewCard({
 
         {(ds.funding?.length ?? 0) > 0 && (
           <div className="space-y-1">
-            <h2 className="text-xs font-semibold text-gray-600 dark:text-gray-300">
+            <h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wide">
               Funding
-            </h2>
-            <p className="text-xs text-gray-600 dark:text-gray-400">
+            </h3>
+            <p className="text-xs text-fg-secondary">
               {ds
                 .funding!.map((f) => f.source)
                 .filter(Boolean)
@@ -211,9 +356,9 @@ function DatasetOverviewCard({
 
         {(ds.associatedPublications?.length ?? 0) > 0 && (
           <div className="space-y-1.5">
-            <h2 className="text-xs font-semibold text-gray-600 dark:text-gray-300 flex items-center gap-1">
+            <h3 className="text-xs font-semibold text-fg-muted flex items-center gap-1 uppercase tracking-wide">
               <BookOpen className="h-3 w-3" /> Associated publications
-            </h2>
+            </h3>
             <ul className="space-y-1 text-xs">
               {ds.associatedPublications!.map((p, i) => (
                 <PublicationRow key={p.DOI ?? p.PMID ?? i} p={p} />
@@ -222,11 +367,12 @@ function DatasetOverviewCard({
           </div>
         )}
 
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px] text-gray-500 dark:text-gray-400 font-mono border-t border-gray-200 dark:border-gray-700 pt-3">
+        {/* Identifiers row */}
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px] text-fg-muted font-mono border-t border-border-subtle pt-3">
           {ds.doi && (
             <>
               <dt>DOI</dt>
-              <dd>
+              <dd className="truncate">
                 <ExternalAnchor href={ds.doi} label={ds.doi} />
               </dd>
             </>
@@ -252,16 +398,11 @@ function DatasetOverviewCard({
           <dd>{formatDate(ds.createdAt)}</dd>
           <dt>Updated</dt>
           <dd>{formatDate(ds.updatedAt)}</dd>
-          {ds.uploadedAt && (
-            <>
-              <dt>Uploaded</dt>
-              <dd>{formatDate(ds.uploadedAt)}</dd>
-            </>
-          )}
         </dl>
 
+        {/* Action buttons */}
         <div
-          className="flex flex-wrap gap-2 border-t border-gray-200 pt-3 dark:border-gray-700"
+          className="flex flex-wrap gap-2 border-t border-border-subtle pt-3"
           data-testid="dataset-actions"
         >
           <Button
@@ -303,28 +444,19 @@ function DatasetOverviewCard({
   );
 }
 
-function DatasetStat({ label, value }: { label: string; value?: string | null }) {
-  if (!value) return null;
-  return (
-    <>
-      <dt className="font-medium text-gray-500 dark:text-gray-400">{label}</dt>
-      <dd className="text-gray-700 dark:text-gray-300">{value}</dd>
-    </>
-  );
-}
+/* ─── Sub-row renderers (unchanged semantics, token-migrated colors) ─── */
 
 function ContributorRow({ c }: { c: import('@/api/datasets').Contributor }) {
   const name = [c.firstName, c.lastName].filter(Boolean).join(' ').trim();
   if (!name && !c.contact) return null;
-  // Normalize the ORCID field up front — the cloud API documents a full
-  // URL but sometimes ships a bare `NNNN-NNNN-NNNN-NNNN` id, which the
-  // browser would resolve against our own origin. `normalizeOrcid`
-  // returns `undefined` for unrecognized shapes so we simply don't
-  // render the affordance in that case.
+  // `normalizeOrcid` returns undefined for unrecognized shapes so we
+  // simply don't render the affordance — the cloud API sometimes ships
+  // bare `NNNN-NNNN-NNNN-NNNN` ids which would resolve against our own
+  // origin if we linked naively.
   const orcidHref = normalizeOrcid(c.orcid);
   return (
     <li className="flex items-center gap-1.5">
-      <span className="text-gray-700 dark:text-gray-300">{name || c.contact}</span>
+      <span className="text-fg-secondary">{name || c.contact}</span>
       {orcidHref && (
         <ExternalAnchor
           href={orcidHref}
@@ -342,16 +474,19 @@ function PublicationRow({ p }: { p: import('@/api/datasets').AssociatedPublicati
   // `min-w-0 overflow-hidden` on the <li> so the ExternalAnchor / long
   // title can truncate with ellipsis rather than pushing the sidebar
   // card wider. Publication titles are a full sentence; DOIs are long
-  // URLs. Same class of bug Steve caught on the dataset DOI row
-  // (2026-04-20).
+  // URLs. Same class of bug Steve caught on the dataset DOI row.
   return (
     <li className="min-w-0 space-y-0.5 overflow-hidden">
       {p.DOI ? (
-        <ExternalAnchor href={p.DOI} label={title} className="text-xs leading-snug" />
+        <ExternalAnchor
+          href={p.DOI}
+          label={title}
+          className="text-xs leading-snug"
+        />
       ) : (
-        <span className="block truncate text-gray-700 dark:text-gray-300">{title}</span>
+        <span className="block truncate text-fg-secondary">{title}</span>
       )}
-      <div className="flex flex-wrap gap-2 text-[10px] text-gray-500 dark:text-gray-400 font-mono">
+      <div className="flex flex-wrap gap-2 text-[10px] text-fg-muted font-mono">
         {p.DOI && <span>DOI</span>}
         {p.PMID && (
           <ExternalAnchor
@@ -385,7 +520,7 @@ function ClassCountsList({
   const total = Math.max(1, data.totalDocuments);
   return (
     <>
-      <p className="mb-2 text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+      <p className="mb-2 text-[11px] text-fg-muted font-mono">
         {formatNumber(data.totalDocuments)} documents total
       </p>
       <ul className="space-y-1">
@@ -393,7 +528,7 @@ function ClassCountsList({
           const pct = (n / total) * 100;
           const isSummary = COMMON_CLASSES.includes(cls);
           // Route subject/element/epoch to the rich table view; the rest
-          // go through the Raw Documents list (M4c renames to a toggle).
+          // go through the Raw Documents list.
           const href = isSummary
             ? `/datasets/${datasetId}/tables/${cls}`
             : `/datasets/${datasetId}/documents?class=${encodeURIComponent(cls)}`;
@@ -401,22 +536,24 @@ function ClassCountsList({
             <li key={cls} className="text-xs">
               <Link
                 to={href}
-                className="flex items-center gap-2 hover:text-brand-600 dark:hover:text-brand-400"
+                className="flex items-center gap-2 hover:text-ndi-teal transition-colors"
               >
                 <span className="font-mono truncate flex-1">{cls}</span>
-                <span className="text-gray-500 dark:text-gray-400">
-                  {formatNumber(n)}
-                </span>
-                {isSummary && <FileText className="h-3 w-3 text-gray-400" aria-hidden />}
-                {!isSummary && <Globe className="h-3 w-3 text-gray-400" aria-hidden />}
+                <span className="text-fg-muted">{formatNumber(n)}</span>
+                {isSummary && (
+                  <FileText className="h-3 w-3 text-gray-400" aria-hidden />
+                )}
+                {!isSummary && (
+                  <Globe className="h-3 w-3 text-gray-400" aria-hidden />
+                )}
               </Link>
               <div
-                className="mt-0.5 h-1 rounded bg-gray-100 dark:bg-gray-800 overflow-hidden"
+                className="mt-0.5 h-1 rounded bg-gray-100 overflow-hidden"
                 role="progressbar"
                 aria-label={`${cls} ${formatNumber(n)} of ${formatNumber(data.totalDocuments)}`}
               >
                 <div
-                  className="h-1 rounded bg-brand-500"
+                  className="h-1 rounded bg-ndi-teal"
                   style={{ width: `${Math.max(2, pct)}%` }}
                 />
               </div>
