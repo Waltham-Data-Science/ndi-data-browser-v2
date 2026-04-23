@@ -53,12 +53,20 @@ export function DatasetCard({ dataset }: DatasetCardProps) {
         style={{ transitionDuration: 'var(--dur-base)', transitionTimingFunction: 'var(--ease-out)' }}
       >
         <CardBody className="p-6 md:p-7">
-          {/* Tag row — status pill + badges */}
+          {/* Tag row — status pill + license + branch (when meaningful) +
+              draft override. Matches the `.c-tags` pattern in
+              search.html; `branchName` here plays the role of the
+              `v1.2` version tag in the mockup. */}
           <div className="flex items-center gap-2 mb-3 flex-wrap">
             <Badge variant="pub">&#9679; Published</Badge>
             {dataset.license && (
               <Badge variant="outline" className="font-mono normal-case">
                 {dataset.license}
+              </Badge>
+            )}
+            {dataset.branchName && dataset.branchName !== 'original' && (
+              <Badge variant="teal" className="font-mono normal-case">
+                {dataset.branchName}
               </Badge>
             )}
             {dataset.publishStatus && dataset.publishStatus !== 'published' && (
@@ -147,8 +155,11 @@ export function DatasetCard({ dataset }: DatasetCardProps) {
             )}
             {dataset.doi && (
               <MetaCell label="DOI">
+                {/* Strip the scheme only — keep the `doi.org/` registrar
+                    path so users can recognize it's a persistent DOI
+                    identifier and not an arbitrary URL. */}
                 <span className="font-mono truncate inline-block max-w-[260px] align-bottom">
-                  {dataset.doi.replace(/^https?:\/\/(doi\.org\/)?/, '')}
+                  {dataset.doi.replace(/^https?:\/\//, '')}
                 </span>
               </MetaCell>
             )}
