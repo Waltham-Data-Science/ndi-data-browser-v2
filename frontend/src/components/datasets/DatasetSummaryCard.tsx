@@ -18,7 +18,6 @@
 import { Info } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 
-import { ExternalAnchor } from '@/components/ExternalAnchor';
 import { Badge } from '@/components/ui/Badge';
 import {
   Card,
@@ -30,10 +29,8 @@ import {
 import { FloatingPanel } from '@/components/ui/FloatingPanel';
 import { cn } from '@/lib/cn';
 import { formatBytes } from '@/lib/format';
-import { normalizeOrcid } from '@/lib/orcid';
 import type {
   DatasetSummary,
-  DatasetSummaryContributor,
   OntologyTerm,
 } from '@/types/dataset-summary';
 
@@ -68,7 +65,9 @@ export function DatasetSummaryCard({
           dateRange={summary.dateRange}
           totalSizeBytes={summary.totalSizeBytes}
         />
-        <CitationSection citation={summary.citation} />
+        {/* Citation block intentionally lives on the Details card next to
+            this one (license, DOIs, contributors, year). Rendering it here
+            duplicated that block; removed to de-noise the summary. */}
         <SummaryFooter
           computedAt={summary.computedAt}
           extractionWarnings={summary.extractionWarnings}
@@ -230,124 +229,9 @@ function ScaleSection({
   );
 }
 
-function CitationSection({
-  citation,
-}: {
-  citation: DatasetSummary['citation'];
-}) {
-  return (
-    <section
-      aria-label="Citation"
-      className="space-y-2"
-      data-testid="citation"
-    >
-      <SectionHeading>Citation</SectionHeading>
-      <div className="space-y-2 text-xs">
-        <p
-          className="text-sm font-medium text-gray-800 dark:text-gray-100"
-          data-testid="citation-title"
-        >
-          {citation.title}
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          {citation.license && (
-            <Badge variant="outline" data-testid="citation-license">
-              {citation.license}
-            </Badge>
-          )}
-          {citation.year != null && (
-            <span
-              className="text-[11px] text-gray-500 dark:text-gray-400"
-              data-testid="citation-year"
-            >
-              {citation.year}
-            </span>
-          )}
-        </div>
-        {citation.datasetDoi && (
-          <div
-            className="flex items-center gap-1.5"
-            data-testid="citation-dataset-doi"
-          >
-            <span className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              Dataset DOI
-            </span>
-            <ExternalAnchor
-              href={citation.datasetDoi}
-              label={citation.datasetDoi}
-              className="text-[11px] font-mono"
-            />
-          </div>
-        )}
-        {citation.paperDois.length > 0 && (
-          <div className="space-y-1" data-testid="citation-paper-dois">
-            <span className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              Paper DOIs
-            </span>
-            <ul className="space-y-0.5">
-              {citation.paperDois.map((doi) => (
-                <li key={doi}>
-                  <ExternalAnchor
-                    href={doi}
-                    label={doi}
-                    className="text-[11px] font-mono"
-                  />
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {citation.contributors.length > 0 && (
-          <div className="space-y-1" data-testid="citation-contributors">
-            <span className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              Contributors
-            </span>
-            <ul className="space-y-0.5">
-              {citation.contributors.map((c, i) => (
-                <li
-                  key={`${c.firstName}-${c.lastName}-${i}`}
-                  className="flex items-center gap-1.5"
-                >
-                  <ContributorRow contributor={c} />
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function ContributorRow({
-  contributor,
-}: {
-  contributor: DatasetSummaryContributor;
-}) {
-  const name = [contributor.firstName, contributor.lastName]
-    .filter(Boolean)
-    .join(' ')
-    .trim();
-  // See `DatasetDetailPage.ContributorRow` — same normalization guard.
-  // Cloud records occasionally ship a bare ORCID id instead of a full
-  // URL; without this, the browser resolves it against our own origin.
-  const orcidHref = normalizeOrcid(contributor.orcid);
-  return (
-    <>
-      <span className="text-[11px] text-gray-700 dark:text-gray-300">
-        {name || '—'}
-      </span>
-      {orcidHref && (
-        <ExternalAnchor
-          href={orcidHref}
-          label="ORCID"
-          iconSize={10}
-          className="text-[10px]"
-        />
-      )}
-    </>
-  );
-}
+// Citation block removed — see note at call site. The citation data is
+// still available on `summary.citation` for consumers that need it (e.g.
+// the CiteModal); we just don't render a duplicate section on this card.
 
 // ---------------------------------------------------------------------------
 // Labeled ontology list + "Not applicable" / "—" states

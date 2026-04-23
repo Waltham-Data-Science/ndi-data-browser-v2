@@ -69,47 +69,22 @@ describe('DatasetSummaryCard — sections', () => {
     );
   });
 
-  it('renders biology, anatomy, probe-types, scale and citation sections', () => {
+  it('renders biology, anatomy, probe-types and scale sections', () => {
     render(<DatasetSummaryCard summary={baseSummary()} />);
     expect(screen.getByTestId('biology')).toBeInTheDocument();
     expect(screen.getByTestId('anatomy')).toBeInTheDocument();
     expect(screen.getByTestId('probe-types')).toBeInTheDocument();
     expect(screen.getByTestId('scale')).toBeInTheDocument();
-    expect(screen.getByTestId('citation')).toBeInTheDocument();
-    expect(screen.getByTestId('citation-title')).toHaveTextContent(
-      'A Testing Dataset',
-    );
-    expect(screen.getByTestId('citation-license')).toHaveTextContent('CC-BY-4.0');
-    expect(screen.getByTestId('citation-year')).toHaveTextContent('2025');
+    // Citation section was removed — it's rendered on the adjacent
+    // Details card (license / DOIs / contributors / year) already, so
+    // having it here too was duplicative. Assert it is NOT rendered.
+    expect(screen.queryByTestId('citation')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('citation-title')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('citation-dataset-doi')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('citation-contributors')).not.toBeInTheDocument();
     // Probe types render as badges preserving the full strings.
     expect(screen.getByText('n-trode')).toBeInTheDocument();
     expect(screen.getByText('tetrode')).toBeInTheDocument();
-  });
-
-  it('renders a dataset DOI link and paper DOI links', () => {
-    render(<DatasetSummaryCard summary={baseSummary()} />);
-    const datasetDoi = screen.getByTestId('citation-dataset-doi');
-    const datasetLink = within(datasetDoi).getByRole('link', {
-      name: /10.63884/,
-    });
-    expect(datasetLink.getAttribute('href')).toBe(
-      'https://doi.org/10.63884/xyz',
-    );
-    expect(datasetLink.getAttribute('target')).toBe('_blank');
-    expect(datasetLink.getAttribute('rel')).toBe('noopener noreferrer');
-
-    const paperDois = screen.getByTestId('citation-paper-dois');
-    expect(
-      within(paperDois).getByRole('link', { name: /10.1\/abc/ }),
-    ).toBeInTheDocument();
-  });
-
-  it('shows contributor ORCID links', () => {
-    render(<DatasetSummaryCard summary={baseSummary()} />);
-    const contributors = screen.getByTestId('citation-contributors');
-    expect(within(contributors).getByText('Ada Lovelace')).toBeInTheDocument();
-    const orcid = within(contributors).getByRole('link', { name: /ORCID/ });
-    expect(orcid.getAttribute('href')).toBe('https://orcid.org/0000-0001');
   });
 });
 
