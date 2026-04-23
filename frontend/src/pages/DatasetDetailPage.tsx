@@ -19,7 +19,6 @@ import {
 } from 'react-router-dom';
 
 import {
-  useClassCounts,
   useDataset,
   useDatasetProvenance,
   useDatasetSummary,
@@ -36,9 +35,7 @@ import { Button } from '@/components/ui/Button';
 import {
   Card,
   CardBody,
-  CardDescription,
   CardHeader,
-  CardTitle,
 } from '@/components/ui/Card';
 import { CardSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
@@ -221,7 +218,6 @@ function TabLink({
 export function OverviewTab() {
   const { id } = useParams();
   const ds = useDataset(id);
-  const cc = useClassCounts(id);
   const summary = useDatasetSummary(id);
   const provenance = useDatasetProvenance(id);
 
@@ -242,7 +238,7 @@ export function OverviewTab() {
         )}
       </div>
 
-      {/* ── Sidecar: summary pills + provenance + document classes ── */}
+      {/* ── Sidecar: summary pills + provenance ─────────────────────── */}
       <aside className="space-y-4 min-w-0 order-1 lg:order-2">
         {summary.isLoading && <CardSkeleton />}
         {summary.isError && (
@@ -258,23 +254,11 @@ export function OverviewTab() {
           <DatasetProvenanceCard provenance={provenance.data} />
         )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle as="h3" className="text-sm">
-              Document classes
-            </CardTitle>
-            <CardDescription>
-              Click any class to open it in the Document Explorer.
-            </CardDescription>
-          </CardHeader>
-          <CardBody>
-            {cc.isLoading && <Skeleton className="h-32 w-full" />}
-            {cc.isError && (
-              <ErrorState error={cc.error} onRetry={() => cc.refetch()} />
-            )}
-            {cc.data && <ClassCountsList datasetId={id} data={cc.data} />}
-          </CardBody>
-        </Card>
+        {/* The "Document classes" card lives on the Document Explorer
+            tab now (same ClassCountsList component, same progress-bar
+            style) — surfacing it here too was redundant with that tab's
+            purpose. Users who want to jump into the per-class list
+            can click the Document Explorer tab above. */}
       </aside>
     </div>
   );
