@@ -10,7 +10,10 @@ import { AppShell } from '@/components/layout/AppShell';
 import { AboutPage } from '@/pages/AboutPage';
 import { HomePage } from '@/pages/HomePage';
 import { DatasetsPage } from '@/pages/DatasetsPage';
-import { DatasetDetailPage } from '@/pages/DatasetDetailPage';
+import {
+  DatasetDetailPage,
+  OverviewTab,
+} from '@/pages/DatasetDetailPage';
 import { DocumentExplorerPage } from '@/pages/DocumentExplorerPage';
 import { PivotView } from '@/components/datasets/PivotView';
 import { TableTab } from '@/pages/TableTab';
@@ -134,17 +137,37 @@ export function App() {
             <Route element={<AppShell />}>
               <Route index element={<HomePage />} />
               <Route path="datasets" element={<DatasetsPage />} />
+              {/* Dataset detail shell — hero + tab bar + outlet. Three
+                  tabs share the same shell so the hero, tab bar, and
+                  page chrome render once and only the tab content
+                  swaps. Legacy `/datasets/:id` bookmarks land on
+                  Overview (cheap redirect, preserves the URL contract
+                  for shared links). */}
               <Route path="datasets/:id" element={<DatasetDetailPage />}>
-                <Route index element={<Navigate to="tables/subject" replace />} />
-                {/* Legacy class slugs with hyphens/underscores resolved in TableTab */}
+                <Route index element={<Navigate to="overview" replace />} />
+                <Route path="overview" element={<OverviewTab />} />
+                {/* Legacy class slugs with hyphens/underscores resolved
+                    in TableTab. `tables` (no class) redirects to the
+                    subject default — matches the previous "open tables
+                    tab" UX. */}
+                <Route
+                  path="tables"
+                  element={<Navigate to="subject" replace />}
+                />
                 <Route path="tables/:className" element={<TableTab />} />
                 {/* Plan B B6e: grain-selectable pivot (subject/session/element). */}
                 <Route path="pivot/:grain" element={<PivotView />} />
+                {/* Raw document explorer — class-filterable list of
+                    every NDI document in the dataset. Used to be a
+                    top-level page with its own hero; now renders inside
+                    the shared shell so the dataset tab bar is
+                    discoverable from here. */}
+                <Route path="documents" element={<DocumentExplorerPage />} />
               </Route>
-              {/* M4c: Summary Tables / Raw Documents toggle. Owns its own
-                  depth-gradient hero, so it renders as a top-level page
-                  (not nested under DatasetDetailPage's sidebar layout). */}
-              <Route path="datasets/:id/documents" element={<DocumentExplorerPage />} />
+              {/* Document detail is a drill-down on a single document,
+                  not a tab on the dataset — keep it outside the shell
+                  so it renders its own hero and doesn't inherit the
+                  dataset tab bar. */}
               <Route path="datasets/:id/documents/:docId" element={<DocumentDetailPage />} />
               <Route path="my" element={<MyDatasetsPage />} />
               <Route path="query" element={<QueryPage />} />

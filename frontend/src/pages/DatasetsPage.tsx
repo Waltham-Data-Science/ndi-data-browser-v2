@@ -346,7 +346,7 @@ export function DatasetsPage() {
 
             {/* Loading */}
             {isLoading && (
-              <div className="grid gap-3 sm:grid-cols-1 lg:grid-cols-2">
+              <div className="grid gap-5">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <CardSkeleton key={i} />
                 ))}
@@ -376,7 +376,7 @@ export function DatasetsPage() {
             )}
 
             {!isLoading && visible.length > 0 && (
-              <div className="grid gap-3 sm:grid-cols-1 lg:grid-cols-2">
+              <div className="grid gap-5">
                 {visible.map((d) => (
                   <DatasetCard key={d.id} dataset={d} />
                 ))}

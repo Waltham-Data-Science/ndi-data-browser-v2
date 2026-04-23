@@ -37,6 +37,22 @@ type ViewMode = 'visual' | 'text';
  * - Renders a small "truncated — more edges exist" banner when the
  *   backend flagged the BFS as incomplete.
  */
+function DepGraphEmpty({ message }: { message: string }) {
+  return (
+    <Card>
+      <CardHeader className="py-3">
+        <CardTitle className="text-xs font-medium flex items-center gap-1">
+          <GitBranch className="h-3.5 w-3.5" />
+          Dependency Graph
+        </CardTitle>
+      </CardHeader>
+      <CardBody className="pt-0">
+        <p className="text-xs text-fg-muted leading-relaxed">{message}</p>
+      </CardBody>
+    </Card>
+  );
+}
+
 export function DependencyGraphView({
   datasetId,
   documentId,
@@ -70,12 +86,37 @@ export function DependencyGraphView({
     );
   }
 
-  if (error || !graph || graph.error || graph.node_count <= 1) {
-    return null;
+  // Error / missing-data cases render a compact empty-state card so
+  // users know the dep graph widget exists and why it's empty. The
+  // previous behavior returned null, which made users think the
+  // feature was broken ("dep graph failing on all of them") when in
+  // fact root documents like `subject` simply have no dependencies
+  // to walk.
+  if (error || !graph || graph.error) {
+    return (
+      <DepGraphEmpty
+        message={
+          error
+            ? 'Could not build the dependency graph. Try again in a moment.'
+            : (graph?.error as string | undefined) ??
+              'No dependency data available for this document.'
+        }
+      />
+    );
+  }
+
+  if (graph.node_count <= 1) {
+    return (
+      <DepGraphEmpty message="No upstream or downstream dependencies — this document is a leaf in the dependency graph (e.g. a subject or a root probe)." />
+    );
   }
 
   const targetNdi = graph.target_ndi_id;
-  if (!targetNdi) return null;
+  if (!targetNdi) {
+    return (
+      <DepGraphEmpty message="This document has no ndiId, so its dependency graph can't be resolved." />
+    );
+  }
 
   const nodeMap = new Map<string, DepGraphNode>();
   for (const n of graph.nodes) nodeMap.set(n.ndiId, n);

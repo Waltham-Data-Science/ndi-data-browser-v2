@@ -40,11 +40,14 @@ export function AppShell() {
         style={{ background: 'rgba(0, 0, 0, 0.92)', boxShadow: 'var(--shadow-nav)' }}
       >
         <div className="mx-auto flex max-w-[1200px] items-center gap-6 px-7 py-3.5">
-          {/* Logo */}
-          <Link
-            to="/datasets"
+          {/* Logo — cross-domain to marketing home. Treated as "product
+              entry point" the same way the marketing site's logo is:
+              click = go back to ndi-cloud.com/. This matches the
+              one-product-across-subdomains UX policy. */}
+          <a
+            href={marketingHref('/')}
             className="flex items-center transition-opacity hover:opacity-80"
-            aria-label="NDI Cloud — Data Commons home"
+            aria-label="NDI Cloud home"
             onClick={closeMobile}
           >
             <img
@@ -55,31 +58,26 @@ export function AppShell() {
               className="h-[22px] w-auto"
               style={{ filter: 'brightness(0) invert(1)' }}
             />
-          </Link>
+          </a>
 
-          {/* Desktop nav */}
+          {/* Desktop nav — mirrors the marketing site's NDIHeader link
+              list exactly so the top bar is visually identical across
+              ndi-cloud.com and app.ndi-cloud.com. Data Commons is the
+              local route (lives in this SPA); the rest are cross-domain
+              links to marketing product pages. Authenticated-only
+              product routes (Query, My Workspace) sit behind a separator
+              so the primary nav stays in marketing parity and the
+              in-product shortcuts are visually subordinate. */}
           <nav
             className="hidden md:flex items-center gap-1 text-[13.5px] flex-1"
             aria-label="Primary"
           >
-            {/* Local — the data browser IS the Data Commons */}
             <AppNavLink to="/datasets" match={['/', '/datasets']}>
               Data Commons
             </AppNavLink>
-            {signedIn && (
-              <>
-                <AppNavLink to="/query">Query</AppNavLink>
-                <AppNavLink to="/my">My Workspace</AppNavLink>
-              </>
-            )}
-
-            {/* Separator */}
-            <span className="mx-2 h-4 w-px bg-white/10" aria-hidden />
-
-            {/* Cross-domain — to marketing site.
-                Note: we intentionally skip the "Data Browser" / "For Labs"
-                pitch page in the app's own nav — if you're here, you're
-                already in the product. The marketing nav surfaces it. */}
+            <ExtNavLink href={marketingHref('/products/private-cloud')}>
+              For Labs
+            </ExtNavLink>
             <ExtNavLink href={marketingHref('/products/labchat')}>
               LabChat
             </ExtNavLink>
@@ -92,6 +90,14 @@ export function AppShell() {
             <ExtNavLink href={DOCS_URL} showIcon>
               Docs
             </ExtNavLink>
+
+            {signedIn && (
+              <>
+                <span className="mx-2 h-4 w-px bg-white/10" aria-hidden />
+                <AppNavLink to="/query">Query</AppNavLink>
+                <AppNavLink to="/my">My Workspace</AppNavLink>
+              </>
+            )}
           </nav>
 
           {/* Right side CTAs */}
@@ -150,20 +156,14 @@ export function AppShell() {
             style={{ background: 'rgba(0, 0, 0, 0.96)' }}
           >
             <ul className="flex flex-col gap-1 text-[14px]">
+              {/* Mirror of desktop nav — exact marketing parity, then
+                  authed shortcuts behind a divider. */}
               <MobileNavItem to="/datasets" onClick={closeMobile}>
                 Data Commons
               </MobileNavItem>
-              {signedIn && (
-                <>
-                  <MobileNavItem to="/query" onClick={closeMobile}>
-                    Query
-                  </MobileNavItem>
-                  <MobileNavItem to="/my" onClick={closeMobile}>
-                    My Workspace
-                  </MobileNavItem>
-                </>
-              )}
-              <li className="my-2 h-px bg-white/10" aria-hidden />
+              <MobileExtItem href={marketingHref('/products/private-cloud')}>
+                For Labs
+              </MobileExtItem>
               <MobileExtItem href={marketingHref('/products/labchat')}>
                 LabChat
               </MobileExtItem>
@@ -176,6 +176,17 @@ export function AppShell() {
               <MobileExtItem href={DOCS_URL} showIcon>
                 Docs
               </MobileExtItem>
+              {signedIn && (
+                <>
+                  <li className="my-2 h-px bg-white/10" aria-hidden />
+                  <MobileNavItem to="/query" onClick={closeMobile}>
+                    Query
+                  </MobileNavItem>
+                  <MobileNavItem to="/my" onClick={closeMobile}>
+                    My Workspace
+                  </MobileNavItem>
+                </>
+              )}
               <li className="my-2 h-px bg-white/10" aria-hidden />
               {signedIn ? (
                 <li>

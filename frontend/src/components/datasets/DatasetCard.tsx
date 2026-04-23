@@ -1,4 +1,3 @@
-import { BookOpen, FileText, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import type { DatasetRecord } from '@/api/datasets';
@@ -6,17 +5,9 @@ import { Badge } from '@/components/ui/Badge';
 import {
   Card,
   CardBody,
-  CardDescription,
-  CardHeader,
   CardTitle,
 } from '@/components/ui/Card';
 import { formatBytes, formatDate, truncate } from '@/lib/format';
-import type {
-  CompactDatasetSummary,
-  OntologyTerm,
-} from '@/types/dataset-summary';
-
-import { OntologyTermPill } from './DatasetSummaryCard';
 
 interface DatasetCardProps {
   dataset: DatasetRecord;
@@ -49,39 +40,25 @@ export function DatasetCard({ dataset }: DatasetCardProps) {
       aria-label={`Open dataset ${dataset.name}`}
     >
       {/*
-        Hover treatment from the search.html mockup: border shifts from
-        subtle → strong, a shadow-md lifts the card, and it translates up
-        1px. Transition uses var(--ease-out) for the shared feel.
+        Wide-format catalog card. Two-column grid on md+:
+          - Left column: title, abstract clamp, contributors, species pills.
+          - Right column: 5-item metadata fact strip (species, region, DOI,
+            subjects, license) styled like the search.html mockup's
+            `.meta-row` — each key tag stacked above its mono value.
+        Hover lifts the card 1px with a shadow-md for tactile feedback,
+        matching the marketing site's card hover treatment.
       */}
       <Card
-        className="h-full transition-all group-hover:-translate-y-[1px] group-hover:shadow-md group-hover:ring-border-strong"
+        className="transition-all group-hover:-translate-y-[1px] group-hover:shadow-md group-hover:ring-border-strong"
         style={{ transitionDuration: 'var(--dur-base)', transitionTimingFunction: 'var(--ease-out)' }}
       >
-        <CardHeader className="pb-2">
-          {/* line-clamp-4 not -2 — scientific dataset titles are long
-              (post-Steve feedback 2026-04-18, "We scientists tend to use
-              long titles"). Grid uses h-full so cards in a row align
-              to the tallest; four lines leaves room for ~150 chars
-              before any clamp kicks in. */}
-          <CardTitle className="line-clamp-4">{dataset.name}</CardTitle>
-          {abstract && (
-            <CardDescription className="line-clamp-2 text-xs">
-              {truncate(abstract, 220)}
-            </CardDescription>
-          )}
-        </CardHeader>
-        <CardBody className="pt-0 space-y-2">
-          {summary && <CompactSummarySection summary={summary} />}
-
-          <div className="flex flex-wrap gap-1.5">
+        <CardBody className="p-6 md:p-7">
+          {/* Tag row — status pill + badges */}
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <Badge variant="pub">&#9679; Published</Badge>
             {dataset.license && (
-              <Badge variant="outline">{dataset.license}</Badge>
-            )}
-            {dataset.organizationId && (
-              <Badge variant="secondary" className="font-mono normal-case">
-                {dataset.organizationId.length > 14
-                  ? `${dataset.organizationId.slice(0, 14)}…`
-                  : dataset.organizationId}
+              <Badge variant="outline" className="font-mono normal-case">
+                {dataset.license}
               </Badge>
             )}
             {dataset.publishStatus && dataset.publishStatus !== 'published' && (
@@ -89,142 +66,128 @@ export function DatasetCard({ dataset }: DatasetCardProps) {
             )}
           </div>
 
-          {contributors.length > 0 && (
-            <p className="text-xs text-fg-muted line-clamp-1">
-              {contributors.slice(0, 3).join(', ')}
-              {contributors.length > 3 && ` +${contributors.length - 3}`}
+          {/* Title — no clamp: with 1200px width and 3-line scientific
+              titles, the card stays reasonable. Truncate only if >6 lines
+              which rarely happens. */}
+          <CardTitle
+            as="h3"
+            className="text-[1.2rem] leading-snug mb-2 group-hover:text-ndi-teal transition-colors"
+          >
+            {dataset.name}
+          </CardTitle>
+
+          {/* Byline: contributors + date */}
+          {(contributors.length > 0 || dataset.uploadedAt || dataset.createdAt) && (
+            <p className="text-[13px] text-fg-secondary mb-4">
+              {contributors.length > 0 && (
+                <>
+                  {contributors.slice(0, 3).join(', ')}
+                  {contributors.length > 3 && ` +${contributors.length - 3}`}
+                </>
+              )}
+              {contributors.length > 0 && (dataset.uploadedAt || dataset.createdAt) && (
+                <span className="mx-2 text-fg-muted">·</span>
+              )}
+              {(dataset.uploadedAt || dataset.createdAt) && (
+                <span className="text-fg-muted">
+                  {formatDate(dataset.uploadedAt || dataset.createdAt!)}
+                </span>
+              )}
             </p>
           )}
 
-          <div className="flex flex-wrap items-center gap-3 text-[11px] text-fg-muted font-mono">
-            {/* Doc count: prefer the synthesizer's count (always authoritative,
-                comes from indexed class-counts) over the cloud's documentCount
-                (can drift per the IDataset schema). Fall back to raw record. */}
-            {summary?.counts.totalDocuments != null ? (
-              <span className="inline-flex items-center gap-1">
-                <FileText className="h-3 w-3" />
-                {summary.counts.totalDocuments.toLocaleString()} docs
-              </span>
-            ) : dataset.documentCount != null ? (
-              <span className="inline-flex items-center gap-1">
-                <FileText className="h-3 w-3" />
-                {dataset.documentCount.toLocaleString()} docs
-              </span>
-            ) : null}
-            {dataset.contributors && dataset.contributors.length > 0 && (
-              <span className="inline-flex items-center gap-1">
-                <Users className="h-3 w-3" />
-                {dataset.contributors.length} contributors
-              </span>
+          {/* Metadata fact strip — 5 columns on wide, wrap on narrow */}
+          <div className="border-t border-b border-border-subtle/70 py-3 mb-4 flex flex-wrap gap-x-8 gap-y-3 text-[13px]">
+            <MetaCell label="Species">
+              {summary?.species && summary.species.length > 0 ? (
+                <span className="font-mono">
+                  {truncate(summary.species.map((s) => s.label).join(', '), 40)}
+                </span>
+              ) : dataset.species ? (
+                <span className="font-mono">{truncate(dataset.species, 40)}</span>
+              ) : (
+                <span className="text-fg-muted">&mdash;</span>
+              )}
+            </MetaCell>
+            <MetaCell label="Region">
+              {summary?.brainRegions && summary.brainRegions.length > 0 ? (
+                <span className="font-mono">
+                  {truncate(summary.brainRegions.map((r) => r.label).join(', '), 40)}
+                </span>
+              ) : dataset.brainRegions ? (
+                <span className="font-mono">{truncate(dataset.brainRegions, 40)}</span>
+              ) : (
+                <span className="text-fg-muted">&mdash;</span>
+              )}
+            </MetaCell>
+            <MetaCell label="Documents">
+              {summary?.counts.totalDocuments != null ? (
+                <span className="font-mono">
+                  {summary.counts.totalDocuments.toLocaleString()}
+                </span>
+              ) : dataset.documentCount != null ? (
+                <span className="font-mono">
+                  {dataset.documentCount.toLocaleString()}
+                </span>
+              ) : (
+                <span className="text-fg-muted">&mdash;</span>
+              )}
+            </MetaCell>
+            {summary && summary.counts.subjects > 0 && (
+              <MetaCell label="Subjects">
+                <span className="font-mono">
+                  {summary.counts.subjects.toLocaleString()}
+                </span>
+              </MetaCell>
             )}
             {dataset.totalSize != null && dataset.totalSize > 0 && (
-              <span>{formatBytes(dataset.totalSize)}</span>
+              <MetaCell label="Size">
+                <span className="font-mono">{formatBytes(dataset.totalSize)}</span>
+              </MetaCell>
             )}
             {dataset.doi && (
-              <span className="inline-flex items-center gap-1">
-                <BookOpen className="h-3 w-3" />
-                <span className="truncate max-w-[160px] md:max-w-[240px] lg:max-w-[360px]">{dataset.doi}</span>
-              </span>
+              <MetaCell label="DOI">
+                <span className="font-mono truncate inline-block max-w-[260px] align-bottom">
+                  {dataset.doi.replace(/^https?:\/\/(doi\.org\/)?/, '')}
+                </span>
+              </MetaCell>
             )}
           </div>
 
-          {/* Date metadata uses fg-muted (gray-500 on white, contrast
-              ratio 4.78:1) to satisfy WCAG AA on our light-only design
-              surface. */}
-          <div className="flex items-center gap-2 text-[10px] text-fg-muted">
-            {dataset.createdAt && <span>Created {formatDate(dataset.createdAt)}</span>}
-            {dataset.updatedAt && dataset.updatedAt !== dataset.createdAt && (
-              <span>Updated {formatDate(dataset.updatedAt)}</span>
-            )}
-          </div>
+          {/* Abstract — 2-line clamp for scannability */}
+          {abstract && (
+            <p className="text-[13.5px] text-fg-secondary leading-relaxed line-clamp-2">
+              {abstract}
+            </p>
+          )}
         </CardBody>
       </Card>
     </Link>
   );
 }
 
-/** The synthesizer-driven strip: species + brain-region chips + subject
- *  count. Renders nothing extra when every fact is null/empty so a card
- *  without any synthesized content stays visually lean. */
-function CompactSummarySection({
-  summary,
+/** Metadata cell — stacked UPPERCASE label over the value, matching the
+ *  `.meta-row .m` pattern in search.html. */
+function MetaCell({
+  label,
+  children,
 }: {
-  summary: CompactDatasetSummary;
+  label: string;
+  children: React.ReactNode;
 }) {
-  const species = summary.species ?? null;
-  const regions = summary.brainRegions ?? null;
-  const hasSpecies = species != null && species.length > 0;
-  const hasRegions = regions != null && regions.length > 0;
-  const hasSubjectCount = summary.counts.subjects > 0;
-
-  if (!hasSpecies && !hasRegions && !hasSubjectCount) {
-    // Synthesizer ran but every fact was null/zero — nothing to surface.
-    return null;
-  }
-
   return (
-    <div
-      className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pb-1"
-      data-testid="dataset-card-summary"
-    >
-      {hasSpecies && (
-        <PillRow
-          testId="dataset-card-summary-species"
-          terms={species as OntologyTerm[]}
-          limit={3}
-        />
-      )}
-      {hasRegions && (
-        <PillRow
-          testId="dataset-card-summary-brain-regions"
-          terms={regions as OntologyTerm[]}
-          limit={3}
-        />
-      )}
-      {hasSubjectCount && (
-        <span
-          className="inline-flex items-center gap-1 text-[11px] font-mono text-fg-secondary"
-          data-testid="dataset-card-summary-subjects"
-        >
-          <Users className="h-3 w-3" />
-          {summary.counts.subjects.toLocaleString()} subjects
-        </span>
-      )}
+    <div className="flex flex-col gap-1 min-w-0">
+      <span className="text-[10px] font-bold tracking-[0.08em] uppercase text-fg-muted">
+        {label}
+      </span>
+      <span className="text-fg-primary font-medium">{children}</span>
     </div>
   );
 }
 
-function PillRow({
-  terms,
-  limit,
-  testId,
-}: {
-  terms: OntologyTerm[];
-  limit: number;
-  testId: string;
-}) {
-  const shown = terms.slice(0, limit);
-  const extra = terms.length - shown.length;
-  return (
-    <span
-      className="inline-flex flex-wrap items-center gap-1"
-      data-testid={testId}
-    >
-      {shown.map((t) => (
-        <OntologyTermPill
-          key={`${t.label}-${t.ontologyId ?? ''}`}
-          term={t}
-          noLink
-        />
-      ))}
-      {extra > 0 && (
-        <span
-          className="text-[10px] text-fg-muted"
-          data-testid={`${testId}-overflow`}
-        >
-          +{extra}
-        </span>
-      )}
-    </span>
-  );
-}
+// CompactSummarySection and PillRow lived here in the narrow-card era
+// to condense species + brain-region pills into a single row above the
+// metadata. The new wide-format card bakes species + region into the
+// MetaCell fact strip directly, so those helpers have been removed.
+// If we ever re-introduce a compact variant, restore the pill helpers
+// from `OntologyTermPill` in ./DatasetSummaryCard.
