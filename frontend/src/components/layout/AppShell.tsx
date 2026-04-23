@@ -256,12 +256,17 @@ function AppNavLink({
   const isActive = paths.some(
     (p) => location.pathname === p || location.pathname.startsWith(p + '/'),
   );
+  // Active state styled to match NDIHeader on the marketing site
+  // (ndi-web-app/app/src/components/header/NDIHeader.module.scss
+  // `.navLinkActive`): no background, just the brand-blue-3 text color
+  // with full opacity. Keeps the two sides of the product
+  // indistinguishable at the chrome level.
   return (
     <NavLink
       to={to}
       className={cn(
-        'rounded-md px-3 py-2 font-medium text-white/75 hover:text-white hover:bg-white/5 transition-colors',
-        isActive && 'text-white bg-white/8',
+        'rounded-md px-3 py-2 font-medium text-white/85 hover:text-white hover:bg-white/5 transition-colors',
+        isActive && '!text-brand-blue-3 opacity-100',
       )}
     >
       {children}
@@ -288,13 +293,16 @@ function ExtNavLink({
   showIcon?: boolean;
 }) {
   const external = showIcon === true;
+  // Cross-domain links never look "active" here — the marketing site
+  // owns those pages. Match the base opacity of the marketing nav
+  // (0.85) so hover feels consistent.
   return (
     <a
       href={href}
       {...(external
         ? { target: '_blank', rel: 'noopener noreferrer' }
         : {})}
-      className="inline-flex items-center gap-1 rounded-md px-3 py-2 font-medium text-white/75 hover:text-white hover:bg-white/5 transition-colors"
+      className="inline-flex items-center gap-1 rounded-md px-3 py-2 font-medium text-white/85 hover:text-white hover:bg-white/5 transition-colors"
     >
       {children}
       {showIcon && <ExternalLink className="h-3 w-3 opacity-60" />}
@@ -319,7 +327,8 @@ function MobileNavItem({
         className={({ isActive }) =>
           cn(
             'block rounded-md px-3 py-2 text-white/80 hover:bg-white/8 hover:text-white',
-            isActive && 'text-white bg-white/8',
+            // Mirror desktop active-style: blue text, no bg box.
+            isActive && '!text-brand-blue-3',
           )
         }
       >
@@ -374,17 +383,19 @@ function SiteFooter() {
     <footer className="bg-black text-white mt-16">
       <div className="mx-auto max-w-[1200px] px-7 py-14">
         <div className="grid gap-12 md:grid-cols-[1.2fr_1fr_1fr_1fr]">
-          {/* Brand column */}
+          {/* Brand column — copy matches NDIFooter on the marketing
+              site verbatim. Keep these in lockstep; if one side
+              changes, change the other in the same commit. */}
           <div>
             <img
               src="/brand/ndicloud-wordmark-horizontal.svg"
               alt="NDI Cloud"
-              className="h-6 w-auto mb-4"
+              className="h-[22px] w-auto mb-[14px]"
               style={{ filter: 'brightness(0) invert(1)' }}
             />
-            <p className="text-[13px] leading-relaxed text-white/60 max-w-xs">
-              Quiet infrastructure for neuroscience data. Published datasets,
-              private lab workspaces, and AI that knows your lab.
+            <p className="text-[13px] leading-[1.5] text-white/50 max-w-[300px] m-0">
+              Data infrastructure, publishing, and AI tools for modern
+              neuroscience research.
             </p>
           </div>
 
@@ -404,12 +415,12 @@ function SiteFooter() {
           {/* Company */}
           <FooterCol title="Company">
             <FooterLink href={marketingHref('/about')}>About</FooterLink>
-            <FooterLink href={marketingHref('/about#partners')}>Partners</FooterLink>
+            <FooterLink href={marketingHref('/about#partnerships')}>Partners</FooterLink>
             <FooterLink href={marketingHref('/security')}>
               Security &amp; Compliance
             </FooterLink>
             <FooterLink
-              href="https://github.com/VH-Lab"
+              href="https://github.com/VH-Lab/NDI-matlab"
               external
             >
               Research on GitHub
@@ -418,17 +429,20 @@ function SiteFooter() {
 
           {/* Get in touch */}
           <FooterCol title="Get in touch">
-            <FooterLink href="mailto:info@walthamdatascience.com">
+            <FooterLink href="mailto:info@walthamdatascience.com?subject=NDI Cloud Inquiry">
               info@walthamdatascience.com
             </FooterLink>
             <FooterLink href={DOCS_URL} external>
               Documentation
             </FooterLink>
+            <FooterLink href={marketingHref('/about#sfn')}>
+              SfN 2025 &middot; San Diego
+            </FooterLink>
           </FooterCol>
         </div>
 
         {/* Bottom bar */}
-        <div className="mt-10 pt-6 border-t border-white/10 flex flex-col md:flex-row items-center justify-between gap-3 text-[12px] text-white/50">
+        <div className="mt-14 pt-5 border-t border-white/10 flex flex-col md:flex-row items-center justify-between gap-3 text-[12px] text-white/40">
           <span>
             &copy; {new Date().getFullYear()} Waltham Data Science &middot; NDI Cloud
           </span>
@@ -456,12 +470,14 @@ function FooterCol({
   title: string;
   children: React.ReactNode;
 }) {
+  // Matches NDIFooter.module.scss `h5` spec exactly: 11px / 700 /
+  // 0.12em tracking / uppercase / white / 16px bottom margin.
   return (
     <div>
-      <h4 className="text-[11px] font-bold tracking-[0.14em] uppercase text-white/50 mb-4">
+      <h4 className="text-[11px] font-bold tracking-[0.12em] uppercase text-white mb-4">
         {title}
       </h4>
-      <ul className="flex flex-col gap-2.5 text-[13px]">{children}</ul>
+      <ul className="flex flex-col gap-2.5 text-[13.5px]">{children}</ul>
     </div>
   );
 }
@@ -477,8 +493,10 @@ function FooterLink({
   internal?: boolean;
   external?: boolean;
 }) {
+  // Color: rgba(255, 255, 255, 0.65) to match the SCSS directly.
+  // Tailwind `/65` maps to that. Hover goes to pure white.
   const cls =
-    'text-white/70 hover:text-white transition-colors inline-flex items-center gap-1';
+    'text-white/65 hover:text-white transition-colors inline-flex items-center gap-1';
   if (internal) {
     return (
       <li>

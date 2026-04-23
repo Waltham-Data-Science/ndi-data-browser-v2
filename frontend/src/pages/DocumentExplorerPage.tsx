@@ -1,4 +1,4 @@
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { useClassCounts } from '@/api/datasets';
 import { useDocuments } from '@/api/documents';
@@ -56,6 +56,7 @@ function RawDocumentsPane({
   searchParams: URLSearchParams;
   setSearchParams: (next: URLSearchParams) => void;
 }) {
+  const navigate = useNavigate();
   const cls = searchParams.get('class');
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1);
 
@@ -163,14 +164,30 @@ function RawDocumentsPane({
                       ) : (
                         docs.data.documents.map((d) => {
                           const did = d.id ?? d.ndiId ?? '';
+                          const href = `/datasets/${datasetId}/documents/${did}`;
+                          // Whole-row click navigates — matches the summary-table
+                          // UX. Keep the Name cell as a real `<Link>` for keyboard
+                          // focus, screen readers, and middle-click "open in new
+                          // tab". `<tr>` can't wrap an `<a>` (invalid HTML), so
+                          // the row onClick + cursor handle mouse clicks on the
+                          // other cells. We skip navigation when the click
+                          // originates from text selection (user highlighted an
+                          // ID to copy) — common UX concern for ID-heavy tables.
                           return (
                             <tr
                               key={did}
-                              className="border-t border-border-subtle hover:bg-gray-50"
+                              className="border-t border-border-subtle hover:bg-gray-50 cursor-pointer"
+                              onClick={() => {
+                                if (!did) return;
+                                const sel = window.getSelection?.();
+                                if (sel && sel.toString().length > 0) return;
+                                navigate(href);
+                              }}
                             >
                               <td className="px-3 py-1.5">
                                 <Link
-                                  to={`/datasets/${datasetId}/documents/${did}`}
+                                  to={href}
+                                  onClick={(e) => e.stopPropagation()}
                                   className="text-brand-navy hover:text-ndi-teal hover:underline transition-colors"
                                 >
                                   {d.name || (
