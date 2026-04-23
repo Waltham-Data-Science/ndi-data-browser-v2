@@ -658,7 +658,7 @@ function PublicationRow({ p }: { p: import('@/api/datasets').AssociatedPublicati
   );
 }
 
-function ClassCountsList({
+export function ClassCountsList({
   datasetId,
   data,
 }: {

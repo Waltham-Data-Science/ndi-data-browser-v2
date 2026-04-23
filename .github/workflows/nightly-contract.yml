@@ -17,6 +17,10 @@ jobs:
       - run: pip install -r backend/requirements.txt pytest pytest-asyncio pytest-cov httpx respx fakeredis freezegun hypothesis
       - name: Contract tests against dev cloud
         env:
-          NDI_CLOUD_URL: ${{ vars.NDI_CLOUD_DEV_URL }}
+          # Prefer the repo-level `NDI_CLOUD_DEV_URL` variable, fall back
+          # to prod when unset. Contract tests are read-only (GET) and
+          # safe against prod — until a dedicated dev cloud exists,
+          # pointing at prod keeps the nightly gate meaningful.
+          NDI_CLOUD_URL: ${{ vars.NDI_CLOUD_DEV_URL || 'https://api.ndi-cloud.com/v1' }}
         run: |
           python -m pytest backend/tests/contract/ -v || exit 1
