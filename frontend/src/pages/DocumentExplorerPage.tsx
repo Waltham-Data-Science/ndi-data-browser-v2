@@ -1,8 +1,7 @@
 import { useMemo } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { LayoutGrid, List } from 'lucide-react';
 
-import { useClassCounts, useDataset } from '@/api/datasets';
+import { useClassCounts } from '@/api/datasets';
 import { useDocuments } from '@/api/documents';
 import { Button } from '@/components/ui/Button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -12,157 +11,35 @@ import {
 } from '@/components/documents/DocumentTypeSelector';
 import { ErrorState } from '@/components/errors/ErrorState';
 import { TableSkeleton } from '@/components/ui/Skeleton';
-import { TableTab } from './TableTab';
-import { cn } from '@/lib/cn';
 import { formatNumber } from '@/lib/format';
-
-type Mode = 'summary' | 'raw';
 
 const PAGE_SIZE = 50;
 
 /**
- * Top-level toggle between Summary Tables (rich projection) and Raw
- * Documents (class-filtered paginated list). Plan §M4c.
+ * Document Explorer tab content. Renders inside DatasetDetailPage's
+ * outlet, so the hero band + tab bar come from the parent. Shows a
+ * class filter sidebar + paginated raw-document list at full page
+ * width. URL state: `?class=<cls>&page=<n>` for deep-linkability.
  *
- * Layout:
- *   1. Depth-gradient hero band with eyebrow "DOCUMENT EXPLORER",
- *      dataset-name-aware H1, a back-to-dataset link, and subtitle.
- *   2. Body: mode toggle (Summary Tables / Raw Documents), then either
- *      embedded TableTab or the 2-col raw documents pane (220px sidebar
- *      + paginated table).
- *
- * URL state: `?mode=raw&class=<cls>&page=<n>` for deep-linkability.
+ * Previously this was a top-level page with its own hero band and a
+ * Summary-Tables-vs-Raw-Documents toggle. The toggle is gone now that
+ * Summary Tables lives in its own top-level tab; the hero is owned by
+ * the parent shell.
  */
 export function DocumentExplorerPage() {
   const { id } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const mode: Mode = searchParams.get('mode') === 'raw' ? 'raw' : 'summary';
-  const ds = useDataset(id);
-
-  const setMode = (next: Mode) => {
-    const params = new URLSearchParams(searchParams);
-    if (next === 'summary') params.delete('mode');
-    else params.set('mode', 'raw');
-    setSearchParams(params, { replace: true });
-  };
 
   if (!id) {
     return <p className="text-sm text-fg-muted">Missing dataset id.</p>;
   }
 
-  const datasetName = ds.data?.name;
-
   return (
-    <>
-      {/* ── Hero band ─────────────────────────────────────────────── */}
-      <section
-        className="relative overflow-hidden text-white"
-        style={{ background: 'var(--grad-depth)' }}
-        aria-labelledby="doc-explorer-hero"
-      >
-        <div
-          aria-hidden
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            backgroundImage: "url('/brand/ndicloud-emblem.svg')",
-            backgroundSize: '120px',
-            backgroundRepeat: 'repeat',
-            opacity: 0.05,
-          }}
-        />
-        <div className="relative mx-auto max-w-[1200px] px-7 py-10 md:py-12">
-          {/* Back link */}
-          <div className="mb-3">
-            <Link
-              to={`/datasets/${id}`}
-              className="inline-flex items-center gap-1.5 text-[12px] text-white/60 hover:text-white/90 transition-colors"
-            >
-              <span aria-hidden>&larr;</span> Back to dataset
-            </Link>
-          </div>
-
-          <div className="eyebrow mb-4">
-            <span className="eyebrow-dot" aria-hidden />
-            DOCUMENT EXPLORER
-          </div>
-
-          <h1
-            id="doc-explorer-hero"
-            className="text-white font-display font-extrabold tracking-tight leading-tight text-[2rem] md:text-[2.25rem] mb-2 max-w-4xl"
-          >
-            {datasetName ? `${datasetName} documents` : 'Explore raw documents.'}
-          </h1>
-
-          <p className="text-white/70 text-[14.5px] leading-relaxed max-w-[620px]">
-            Pivot between curated summary tables and the underlying raw
-            document list, scoped by NDI class.
-          </p>
-        </div>
-      </section>
-
-      {/* ── Body ──────────────────────────────────────────────────── */}
-      <section className="mx-auto max-w-[1200px] px-7 py-7">
-        <div className="space-y-3">
-          <div className="flex items-center justify-end">
-            <ModeToggle value={mode} onChange={setMode} />
-          </div>
-          {mode === 'summary' ? (
-            <TableTab />
-          ) : (
-            <RawDocumentsPane
-              datasetId={id}
-              searchParams={searchParams}
-              setSearchParams={setSearchParams}
-            />
-          )}
-        </div>
-      </section>
-    </>
-  );
-}
-
-function ModeToggle({
-  value,
-  onChange,
-}: {
-  value: Mode;
-  onChange: (next: Mode) => void;
-}) {
-  return (
-    <div
-      role="group"
-      aria-label="View mode"
-      className="flex items-center rounded-md border border-border-subtle overflow-hidden"
-    >
-      <button
-        type="button"
-        onClick={() => onChange('summary')}
-        aria-pressed={value === 'summary'}
-        className={cn(
-          'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors',
-          value === 'summary'
-            ? 'bg-brand-navy text-white'
-            : 'text-fg-secondary hover:text-brand-navy',
-        )}
-      >
-        <LayoutGrid className="h-3.5 w-3.5" />
-        Summary Tables
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange('raw')}
-        aria-pressed={value === 'raw'}
-        className={cn(
-          'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors',
-          value === 'raw'
-            ? 'bg-brand-navy text-white'
-            : 'text-fg-secondary hover:text-brand-navy',
-        )}
-      >
-        <List className="h-3.5 w-3.5" />
-        Raw Documents
-      </button>
-    </div>
+    <RawDocumentsPane
+      datasetId={id}
+      searchParams={searchParams}
+      setSearchParams={setSearchParams}
+    />
   );
 }
 

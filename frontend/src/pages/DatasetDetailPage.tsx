@@ -2,12 +2,21 @@ import {
   BookOpen,
   Code2,
   FileText,
+  FolderOpen,
   Globe,
+  LayoutDashboard,
   Quote,
+  Table2,
   Users,
 } from 'lucide-react';
 import { useState } from 'react';
-import { Link, Navigate, Outlet, useParams } from 'react-router-dom';
+import {
+  Link,
+  Navigate,
+  NavLink,
+  Outlet,
+  useParams,
+} from 'react-router-dom';
 
 import {
   useClassCounts,
@@ -32,6 +41,7 @@ import {
   CardTitle,
 } from '@/components/ui/Card';
 import { CardSkeleton, Skeleton } from '@/components/ui/Skeleton';
+import { cn } from '@/lib/cn';
 import { formatBytes, formatDate, formatNumber } from '@/lib/format';
 import { normalizeOrcid } from '@/lib/orcid';
 import type { DatasetSummary } from '@/types/dataset-summary';
@@ -48,19 +58,167 @@ const COMMON_CLASSES = [
 /**
  * DatasetDetailPage — `/datasets/:id`
  *
- * Layout:
- *   1. Depth-gradient hero band with eyebrow (public/draft + DOI),
- *      dataset name as H1, affiliation sub-line, and a compact fact
- *      strip (species / region / sessions / size / license).
- *   2. Body grid (max-w 1200px): 340px sidebar (summary, overview,
- *      provenance, class-counts) + main outlet for tab content
- *      (table / documents / pivot sub-routes).
+ * Shell for the three tabs a user cares about on a dataset:
+ *   - Overview (default): dataset summary + details/abstract + document-class
+ *     index — the "read this dataset" view.
+ *   - Summary tables: the curated per-class summary grids (subjects, probes,
+ *     epochs, treatments, openminds, ontology).
+ *   - Document explorer: raw per-document list filterable by NDI class.
  *
- * All existing functionality preserved — same React Query hooks, same
- * sidebar cards, same nested-route outlet, same `min-w-0` grid fix that
- * keeps wide inner tables from blowing out the page width.
+ * The page is intentionally NOT a sidebar-plus-main layout anymore. The
+ * previous design crammed summary / details / class-counts into a 340px
+ * sidebar beside whatever tab the user opened, which left the tables
+ * column at ~860px (cramped) and let the sidebar scroll a screen or two
+ * past the main content. Splitting each concern into its own tab lets
+ * every view use the full 1200px, and the shell just owns the hero +
+ * tab bar + outlet.
+ *
+ * Sub-routes render into the <Outlet /> below the tab bar. The index
+ * redirect lands you on /overview so a bookmark of /datasets/:id is
+ * stable. The document-detail route lives OUTSIDE this shell (own hero
+ * band) because it's a drill-down on a single document — not a tab on
+ * the dataset.
  */
 export function DatasetDetailPage() {
+  const { id } = useParams();
+  const ds = useDataset(id);
+
+  if (!id) return <Navigate to="/datasets" replace />;
+
+  return (
+    <>
+      <DetailHero ds={ds.data} isLoading={ds.isLoading} />
+      <DatasetTabBar datasetId={id} />
+
+      {/* `min-w-0` on the outlet wrapper keeps wide inner tables honest
+          — CSS Grid items default to min-width: auto, so without this a
+          table wider than the viewport would push the whole page wider
+          instead of triggering its own overflow-x-auto scroll. */}
+      <section className="mx-auto max-w-[1200px] px-7 py-7 min-w-0">
+        <Outlet />
+      </section>
+    </>
+  );
+}
+
+/* ─── Tab bar ────────────────────────────────────────────────────── */
+
+/**
+ * DatasetTabBar — three-tab nav under the hero. Uses react-router
+ * NavLinks so the active tab reflects the URL (deep-linkable +
+ * browser back/forward works). Sticky just under the page header so
+ * when the user scrolls through a long Overview or document list, the
+ * tab bar stays accessible.
+ */
+function DatasetTabBar({ datasetId }: { datasetId: string }) {
+  const base = `/datasets/${datasetId}`;
+  return (
+    <div
+      className="sticky top-[58px] z-30 bg-bg-surface border-b border-border-subtle"
+      style={{ boxShadow: 'var(--shadow-xs)' }}
+    >
+      <nav
+        role="tablist"
+        aria-label="Dataset sections"
+        className="mx-auto flex max-w-[1200px] items-center gap-1 px-7"
+      >
+        <TabLink to={`${base}/overview`} icon={<LayoutDashboard className="h-3.5 w-3.5" />}>
+          Overview
+        </TabLink>
+        {/* `isActive` needs to be true for any tables/* or pivot/*
+            path. NavLink's end={false} + a custom matcher handles
+            that; the `tables/subject` default keeps first-click
+            behavior identical to the legacy /datasets/:id → tables
+            redirect we used to do. */}
+        <TabLink
+          to={`${base}/tables/subject`}
+          matchPath={`${base}/tables`}
+          altMatchPath={`${base}/pivot`}
+          icon={<Table2 className="h-3.5 w-3.5" />}
+        >
+          Summary tables
+        </TabLink>
+        <TabLink
+          to={`${base}/documents`}
+          icon={<FolderOpen className="h-3.5 w-3.5" />}
+        >
+          Document explorer
+        </TabLink>
+      </nav>
+    </div>
+  );
+}
+
+function TabLink({
+  to,
+  matchPath,
+  altMatchPath,
+  icon,
+  children,
+}: {
+  to: string;
+  matchPath?: string;
+  altMatchPath?: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  // NavLink's default `isActive` matches exact-or-prefix at the end of
+  // the path segment. We override with a custom matcher for the tables
+  // tab because `Summary tables` must light up for /tables/subject,
+  // /tables/probe, AND /pivot/session etc.
+  return (
+    <NavLink
+      to={to}
+      role="tab"
+      className={({ isActive }: { isActive: boolean }) => {
+        const active =
+          isActive ||
+          (!!matchPath &&
+            typeof window !== 'undefined' &&
+            window.location.pathname.startsWith(matchPath)) ||
+          (!!altMatchPath &&
+            typeof window !== 'undefined' &&
+            window.location.pathname.startsWith(altMatchPath));
+        return cn(
+          '-mb-px inline-flex items-center gap-1.5 border-b-2 px-4 py-3 text-[13.5px] font-medium transition-colors',
+          'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ndi-teal',
+          active
+            ? 'border-ndi-teal text-ndi-teal'
+            : 'border-transparent text-fg-secondary hover:text-brand-navy',
+        );
+      }}
+    >
+      {icon}
+      <span>{children}</span>
+    </NavLink>
+  );
+}
+
+/* ─── Overview tab ───────────────────────────────────────────────── */
+
+/**
+ * OverviewTab — the "read this dataset" view. Three sections stacked
+ * top-to-bottom, each rendered in a content block sized to its own
+ * natural length so nothing competes with a neighboring column for
+ * vertical space:
+ *
+ *   1. Summary (synthesized facts: species, regions, counts, probe types)
+ *   2. Details (abstract, contributors, funding, publications, identifiers,
+ *      cite / use-this-data buttons)
+ *   3. Document classes (clickable class-count list → Raw Documents /
+ *      Summary tables per the dispatch rules in ClassCountsList)
+ *
+ * Provenance (when present) renders between Summary and Details — it's
+ * contextual metadata about how the dataset was derived, and belongs
+ * near the other factsheet content.
+ *
+ * The two-column wrapper on ≥lg screens gives the abstract a readable
+ * 60% width while keeping the summary + class-counts in a right
+ * sidecar that doesn't scroll independently because everything sits
+ * in the normal page flow — no mismatched heights because there's no
+ * parallel scrolling child.
+ */
+export function OverviewTab() {
   const { id } = useParams();
   const ds = useDataset(id);
   const cc = useClassCounts(id);
@@ -70,64 +228,55 @@ export function DatasetDetailPage() {
   if (!id) return <Navigate to="/datasets" replace />;
 
   return (
-    <>
-      <DetailHero ds={ds.data} isLoading={ds.isLoading} />
+    <div className="grid gap-5 lg:grid-cols-[1fr_360px] min-w-0">
+      {/* ── Main column: details (abstract + authors + pubs + cite) ── */}
+      <div className="space-y-4 min-w-0 order-2 lg:order-1">
+        {ds.isLoading && <CardSkeleton />}
+        {ds.isError && <ErrorState error={ds.error} onRetry={() => ds.refetch()} />}
+        {ds.data && (
+          <DatasetOverviewCard
+            ds={ds.data}
+            datasetId={id}
+            summary={summary.data}
+          />
+        )}
+      </div>
 
-      <section className="mx-auto max-w-[1200px] px-7 py-7">
-        {/* `min-w-0` on both grid children is essential: CSS Grid items
-            default to `min-width: auto`, which resolves to min-content.
-            A child containing a wide table would force the 1fr track to
-            expand past the viewport. `min-w-0` lets the track shrink so
-            the inner table's overflow-x-auto actually scrolls. */}
-        <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
-          <aside className="space-y-3 min-w-0">
-            {summary.isLoading && <CardSkeleton />}
-            {summary.isError && (
-              <ErrorState error={summary.error} onRetry={() => summary.refetch()} />
+      {/* ── Sidecar: summary pills + provenance + document classes ── */}
+      <aside className="space-y-4 min-w-0 order-1 lg:order-2">
+        {summary.isLoading && <CardSkeleton />}
+        {summary.isError && (
+          <ErrorState error={summary.error} onRetry={() => summary.refetch()} />
+        )}
+        {summary.data && <DatasetSummaryCard summary={summary.data} />}
+
+        {/* Plan B B5 — dataset provenance card (derivation graph,
+            cross-dataset depends_on edges, branches). Errors on
+            provenance degrade silently so a flaky aggregator never
+            blocks the detail view. */}
+        {provenance.data && (
+          <DatasetProvenanceCard provenance={provenance.data} />
+        )}
+
+        <Card>
+          <CardHeader>
+            <CardTitle as="h3" className="text-sm">
+              Document classes
+            </CardTitle>
+            <CardDescription>
+              Click any class to open it in the Document Explorer.
+            </CardDescription>
+          </CardHeader>
+          <CardBody>
+            {cc.isLoading && <Skeleton className="h-32 w-full" />}
+            {cc.isError && (
+              <ErrorState error={cc.error} onRetry={() => cc.refetch()} />
             )}
-            {summary.data && <DatasetSummaryCard summary={summary.data} />}
-
-            {ds.isLoading && <CardSkeleton />}
-            {ds.isError && <ErrorState error={ds.error} onRetry={() => ds.refetch()} />}
-            {ds.data && (
-              <DatasetOverviewCard
-                ds={ds.data}
-                datasetId={id}
-                summary={summary.data}
-              />
-            )}
-
-            {/* Plan B B5 — dataset provenance card (derivation graph,
-                cross-dataset depends_on edges, branches). Errors on
-                provenance degrade silently so a flaky aggregator never
-                blocks the detail view. */}
-            {provenance.data && (
-              <DatasetProvenanceCard provenance={provenance.data} />
-            )}
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">Document classes</CardTitle>
-                <CardDescription>
-                  Click any class to open it in the Raw Documents explorer.
-                </CardDescription>
-              </CardHeader>
-              <CardBody>
-                {cc.isLoading && <Skeleton className="h-32 w-full" />}
-                {cc.isError && (
-                  <ErrorState error={cc.error} onRetry={() => cc.refetch()} />
-                )}
-                {cc.data && <ClassCountsList datasetId={id} data={cc.data} />}
-              </CardBody>
-            </Card>
-          </aside>
-
-          <section className="space-y-3 min-w-0">
-            <Outlet />
-          </section>
-        </div>
-      </section>
-    </>
+            {cc.data && <ClassCountsList datasetId={id} data={cc.data} />}
+          </CardBody>
+        </Card>
+      </aside>
+    </div>
   );
 }
 

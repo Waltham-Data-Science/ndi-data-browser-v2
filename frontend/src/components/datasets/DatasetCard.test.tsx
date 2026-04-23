@@ -1,10 +1,17 @@
 /**
- * DatasetCard — Plan B B2 behavior: renders compact-summary pills +
- * subject count when the backend attaches ``summary``, and falls back to
- * raw-record fields when it's ``null`` or ``undefined``.
+ * DatasetCard — wide-format catalog row.
+ *
+ * The card renders at full 1200px width (one per row on /datasets)
+ * with a tag row, title, byline, a 5-column metadata strip (species
+ * / region / docs / size / DOI), and a 2-line abstract clamp.
+ *
+ * The synthesized `summary` field is preferred over raw-record
+ * fields when present, and the card gracefully degrades when the
+ * synthesizer hasn't run (`summary === null`) or the backend is on
+ * a pre-B2 deploy (`summary === undefined`).
  */
 import { describe, expect, it } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 import type { DatasetRecord } from '@/api/datasets';
@@ -55,31 +62,47 @@ function renderCard(dataset: DatasetRecord) {
   );
 }
 
-describe('DatasetCard — compact summary', () => {
-  it('renders species pills, brain-region pills, and subject count when summary is present', () => {
+describe('DatasetCard — wide-format card', () => {
+  it('renders the title, abstract, and license badge', () => {
     renderCard(baseDataset({ summary: compactSummary() }));
-
-    const summarySection = screen.getByTestId('dataset-card-summary');
-    expect(summarySection).toBeInTheDocument();
-
-    const species = within(summarySection).getByTestId(
-      'dataset-card-summary-species',
-    );
-    expect(within(species).getByText('Rattus norvegicus')).toBeInTheDocument();
-
-    const regions = within(summarySection).getByTestId(
-      'dataset-card-summary-brain-regions',
-    );
     expect(
-      within(regions).getByText('primary visual cortex'),
+      screen.getByRole('heading', { name: 'A Testing Dataset' }),
     ).toBeInTheDocument();
-
     expect(
-      within(summarySection).getByTestId('dataset-card-summary-subjects'),
-    ).toHaveTextContent('5 subjects');
+      screen.getByText(/Experimental data from rats and mice\./i),
+    ).toBeInTheDocument();
+    expect(screen.getByText('CC-BY-4.0')).toBeInTheDocument();
   });
 
-  it('prefers summary.counts.totalDocuments over dataset.documentCount for the docs count chip', () => {
+  it('renders the published status pill', () => {
+    renderCard(baseDataset({ summary: compactSummary() }));
+    // Unicode bullet (•) + "Published" — live text check avoids
+    // relying on the internal Badge implementation.
+    expect(screen.getByText(/Published/i)).toBeInTheDocument();
+  });
+
+  it('prefers summary.species over dataset.species in the Species cell', () => {
+    renderCard(
+      baseDataset({
+        species: 'Mus musculus',
+        summary: compactSummary({
+          species: [{ label: 'Rattus norvegicus', ontologyId: 'NCBITaxon:10116' }],
+        }),
+      }),
+    );
+    // Summary value wins; raw record hidden.
+    expect(screen.getByText('Rattus norvegicus')).toBeInTheDocument();
+    expect(screen.queryByText('Mus musculus')).not.toBeInTheDocument();
+  });
+
+  it('falls back to dataset.species when no summary is attached', () => {
+    renderCard(
+      baseDataset({ species: 'Mus musculus', summary: null }),
+    );
+    expect(screen.getByText('Mus musculus')).toBeInTheDocument();
+  });
+
+  it('prefers summary.counts.totalDocuments over dataset.documentCount', () => {
     renderCard(
       baseDataset({
         documentCount: 123,
@@ -88,124 +111,72 @@ describe('DatasetCard — compact summary', () => {
         }),
       }),
     );
-    // Synth count wins — 999 docs rendered, not 123.
-    expect(screen.getByText(/999 docs/i)).toBeInTheDocument();
-    expect(screen.queryByText(/123 docs/i)).not.toBeInTheDocument();
+    // Synth count wins — 999 rendered, not 123.
+    expect(screen.getByText('999')).toBeInTheDocument();
+    expect(screen.queryByText('123')).not.toBeInTheDocument();
   });
 
-  it('falls back to raw-record rendering when summary is null', () => {
+  it('falls back to dataset.documentCount when summary is null', () => {
     renderCard(baseDataset({ summary: null }));
-
-    // Compact section NOT rendered.
-    expect(
-      screen.queryByTestId('dataset-card-summary'),
-    ).not.toBeInTheDocument();
-
-    // Raw-record docs count still rendered.
-    expect(screen.getByText(/123 docs/i)).toBeInTheDocument();
-    // License badge still shown.
-    expect(screen.getByText('CC-BY-4.0')).toBeInTheDocument();
+    expect(screen.getByText('123')).toBeInTheDocument();
   });
 
-  it('falls back to raw-record rendering when summary is undefined (pre-B2 backend)', () => {
-    renderCard(baseDataset());  // no `summary` key at all
-
-    expect(
-      screen.queryByTestId('dataset-card-summary'),
-    ).not.toBeInTheDocument();
-    expect(screen.getByText(/123 docs/i)).toBeInTheDocument();
+  it('falls back to dataset.documentCount when summary is undefined (pre-B2 backend)', () => {
+    renderCard(baseDataset()); // no `summary` key at all
+    expect(screen.getByText('123')).toBeInTheDocument();
   });
 
-  it('omits the summary section entirely when all facts are empty/zero', () => {
-    renderCard(
+  it('surfaces the Subjects MetaCell only when summary.counts.subjects > 0', () => {
+    // With subjects=5, Subjects row is present.
+    const { rerender } = renderCard(
       baseDataset({
         summary: compactSummary({
-          species: [],
-          brainRegions: [],
-          counts: { subjects: 0, totalDocuments: 0 },
+          counts: { subjects: 5, totalDocuments: 120 },
         }),
       }),
     );
+    expect(screen.getByText('Subjects')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
 
-    // Empty summary → no summary section rendered.
-    expect(
-      screen.queryByTestId('dataset-card-summary'),
-    ).not.toBeInTheDocument();
-    // But the raw card still renders.
-    expect(screen.getByText('A Testing Dataset')).toBeInTheDocument();
+    // With subjects=0, Subjects row is hidden.
+    rerender(
+      <MemoryRouter>
+        <DatasetCard
+          dataset={baseDataset({
+            summary: compactSummary({
+              counts: { subjects: 0, totalDocuments: 120 },
+            }),
+          })}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText('Subjects')).not.toBeInTheDocument();
   });
 
-  it('omits the summary section when species and regions are null and subjects=0', () => {
+  it('renders the DOI MetaCell without the https:// prefix when present', () => {
     renderCard(
       baseDataset({
-        summary: compactSummary({
-          species: null,
-          brainRegions: null,
-          counts: { subjects: 0, totalDocuments: 50 },
-        }),
+        doi: 'https://doi.org/10.63884/xyz',
       }),
     );
-    expect(
-      screen.queryByTestId('dataset-card-summary'),
-    ).not.toBeInTheDocument();
+    // Prefix stripped; the mono bucket shows just the registrar path.
+    expect(screen.getByText('doi.org/10.63884/xyz')).toBeInTheDocument();
   });
 
-  it('shows subject count even when species / regions are unavailable', () => {
+  it('shows em-dash placeholders when a MetaCell has no data', () => {
     renderCard(
       baseDataset({
-        summary: compactSummary({
-          species: null,
-          brainRegions: null,
-          counts: { subjects: 7, totalDocuments: 140 },
-        }),
+        species: undefined,
+        brainRegions: undefined,
+        summary: null,
       }),
     );
-    const subjects = screen.getByTestId('dataset-card-summary-subjects');
-    expect(subjects).toHaveTextContent('7 subjects');
-    // Species / region rows are absent.
-    expect(
-      screen.queryByTestId('dataset-card-summary-species'),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByTestId('dataset-card-summary-brain-regions'),
-    ).not.toBeInTheDocument();
+    // At least two em-dashes (species + region cells both empty).
+    const dashes = screen.getAllByText('—');
+    expect(dashes.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('caps pill rows at 3 items and shows an "+N" overflow count', () => {
-    const manySpecies = Array.from({ length: 5 }, (_, i) => ({
-      label: `Species ${i + 1}`,
-      ontologyId: `NCBITaxon:${10000 + i}`,
-    }));
-    renderCard(
-      baseDataset({
-        summary: compactSummary({ species: manySpecies }),
-      }),
-    );
-    const species = screen.getByTestId('dataset-card-summary-species');
-    // First 3 rendered as pills.
-    expect(within(species).getByText('Species 1')).toBeInTheDocument();
-    expect(within(species).getByText('Species 2')).toBeInTheDocument();
-    expect(within(species).getByText('Species 3')).toBeInTheDocument();
-    // 4 and 5 hidden behind overflow badge.
-    expect(within(species).queryByText('Species 4')).not.toBeInTheDocument();
-    expect(
-      within(species).getByTestId('dataset-card-summary-species-overflow'),
-    ).toHaveTextContent('+2');
-  });
-
-  it('renders OntologyTermPill WITHOUT a resolver link inside the card (nested <a> is invalid HTML)', () => {
-    renderCard(baseDataset({ summary: compactSummary() }));
-    // The pills still render their label content with ontologyId data
-    // attribute for tooltip hover…
-    const pills = screen.getAllByTestId('ontology-term-pill');
-    expect(pills.length).toBeGreaterThan(0);
-    // …but the resolver anchor is suppressed. The whole card is a
-    // single <Link>, and nested <a> would fail HTML validation. Users
-    // reach the ontology resolver from the detail-page pill instead.
-    expect(screen.queryAllByTestId('ontology-term-link')).toHaveLength(0);
-  });
-
-  it('preserves card link target to the dataset detail page', () => {
+  it('wraps the entire card in a single Link to the dataset detail page', () => {
     renderCard(baseDataset({ summary: compactSummary() }));
     const link = screen.getByRole('link', {
       name: /open dataset A Testing Dataset/i,

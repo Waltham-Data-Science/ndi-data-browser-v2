@@ -73,7 +73,13 @@ vi.mock('@/api/client', () => {
 });
 
 // DatasetDetailPage imports DatasetDetailPage via the normal module.
-import { DatasetDetailPage } from './DatasetDetailPage';
+// The Cite + Use-this-data buttons live in the Overview tab now, so we
+// mount the full nested route tree and land the MemoryRouter on
+// /datasets/ds-test-1/overview directly (skips the index redirect,
+// which MemoryRouter would still resolve correctly but makes the test
+// read cleaner).
+import { DatasetDetailPage, OverviewTab } from './DatasetDetailPage';
+import { Navigate } from 'react-router-dom';
 
 function mount() {
   const qc = new QueryClient({
@@ -85,12 +91,12 @@ function mount() {
   });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={['/datasets/ds-test-1']}>
+      <MemoryRouter initialEntries={['/datasets/ds-test-1/overview']}>
         <Routes>
-          <Route
-            path="/datasets/:id"
-            element={<DatasetDetailPage />}
-          />
+          <Route path="/datasets/:id" element={<DatasetDetailPage />}>
+            <Route index element={<Navigate to="overview" replace />} />
+            <Route path="overview" element={<OverviewTab />} />
+          </Route>
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
