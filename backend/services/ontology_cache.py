@@ -85,11 +85,9 @@ class OntologyCache:
 
     def close(self) -> None:
         """Close the long-lived connection. Safe to call multiple times."""
-        with self._lock:
-            try:
-                self._conn_obj.close()
-            except Exception:  # noqa: BLE001 — close is best-effort
-                pass
+        import contextlib
+        with self._lock, contextlib.suppress(Exception):
+            self._conn_obj.close()
 
     def get(self, provider: str, term_id: str) -> OntologyTerm | None:
         with self._lock:

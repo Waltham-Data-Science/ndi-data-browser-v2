@@ -14,7 +14,8 @@ The v1 SQLite dataset cache is gone. Every read is a cloud read.
 │                                                                │
 │  React 19 + Vite + TanStack Query v5 + React Router 7          │
 │  • One API client (src/api/client.ts) → our FastAPI            │
-│  • httpOnly session cookie (JWT + refresh never in JS)         │
+│  • httpOnly session cookie; encrypted Cognito access token     │
+│    lives in Redis, never in JS (ADR-002, ADR-008).             │
 │  • Types auto-generated from FastAPI OpenAPI                   │
 │  • axe-core clean, WCAG 2.1 AA                                 │
 └──────────────────────────┬─────────────────────────────────────┘
@@ -62,7 +63,9 @@ The v1 SQLite dataset cache is gone. Every read is a cloud read.
 │  GET  /datasets/:id/documents, /documents/:docId               │
 │  POST /datasets/:id/documents/bulk-fetch        (<=500 IDs)    │
 │  POST /ndiquery   scope = public | private | all | CSV IDs     │
-│  POST /auth/login, /auth/refresh, /auth/logout                 │
+│  POST /auth/login, /auth/logout                                │
+│    (no /auth/refresh — ADR-008: access tokens are 1-hour TTL,  │
+│     expiry forces re-login via the AUTH_EXPIRED path)          │
 │                                                                │
 │  Indexing (enables cloud-first arch):                          │
 │    • {dataset, classLineage}          (isa, auto-injected)     │
@@ -145,7 +148,9 @@ session expiry surfaces to the frontend as `AUTH_REQUIRED` and the user re-logs 
 1. **Token safety.** Cognito tokens never touch JavaScript. XSS → no credential theft.
 2. **Enrichment.** Binary decoding (NBF/VHSB), ontology lookups, violin math are server-side Python.
 3. **Single pane of glass.** Rate limiting, observability, error mapping live in one place.
-4. **Refresh flow.** Transparent refresh requires server-side state (Redis lock, encrypted refresh token).
+4. **SSRF containment.** `download_file()` only fetches URLs whose host
+   is on `DOWNLOAD_HOST_ALLOWLIST` + the cloud host, with non-http(s)
+   schemes hard-rejected before any network I/O (audit 2026-04-23 #49).
 
 ~20-50ms added per request; cloud is fast enough that p95 still hits budget.
 

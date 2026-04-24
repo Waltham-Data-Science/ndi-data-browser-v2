@@ -33,8 +33,8 @@ from ..observability.logging import get_logger
 # numpy + PIL are only needed when a request actually decodes image or
 # timeseries binary — they're imported lazily inside the relevant
 # functions below. Eagerly loading them at module import time (and
-# therefore at worker boot via routers/binary.py → app.py) cost ~500ms
-# per worker × 4 workers = ~2s extra cold start per Railway deploy.
+# therefore at worker boot via routers/binary.py -> app.py) cost ~500ms
+# per worker x 4 workers = ~2s extra cold start per Railway deploy.
 # Audit 2026-04-23, issue #57. `from __future__ import annotations`
 # above makes signature annotations lazy strings so we don't need the
 # TYPE_CHECKING dance for them.

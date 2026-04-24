@@ -149,7 +149,8 @@ async def do_logout(
         if session is not None:
             try:
                 await cloud.logout(session.access_token)
-            except Exception as e:  # noqa: BLE001 — best-effort upstream logout
+            except Exception as e:
+                # Best-effort upstream logout — local teardown continues.
                 log.info(
                     "auth.logout.cloud_failed",
                     reason=type(e).__name__,

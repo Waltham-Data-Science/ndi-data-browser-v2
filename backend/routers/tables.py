@@ -2,7 +2,7 @@
 
 All endpoints are wrapped in ``cancel_on_disconnect`` (audit 2026-04-23 #62)
 — a ``/tables/combined`` build on a cold cache can touch ~19 bulk-fetch
-batches × ~30s Lambda ceiling. A client navigating away mid-build used
+batches x ~30s Lambda ceiling. A client navigating away mid-build used
 to keep burning cloud calls; now it unwinds.
 """
 from __future__ import annotations

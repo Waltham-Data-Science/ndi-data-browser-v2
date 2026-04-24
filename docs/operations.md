@@ -41,14 +41,18 @@ Scale `numReplicas` back to 2+ when:
 
 ### CI scope
 
-The repo has four CI workflows — three of them run unattended:
+The repo has five CI workflows — two run unattended, three are
+cron-/manual-triggered. Audit 2026-04-23 (#71) corrected this table:
+the previous version listed a nonexistent `rollout-health.yml` and
+pinned a stale test count.
 
 | Workflow | Trigger | What it gates |
 |---|---|---|
-| `ci.yml` | every PR + push to `main` | ruff, mypy strict, pytest 212, vitest, typecheck, frontend build, bundle-size ≤ 200 KB gzip, Docker build, security audit |
+| `ci.yml` | every PR + push to `main` | `hygiene` (reject Finder dupes), ruff, mypy strict, pytest + 70% cov gate, vitest + coverage gate, typecheck, frontend build, bundle-size ≤ 200 KB gzip, Docker build, pip-audit + npm audit |
 | `nightly-contract.yml` | daily cron (04:00 UTC) | contract tests against live dev cloud |
+| `pr-branch-freshness.yml` | PR open/sync/reopen | fails when a PR's base is behind `origin/main` (CI-as-branch-protection; see CLAUDE.md) |
+| `xlsx-cdn-advisory-check.yml` | weekly cron (Mon 09:00 UTC) + manual | polls `cdn.sheetjs.com/advisories/` for new CVEs not on our known-addressed allowlist |
 | `load-test.yml` | `workflow_dispatch` only | Locust p95 + 5xx gates |
-| `rollout-health.yml` | `workflow_dispatch` only (schedule intentionally off) | prod /metrics probe during a staged cutover |
 
 Playwright + Lighthouse do **not** run in CI. The specs + fixtures +
 lighthouserc.json live under `frontend/tests-e2e/` and the repo root
@@ -90,8 +94,11 @@ When the project grows or staging/preview envs are added, revisit.
 3. Mitigation: the UI already warns on unbounded queries. If we see programmatic abuse, add per-user rate limit adjustment.
 
 ### Cognito token issues
-1. `ndb_cognito_refresh_failures_total` rising → users being forced to re-login.
-2. Check Cognito User Pool config (AWS console): refresh token TTL, rotation settings.
+Access tokens are 1-hour TTL and we do not refresh them (ADR-008). Burst
+of `AUTH_EXPIRED` responses is expected user behavior after a 1-hour
+idle. Check instead:
+1. `ndb_login_attempts_total{outcome="failure"}` spike → credential problem, not token problem.
+2. Cognito User Pool availability (AWS console) if login itself is failing.
 
 ## Observability endpoints
 
@@ -103,11 +110,16 @@ When the project grows or staging/preview envs are added, revisit.
 
 ## Dashboards
 
-Committed as code under `infra/dashboards/`:
-- `overview.json` — req count, latency, error rate by route
-- `cloud.json` — cloud client call latency, retry count, breaker state
-- `auth.json` — login rate, refresh success rate, session count
-- `business.json` — top datasets viewed, queries per hour, ontology cache hit rate
+None committed as code today (audit 2026-04-23 #72 — the previous
+"four JSONs committed under `infra/dashboards/`" claim was stale;
+the directory existed but was empty). Build dashboards ad-hoc against
+the documented Prometheus metrics (`ndb_http_requests_total`,
+`ndb_cloud_call_*`, `ndb_session_lookup_seconds_*`,
+`ndb_query_timeout_total`, `ndb_circuit_breaker_state`,
+`ontology_cache_hits_total`, `login_attempts_total`).
+
+A tracked follow-up: export Grafana models to JSON and commit them to
+`infra/dashboards/` once the first iteration stabilizes.
 
 ## Runbook: cutover
 

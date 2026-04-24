@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable
-from typing import TypeVar
 
 from fastapi import Request
 
@@ -29,12 +28,10 @@ from ..observability.logging import get_logger
 
 log = get_logger(__name__)
 
-T = TypeVar("T")
-
 _POLL_INTERVAL_SECONDS = 1.0
 
 
-async def cancel_on_disconnect(request: Request, coro: Awaitable[T]) -> T:
+async def cancel_on_disconnect[T](request: Request, coro: Awaitable[T]) -> T:
     """Await ``coro``; if ``request`` disconnects first, cancel the
     inner task and re-raise ``asyncio.CancelledError``.
 
@@ -64,7 +61,7 @@ async def cancel_on_disconnect(request: Request, coro: Awaitable[T]) -> T:
                     await task
                 except asyncio.CancelledError:
                     raise
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     # If the task raised something else between the
                     # cancel signal and actual cancellation, log and
                     # surface the cancellation anyway — the client is

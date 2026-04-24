@@ -57,7 +57,7 @@ def test_accepts_optional_group_by() -> None:
         "a" * 129,         # over length
     ],
 )
-def test_rejects_injection_in_datasetId(bad_id: str) -> None:
+def test_rejects_injection_in_datasetId(bad_id: str) -> None:  # noqa: N802 — datasetId mirrors JSON body field
     with pytest.raises(ValidationError):
         DistributionBody.model_validate(_valid(datasetId=bad_id))
 
@@ -73,7 +73,7 @@ def test_rejects_injection_in_datasetId(bad_id: str) -> None:
         "a" * 65,
     ],
 )
-def test_rejects_injection_in_className(bad_cls: str) -> None:
+def test_rejects_injection_in_className(bad_cls: str) -> None:  # noqa: N802 — className mirrors JSON body field
     with pytest.raises(ValidationError):
         DistributionBody.model_validate(_valid(className=bad_cls))
 
@@ -94,7 +94,7 @@ def test_rejects_injection_in_field(bad_field: str) -> None:
         DistributionBody.model_validate(_valid(field=bad_field))
 
 
-def test_rejects_injection_in_groupBy() -> None:
+def test_rejects_injection_in_groupBy() -> None:  # noqa: N802 — groupBy mirrors JSON body field
     with pytest.raises(ValidationError):
         DistributionBody.model_validate(_valid(groupBy="studyMetadata/strain"))
     with pytest.raises(ValidationError):

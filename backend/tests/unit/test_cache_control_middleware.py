@@ -19,8 +19,6 @@ assert:
 """
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
 from backend.middleware.cache_control import CacheControlMiddleware
@@ -98,7 +96,7 @@ def _header(headers: list[tuple[bytes, bytes]], name: bytes) -> str | None:
 async def test_authenticated_request_gets_private_cache_control() -> None:
     """Issue #50 fix: session cookie is named `session=`, not `ndi_session=`."""
     scope = _mk_scope(cookie="session=abc123; other=1")
-    status, headers, body = await _run_middleware(scope, b'{"ok":true}')
+    status, headers, _body = await _run_middleware(scope, b'{"ok":true}')
     assert status == 200
     cc = _header(headers, b"cache-control") or ""
     assert "private" in cc
@@ -111,7 +109,7 @@ async def test_authenticated_request_gets_private_cache_control() -> None:
 @pytest.mark.asyncio
 async def test_unauthenticated_request_gets_public_cache_control() -> None:
     scope = _mk_scope(cookie=None)
-    status, headers, body = await _run_middleware(scope, b'{"ok":true}')
+    status, headers, _body = await _run_middleware(scope, b'{"ok":true}')
     assert status == 200
     cc = _header(headers, b"cache-control") or ""
     assert "public" in cc
@@ -123,7 +121,7 @@ async def test_old_wrong_cookie_name_is_not_treated_as_authenticated() -> None:
     """Historical drift: the middleware used to check `ndi_session=`. If
     someone ships that cookie name again, it must not spoof authentication."""
     scope = _mk_scope(cookie="ndi_session=abc123")
-    status, headers, body = await _run_middleware(scope, b'{"ok":true}')
+    status, headers, _body = await _run_middleware(scope, b'{"ok":true}')
     assert status == 200
     cc = _header(headers, b"cache-control") or ""
     # The `session=` check is strict — `ndi_session=` should NOT match.
