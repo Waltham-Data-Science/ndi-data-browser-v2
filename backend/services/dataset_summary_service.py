@@ -56,7 +56,12 @@ log = get_logger(__name__)
 SUMMARY_SCHEMA_VERSION = "summary:v1"
 SUMMARY_CACHE_TTL_SECONDS = 5 * 60  # freshness > TTL economy (amendment §4.B3)
 SUMMARY_KEY_PREFIX = "summary:v1"
-MAX_CONCURRENT_BULK_FETCH = 3  # same default as summary_table_service
+# Audit 2026-04-23 (#60): bumped 3 → 6 to actually match
+# ``summary_table_service.MAX_CONCURRENT_BULK_FETCH`` (the prior comment
+# claimed alignment but the values differed). Catalog list-with-summary
+# enrichment pages faned out under the smaller bound, serializing cold
+# summaries ≈17 rounds for a 100-dataset page.
+MAX_CONCURRENT_BULK_FETCH = 6
 
 
 # ---------------------------------------------------------------------------

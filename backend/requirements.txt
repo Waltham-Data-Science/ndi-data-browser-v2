@@ -11,5 +11,5 @@ prometheus-client>=0.20.0
 python-multipart>=0.0.9
 Pillow>=10.4.0
 numpy>=2.0.0
-pandas>=2.2.0
 scipy>=1.14.0
+# pandas removed in audit 2026-04-23 (#58) — never imported.

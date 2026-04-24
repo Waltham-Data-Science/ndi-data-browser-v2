@@ -18,8 +18,11 @@ dependencies = [
     "python-multipart>=0.0.9",
     "Pillow>=10.4.0",
     "numpy>=2.0.0",
-    "pandas>=2.2.0",
     "scipy>=1.14.0",
+    # pandas was declared but never imported anywhere in backend/. Removed
+    # in audit 2026-04-23 (#58) — it was a ~30 MB wheel for no runtime
+    # use. If a future feature needs it, re-add with a comment pointing
+    # at the specific caller.
 ]
 
 [project.optional-dependencies]
