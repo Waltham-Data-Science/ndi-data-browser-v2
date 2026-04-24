@@ -14,7 +14,7 @@ export function VideoPlayer({ data }: VideoPlayerProps) {
           ? 'This document does not have an associated video file.'
           : String(data.error);
     return (
-      <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+      <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
         {friendly}
       </div>
     );
@@ -22,14 +22,14 @@ export function VideoPlayer({ data }: VideoPlayerProps) {
 
   if (!data.url) {
     return (
-      <div className="text-sm text-gray-500 dark:text-gray-400 p-3">
+      <div className="text-sm text-gray-500 p-3">
         No video URL available
       </div>
     );
   }
 
   return (
-    <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-black overflow-hidden">
+    <div className="rounded-md border border-gray-200 bg-black overflow-hidden">
       <video src={data.url} controls preload="metadata" className="w-full max-h-[calc(100vh-200px)]">
         Your browser does not support video playback.
       </video>

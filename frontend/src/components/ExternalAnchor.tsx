@@ -43,7 +43,7 @@ export function ExternalAnchor({
     return (
       <span
         className={cn(
-          'inline-flex min-w-0 max-w-full items-center gap-0.5 overflow-hidden text-gray-700 dark:text-gray-300',
+          'inline-flex min-w-0 max-w-full items-center gap-0.5 overflow-hidden text-gray-700',
           className,
         )}
       >
@@ -57,7 +57,7 @@ export function ExternalAnchor({
       target="_blank"
       rel="noopener noreferrer"
       className={cn(
-        'inline-flex min-w-0 max-w-full items-center gap-0.5 overflow-hidden text-brand-600 dark:text-brand-400 hover:underline',
+        'inline-flex min-w-0 max-w-full items-center gap-0.5 overflow-hidden text-brand-600 hover:underline',
         className,
       )}
     >

@@ -64,7 +64,7 @@ export function OutputShapePreview({ grains }: OutputShapePreviewProps) {
         <CardTitle className="text-sm">Output shape preview</CardTitle>
       </CardHeader>
       <CardBody className="space-y-4">
-        <p className="text-xs text-gray-600 dark:text-gray-400">
+        <p className="text-xs text-gray-600">
           These are the column sets a matching result table will use for each
           grain. Shape follows NDI-matlab&apos;s canonical{' '}
           <code className="font-mono text-[11px]">docTable</code> tutorial.
@@ -74,13 +74,13 @@ export function OutputShapePreview({ grains }: OutputShapePreviewProps) {
           <GrainPreview key={grain} grain={grain} />
         ))}
 
-        <p className="text-[11px] text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-200 dark:border-gray-700">
+        <p className="text-[11px] text-gray-500 pt-2 border-t border-gray-200">
           Source: NDI-matlab{' '}
           <a
             href={TUTORIAL_URL}
             target="_blank"
             rel="noreferrer noopener"
-            className="text-brand-600 dark:text-brand-400 hover:underline"
+            className="text-brand-600 hover:underline"
           >
             Francesconi et al. 2025 tutorial
           </a>{' '}
@@ -89,7 +89,7 @@ export function OutputShapePreview({ grains }: OutputShapePreviewProps) {
             href={PAPER_URL}
             target="_blank"
             rel="noreferrer noopener"
-            className="text-brand-600 dark:text-brand-400 hover:underline"
+            className="text-brand-600 hover:underline"
           >
             Cell Reports paper
           </a>
@@ -105,23 +105,23 @@ function GrainPreview({ grain }: { grain: 'subject' | 'probe' | 'epoch' }) {
   const visibleColumns = cfg.columns.filter((c: ColumnDefault) => c.visible);
   return (
     <div>
-      <h3 className="text-xs font-medium text-gray-700 dark:text-gray-200 mb-1.5">
+      <h3 className="text-xs font-medium text-gray-700 mb-1.5">
         {cfg.title}{' '}
-        <code className="font-mono text-[11px] text-gray-500 dark:text-gray-400">
+        <code className="font-mono text-[11px] text-gray-500">
           {cfg.matlabCall}
         </code>{' '}
-        <span className="text-gray-500 dark:text-gray-400">
+        <span className="text-gray-500">
           ({visibleColumns.length} columns)
         </span>
       </h3>
-      <div className="overflow-x-auto rounded border border-gray-200 dark:border-gray-700">
+      <div className="overflow-x-auto rounded border border-gray-200">
         <table className="w-full text-xs">
-          <thead className="bg-gray-50 dark:bg-gray-900">
+          <thead className="bg-gray-50">
             <tr>
               {visibleColumns.map((col) => (
                 <th
                   key={col.id}
-                  className="px-2 py-1.5 text-left font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap"
+                  className="px-2 py-1.5 text-left font-medium text-gray-600 whitespace-nowrap"
                 >
                   {col.header}
                 </th>

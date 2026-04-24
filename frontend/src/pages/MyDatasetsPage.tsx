@@ -7,7 +7,7 @@ import {
   List,
   FileText,
 } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { memo, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 
 import { useMe } from '@/api/auth';
@@ -376,7 +376,17 @@ function DatasetTable({ datasets }: { datasets: DatasetRecord[] }) {
   );
 }
 
-function DatasetRow({ dataset, isLast }: { dataset: DatasetRecord; isLast: boolean }) {
+// Audit 2026-04-23 (#64 follow-up MEDIUM-M20): memoize DatasetRow so
+// filter-chip toggles don't re-render the entire visible grid. Identity
+// comparison on DatasetRecord is safe because the parent only mutates
+// the array, never individual entries.
+const DatasetRow = memo(function DatasetRow({
+  dataset,
+  isLast,
+}: {
+  dataset: DatasetRecord;
+  isLast: boolean;
+}) {
   const published = dataset.publishStatus === 'published' || dataset.isPublished;
   const statusKey = published ? 'pub' : 'draft';
   const updatedAt = dataset.updatedAt || dataset.uploadedAt || dataset.createdAt;
@@ -442,7 +452,7 @@ function DatasetRow({ dataset, isLast }: { dataset: DatasetRecord; isLast: boole
       </td>
     </tr>
   );
-}
+});
 
 /** NDI datasets typically list species as a comma-separated string
  *  with parenthesized scientific names (e.g., "Ferrets (Mustelo putorius

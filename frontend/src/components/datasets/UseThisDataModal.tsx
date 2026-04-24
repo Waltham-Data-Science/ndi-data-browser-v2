@@ -142,7 +142,6 @@ function DissonanceNote() {
       className={cn(
         'flex gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs',
         'text-amber-800 ring-1 ring-amber-200',
-        'dark:bg-amber-900/30 dark:text-amber-200 dark:ring-amber-800',
       )}
       data-testid="dissonance-note"
     >
@@ -171,7 +170,7 @@ function SnippetPanel({
       data-testid={testId}
     >
       <div className="flex items-center justify-between">
-        <span className="font-mono text-[11px] text-gray-500 dark:text-gray-400">
+        <span className="font-mono text-[11px] text-gray-500">
           {filename}
         </span>
         <CopyButton
@@ -184,7 +183,6 @@ function SnippetPanel({
         className={cn(
           'overflow-x-auto rounded-md border border-gray-200 bg-gray-900 p-3',
           'font-mono text-[12px] leading-relaxed text-gray-100',
-          'dark:border-gray-700',
         )}
         data-language={language}
         data-testid={`${testId}-content`}

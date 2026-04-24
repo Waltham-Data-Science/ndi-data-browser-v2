@@ -67,7 +67,7 @@ export function DatasetProvenanceCard({
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+    <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
       {children}
     </h2>
   );
@@ -83,7 +83,7 @@ function BranchOfSection({ branchOf }: { branchOf: string | null }) {
       <SectionHeading>Branched from</SectionHeading>
       {branchOf === null ? (
         <p
-          className="text-[11px] italic text-gray-500 dark:text-gray-400"
+          className="text-[11px] italic text-gray-500"
           data-testid="provenance-not-a-branch"
         >
           Not a branch
@@ -91,7 +91,7 @@ function BranchOfSection({ branchOf }: { branchOf: string | null }) {
       ) : (
         <Link
           to={`/datasets/${branchOf}`}
-          className="inline-flex items-center gap-1.5 font-mono text-xs text-brand-600 hover:underline dark:text-brand-400"
+          className="inline-flex items-center gap-1.5 font-mono text-xs text-brand-600 hover:underline"
           data-testid="provenance-branch-of-link"
         >
           <GitBranch className="h-3 w-3 shrink-0" aria-hidden />
@@ -112,7 +112,7 @@ function BranchesSection({ branches }: { branches: string[] }) {
       <SectionHeading>Branches</SectionHeading>
       {branches.length === 0 ? (
         <p
-          className="text-[11px] italic text-gray-500 dark:text-gray-400"
+          className="text-[11px] italic text-gray-500"
           data-testid="provenance-no-branches"
         >
           No branches
@@ -126,7 +126,6 @@ function BranchesSection({ branches }: { branches: string[] }) {
                 className={cn(
                   'inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[11px] ring-1 ring-inset',
                   'bg-brand-50 text-brand-800 ring-brand-200 hover:bg-brand-100',
-                  'dark:bg-brand-900/40 dark:text-brand-200 dark:ring-brand-800 dark:hover:bg-brand-900/60',
                 )}
                 data-testid="provenance-branch-chip"
               >
@@ -176,7 +175,7 @@ function DependenciesSection({ edges }: { edges: DatasetDependencyEdge[] }) {
       <SectionHeading>Dependencies</SectionHeading>
       {totalEdges === 0 ? (
         <p
-          className="text-[11px] italic text-gray-500 dark:text-gray-400"
+          className="text-[11px] italic text-gray-500"
           data-testid="provenance-no-dependencies"
         >
           No cross-dataset dependencies
@@ -185,12 +184,12 @@ function DependenciesSection({ edges }: { edges: DatasetDependencyEdge[] }) {
         <>
           <button
             type="button"
-            className="inline-flex w-full items-center justify-between rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5 text-left text-xs hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800"
+            className="inline-flex w-full items-center justify-between rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5 text-left text-xs hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
             onClick={() => setExpanded((v) => !v)}
             aria-expanded={expanded}
             data-testid="provenance-dependencies-toggle"
           >
-            <span className="flex items-center gap-1.5 text-gray-700 dark:text-gray-200">
+            <span className="flex items-center gap-1.5 text-gray-700">
               <Network className="h-3 w-3 shrink-0" aria-hidden />
               <span>
                 <span
@@ -229,7 +228,7 @@ function DependenciesSection({ edges }: { edges: DatasetDependencyEdge[] }) {
                 >
                   <Link
                     to={`/datasets/${targetId}`}
-                    className="inline-flex items-center gap-1.5 font-mono text-[11px] text-brand-600 hover:underline dark:text-brand-400"
+                    className="inline-flex items-center gap-1.5 font-mono text-[11px] text-brand-600 hover:underline"
                     data-testid="provenance-target-link"
                   >
                     <Network className="h-3 w-3 shrink-0" aria-hidden />
@@ -248,7 +247,7 @@ function DependenciesSection({ edges }: { edges: DatasetDependencyEdge[] }) {
                         >
                           {e.viaDocumentClass}
                         </Badge>
-                        <span className="text-gray-600 dark:text-gray-300">
+                        <span className="text-gray-600">
                           {e.edgeCount} ref{e.edgeCount === 1 ? '' : 's'}
                         </span>
                       </li>

@@ -77,7 +77,7 @@ export function DependencyGraphView({
         <CardBody className="pt-0">
           <div className="flex items-center gap-2 py-4 justify-center">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />
-            <span className="text-xs text-gray-500 dark:text-gray-400">
+            <span className="text-xs text-gray-500">
               Building dependency graph…
             </span>
           </div>
@@ -142,15 +142,15 @@ export function DependencyGraphView({
               </Badge>
             )}
           </CardTitle>
-          <div className="flex items-center rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="flex items-center rounded-md border border-gray-200 overflow-hidden">
             <button
               type="button"
               onClick={() => setViewMode('visual')}
               className={cn(
                 'flex items-center gap-1 px-2 py-1 text-[10px] transition-colors',
                 viewMode === 'visual'
-                  ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100',
+                  ? 'bg-gray-900 text-white'
+                  : 'text-gray-600 hover:text-gray-900:text-gray-100',
               )}
               title="Visual tree"
               aria-pressed={viewMode === 'visual'}
@@ -164,8 +164,8 @@ export function DependencyGraphView({
               className={cn(
                 'flex items-center gap-1 px-2 py-1 text-[10px] transition-colors',
                 viewMode === 'text'
-                  ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100',
+                  ? 'bg-gray-900 text-white'
+                  : 'text-gray-600 hover:text-gray-900:text-gray-100',
               )}
               title="Text list"
               aria-pressed={viewMode === 'text'}
@@ -213,8 +213,8 @@ function NodeBox({
       className={cn(
         'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-mono transition-colors',
         isTarget
-          ? 'border-brand-400 bg-brand-50 ring-2 ring-brand-200/60 dark:border-brand-400 dark:bg-brand-950/40'
-          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-brand-300',
+          ? 'border-brand-400 bg-brand-50 ring-2 ring-brand-200/60'
+          : 'border-gray-200 bg-white hover:border-brand-300',
       )}
     >
       <Badge
@@ -227,8 +227,8 @@ function NodeBox({
         className={cn(
           'truncate max-w-[200px]',
           isTarget
-            ? 'text-brand-800 dark:text-brand-100 font-medium'
-            : 'text-gray-600 dark:text-gray-300',
+            ? 'text-brand-800 font-medium'
+            : 'text-gray-600',
         )}
       >
         {label}
@@ -249,19 +249,19 @@ function NodeBox({
 function Connector({ label, direction }: { label?: string; direction: 'up' | 'down' }) {
   return (
     <div className="flex flex-col items-center gap-0">
-      {direction === 'down' && <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />}
+      {direction === 'down' && <div className="w-px h-4 bg-gray-200" />}
       {label && (
-        <span className="text-[9px] text-gray-500 dark:text-gray-400 font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800/60 rounded">
+        <span className="text-[9px] text-gray-500 font-mono px-1.5 py-0.5 bg-gray-100 rounded">
           {label}
         </span>
       )}
-      <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
+      <div className="w-px h-4 bg-gray-200" />
       {direction === 'up' ? (
         <ArrowUp className="h-3 w-3 text-brand-500" />
       ) : (
         <ArrowDown className="h-3 w-3 text-emerald-500" />
       )}
-      <div className="w-px h-2 bg-gray-200 dark:bg-gray-700" />
+      <div className="w-px h-2 bg-gray-200" />
     </div>
   );
 }
@@ -283,7 +283,7 @@ function VisualView({
     <div className="flex flex-col items-center gap-0 py-2">
       {upstreamEdges.length > 0 && (
         <>
-          <div className="text-[10px] text-gray-500 dark:text-gray-400 font-medium mb-2 flex items-center gap-1">
+          <div className="text-[10px] text-gray-500 font-medium mb-2 flex items-center gap-1">
             <ArrowUp className="h-3 w-3 text-brand-500" />
             Depends on
           </div>
@@ -301,8 +301,8 @@ function VisualView({
           </div>
           {upstreamEdges.length > 1 && (
             <>
-              <div className="w-3/4 max-w-xs h-px bg-gray-200 dark:bg-gray-700 mb-0" />
-              <div className="w-px h-3 bg-gray-200 dark:bg-gray-700" />
+              <div className="w-3/4 max-w-xs h-px bg-gray-200 mb-0" />
+              <div className="w-px h-3 bg-gray-200" />
             </>
           )}
         </>
@@ -314,8 +314,8 @@ function VisualView({
         <>
           {downstreamEdges.length > 1 && (
             <>
-              <div className="w-px h-3 bg-gray-200 dark:bg-gray-700" />
-              <div className="w-3/4 max-w-xs h-px bg-gray-200 dark:bg-gray-700 mt-0" />
+              <div className="w-px h-3 bg-gray-200" />
+              <div className="w-3/4 max-w-xs h-px bg-gray-200 mt-0" />
             </>
           )}
           <div className="flex flex-wrap items-start justify-center gap-3 mt-1">
@@ -330,7 +330,7 @@ function VisualView({
               );
             })}
           </div>
-          <div className="text-[10px] text-gray-500 dark:text-gray-400 font-medium mt-2 flex items-center gap-1">
+          <div className="text-[10px] text-gray-500 font-medium mt-2 flex items-center gap-1">
             <ArrowDown className="h-3 w-3 text-emerald-500" />
             Depended on by
           </div>
@@ -355,11 +355,11 @@ function TextView({
     <div className="space-y-3">
       {upstreamEdges.length > 0 && (
         <div>
-          <div className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400 font-medium mb-1.5">
+          <div className="flex items-center gap-1 text-[10px] text-gray-500 font-medium mb-1.5">
             <ArrowUp className="h-3 w-3" />
             Depends on ({upstreamEdges.length})
           </div>
-          <div className="space-y-1 pl-4 border-l-2 border-brand-200 dark:border-brand-900">
+          <div className="space-y-1 pl-4 border-l-2 border-brand-200">
             {upstreamEdges.map((edge, i) => {
               const node = nodeMap.get(edge.target);
               if (!node) return null;
@@ -370,11 +370,11 @@ function TextView({
       )}
       {downstreamEdges.length > 0 && (
         <div>
-          <div className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400 font-medium mb-1.5">
+          <div className="flex items-center gap-1 text-[10px] text-gray-500 font-medium mb-1.5">
             <ArrowDown className="h-3 w-3" />
             Depended on by ({downstreamEdges.length})
           </div>
-          <div className="space-y-1 pl-4 border-l-2 border-emerald-200 dark:border-emerald-900">
+          <div className="space-y-1 pl-4 border-l-2 border-emerald-200">
             {downstreamEdges.map((edge, i) => {
               const node = nodeMap.get(edge.source);
               if (!node) return null;
@@ -399,7 +399,7 @@ function EdgeRow({
   const linkTarget = node.id;
   return (
     <div className="flex items-center gap-2 text-xs">
-      <span className="text-gray-500 dark:text-gray-400 font-mono text-[10px] w-20 shrink-0 truncate">
+      <span className="text-gray-500 font-mono text-[10px] w-20 shrink-0 truncate">
         {edge.label}
       </span>
       <Badge variant="outline" className="font-mono shrink-0">
@@ -408,12 +408,12 @@ function EdgeRow({
       {linkTarget ? (
         <Link
           to={`/datasets/${datasetId}/documents/${linkTarget}`}
-          className="font-mono text-[10px] text-brand-600 dark:text-brand-400 hover:underline truncate"
+          className="font-mono text-[10px] text-brand-600 hover:underline truncate"
         >
           {node.name || node.ndiId}
         </Link>
       ) : (
-        <span className="font-mono text-[10px] text-gray-500 dark:text-gray-400 truncate">
+        <span className="font-mono text-[10px] text-gray-500 truncate">
           {node.name || node.ndiId}
         </span>
       )}

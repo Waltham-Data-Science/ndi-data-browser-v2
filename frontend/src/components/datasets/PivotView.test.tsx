@@ -19,6 +19,32 @@ import type { PivotResponse } from '@/api/datasets';
 import type { DatasetSummary } from '@/types/dataset-summary';
 import { DatasetPivotNavGuard, PivotView } from './PivotView';
 
+// Audit 2026-04-23 (#63): PivotView now renders via VirtualizedTable.
+// @tanstack/react-virtual returns zero items under jsdom because the
+// scroll container has 0 height — same mock pattern as
+// SummaryTableView.test.tsx so every row materializes and the cell
+// expectations below keep working. Real virtualization is exercised
+// by Playwright E2E.
+vi.mock('@tanstack/react-virtual', () => {
+  return {
+    useVirtualizer: ({ count, estimateSize }: { count: number; estimateSize: () => number }) => {
+      const size = estimateSize();
+      const items = Array.from({ length: count }, (_, i) => ({
+        index: i,
+        key: i,
+        start: i * size,
+        end: (i + 1) * size,
+        size,
+        lane: 0,
+      }));
+      return {
+        getVirtualItems: () => items,
+        getTotalSize: () => count * size,
+      };
+    },
+  };
+});
+
 function withProviders(
   ui: React.ReactNode,
   { path = '/datasets/DSX/pivot/subject' } = {},

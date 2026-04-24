@@ -249,7 +249,7 @@ export function TimeseriesChart({ data, height = 300 }: TimeseriesChartProps) {
             ? 'Timeseries preview is not available for this document. The data file may not be accessible from the cloud.'
             : String(data.error);
     return (
-      <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+      <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
         {friendly}
       </div>
     );
@@ -257,7 +257,7 @@ export function TimeseriesChart({ data, height = 300 }: TimeseriesChartProps) {
 
   if (channelNames.length === 0) {
     return (
-      <div className="text-sm text-gray-500 dark:text-gray-400 p-3">
+      <div className="text-sm text-gray-500 p-3">
         No timeseries data available
       </div>
     );
@@ -265,7 +265,7 @@ export function TimeseriesChart({ data, height = 300 }: TimeseriesChartProps) {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+      <div className="flex items-center gap-3 text-xs text-gray-500">
         {sweepInfo ? (
           <>
             <span className="font-mono">{sweepInfo.aiSweeps.sweeps.length} sweeps</span>
@@ -288,18 +288,18 @@ export function TimeseriesChart({ data, height = 300 }: TimeseriesChartProps) {
       <div className="flex gap-2">
         <div
           ref={containerRef}
-          className="flex-1 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-1"
+          className="flex-1 rounded-md border border-gray-200 bg-white p-1"
         />
         {sweepInfo && (
           <div className="flex flex-col items-center gap-1 py-2">
-            <span className="text-[9px] text-gray-500 dark:text-gray-400 font-mono">High</span>
+            <span className="text-[9px] text-gray-500 font-mono">High</span>
             <div
-              className="w-3 flex-1 rounded-sm border border-gray-200 dark:border-gray-700"
+              className="w-3 flex-1 rounded-sm border border-gray-200"
               style={{
                 background: `linear-gradient(to bottom, ${turboColor(1)}, ${turboColor(0.75)}, ${turboColor(0.5)}, ${turboColor(0.25)}, ${turboColor(0)})`,
               }}
             />
-            <span className="text-[9px] text-gray-500 dark:text-gray-400 font-mono">Low</span>
+            <span className="text-[9px] text-gray-500 font-mono">Low</span>
           </div>
         )}
       </div>

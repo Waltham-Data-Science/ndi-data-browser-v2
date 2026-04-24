@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  flexRender,
   getCoreRowModel,
   getFilteredRowModel,
   getSortedRowModel,
@@ -11,7 +10,6 @@ import {
   type SortingState,
   type VisibilityState,
 } from '@tanstack/react-table';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowUpDown, Download, Eye, EyeOff, Info } from 'lucide-react';
 
 import type { TableResponse } from '@/api/tables';
@@ -22,13 +20,13 @@ import { OntologyPopover } from '@/components/ontology/OntologyPopover';
 import { isOntologyTerm } from '@/components/ontology/ontology-utils';
 import { useBatchOntologyLookup } from '@/api/ontology';
 import { QuickPlot } from '@/components/visualization/QuickPlot';
+import { VirtualizedTable } from '@/components/tables/VirtualizedTable';
 import {
   getColumnDefinition,
   resolveDefaultColumns,
   type ColumnDefault,
   type ColumnFormatter,
 } from '@/data/table-column-definitions';
-import { cn } from '@/lib/cn';
 
 interface SummaryTableViewProps {
   data: TableResponse;
@@ -45,8 +43,6 @@ interface SummaryTableViewProps {
    * enable the QuickPlot card (calls /api/visualize/distribution). */
   datasetId?: string;
 }
-
-const ROW_HEIGHT = 32;
 
 /**
  * Fully-featured summary table. Ported from v1 with four v2 adaptations:
@@ -269,7 +265,7 @@ export function SummaryTableView({
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100 transition-colors text-left"
+                className="flex items-center gap-1 hover:text-gray-900:text-gray-100 transition-colors text-left"
                 onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
               >
                 <span className="truncate max-w-[200px] md:max-w-[300px] lg:max-w-[420px]">{label}</span>
@@ -409,13 +405,13 @@ export function SummaryTableView({
             onChange={(e) => setGlobalFilter(e.target.value)}
             className="h-8 w-64 text-xs"
           />
-          <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+          <span className="text-xs text-gray-500 font-mono">
             {table.getFilteredRowModel().rows.length} / {data.rows.length} rows
           </span>
           {hiddenByAuto > 0 && (
             <button
               type="button"
-              className="text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline decoration-dotted"
+              className="text-[10px] text-gray-500 hover:text-gray-700:text-gray-200 underline decoration-dotted"
               onClick={() => {
                 const anyHidden = Object.keys(autoHiddenColumns).some(
                   (col) => mergedVisibility[col] === false,
@@ -488,7 +484,7 @@ export function SummaryTableView({
 
       {/* Column visibility picker */}
       {showColumnPicker && (
-        <div className="flex flex-wrap gap-2 p-2 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+        <div className="flex flex-wrap gap-2 p-2 rounded-md border border-gray-200 bg-gray-50">
           {table.getAllLeafColumns().map((column) => {
             const colDef = tableType ? getColumnDefinition(tableType, column.id) : undefined;
             // Precedence matches the header render above — canonical header
@@ -504,7 +500,7 @@ export function SummaryTableView({
                   type="checkbox"
                   checked={column.getIsVisible()}
                   onChange={column.getToggleVisibilityHandler()}
-                  className="rounded border-gray-300 dark:border-gray-600"
+                  className="rounded border-gray-300"
                 />
                 <span className="font-mono truncate max-w-[180px] md:max-w-[280px] lg:max-w-[380px]">
                   {label}
@@ -559,7 +555,7 @@ function ColumnInfoTip({
         onBlur={() => setOpen(false)}
       >
         <Info
-          className="h-3 w-3 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 cursor-help"
+          className="h-3 w-3 text-gray-400 hover:text-gray-600:text-gray-300 cursor-help"
           aria-label={`Column info: ${label}`}
           tabIndex={0}
         />
@@ -570,7 +566,7 @@ function ColumnInfoTip({
         preferredPlacement="above"
         width={256}
         estimatedHeight={80}
-        className="rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2 shadow-lg text-xs text-gray-600 dark:text-gray-400"
+        className="rounded-md border border-gray-200 bg-white p-2 shadow-lg text-xs text-gray-600"
       >
         {description}
       </FloatingPanel>
@@ -590,7 +586,7 @@ function TableCell({
 }) {
   if (value === null || value === undefined) {
     // aria-hidden: the em-dash is a visual null-placeholder, not content.
-    return <span className="text-gray-500 dark:text-gray-400" aria-hidden>—</span>;
+    return <span className="text-gray-500" aria-hidden>—</span>;
   }
   // Let the column-level formatter override first — specifically the
   // CSV-join formatter for array cells, which matches MATLAB's
@@ -645,7 +641,7 @@ function EpochTimeCell({ value }: { value: Record<string, unknown> }) {
       >
         <span>{dev === null || dev === undefined ? '—' : String(dev)}</span>
         {global !== null && global !== undefined && (
-          <span className="text-[10px] text-gray-500 dark:text-gray-400">
+          <span className="text-[10px] text-gray-500">
             {String(global)}
           </span>
         )}
@@ -657,114 +653,6 @@ function EpochTimeCell({ value }: { value: Record<string, unknown> }) {
   );
 }
 
-function VirtualizedTable({
-  table,
-  onRowClick,
-}: {
-  table: ReturnType<typeof useReactTable<Record<string, unknown>>>;
-  onRowClick?: (row: Record<string, unknown>) => void;
-}) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const { rows } = table.getRowModel();
-  const virtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: 20,
-  });
-  const virtualItems = virtualizer.getVirtualItems();
-  const totalSize = virtualizer.getTotalSize();
-  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
-  const paddingBottom =
-    virtualItems.length > 0
-      ? totalSize - (virtualItems[virtualItems.length - 1].end ?? 0)
-      : 0;
-  const columnCount = table.getVisibleLeafColumns().length;
-
-  return (
-    <div className="relative">
-      <div
-        ref={scrollRef}
-        className="rounded-md border border-gray-200 dark:border-gray-700 overflow-auto max-h-[calc(100vh-220px)] min-h-[320px]"
-      >
-        <table className="w-full text-xs">
-          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-900 z-10">
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr
-                key={headerGroup.id}
-                className="border-b border-gray-200 dark:border-gray-700"
-              >
-                {headerGroup.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap"
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={columnCount}
-                  className="px-3 py-8 text-center text-gray-500 dark:text-gray-400"
-                >
-                  No data
-                </td>
-              </tr>
-            ) : (
-              <>
-                {paddingTop > 0 && (
-                  <tr>
-                    <td
-                      colSpan={columnCount}
-                      style={{ height: paddingTop, padding: 0, border: 'none' }}
-                    />
-                  </tr>
-                )}
-                {virtualItems.map((vr) => {
-                  const row = rows[vr.index];
-                  return (
-                    <tr
-                      key={row.id}
-                      data-index={vr.index}
-                      className={cn(
-                        'border-b border-gray-100 dark:border-gray-800',
-                        onRowClick &&
-                          'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800',
-                      )}
-                      style={{ height: ROW_HEIGHT }}
-                      onClick={() => onRowClick?.(row.original)}
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <td
-                          key={cell.id}
-                          className="px-3 py-1.5 whitespace-nowrap align-top"
-                        >
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                })}
-                {paddingBottom > 0 && (
-                  <tr>
-                    <td
-                      colSpan={columnCount}
-                      style={{ height: paddingBottom, padding: 0, border: 'none' }}
-                    />
-                  </tr>
-                )}
-              </>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
+// VirtualizedTable used to live here. Extracted to
+// `@/components/tables/VirtualizedTable` (audit 2026-04-23, #63) so
+// PivotView can reuse it. This file imports it at the top.

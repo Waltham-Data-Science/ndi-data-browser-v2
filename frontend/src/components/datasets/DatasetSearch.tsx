@@ -15,7 +15,7 @@ export function DatasetSearch({
 }: DatasetSearchProps) {
   return (
     <div className="relative">
-      <Search className="pointer-events-none absolute left-3 top-1/2 -trangray-y-1/2 h-4 w-4 text-gray-400 dark:text-gray-500" />
+      <Search className="pointer-events-none absolute left-3 top-1/2 -trangray-y-1/2 h-4 w-4 text-gray-400" />
       <label htmlFor="dataset-search" className="sr-only">
         Search datasets
       </label>

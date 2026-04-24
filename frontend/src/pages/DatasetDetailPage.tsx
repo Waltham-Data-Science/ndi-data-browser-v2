@@ -9,12 +9,13 @@ import {
   Table2,
   Users,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Link,
   Navigate,
   NavLink,
   Outlet,
+  useLocation,
   useParams,
 } from 'react-router-dom';
 
@@ -41,6 +42,7 @@ import { CardSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
 import { formatBytes, formatDate, formatNumber } from '@/lib/format';
 import { normalizeOrcid } from '@/lib/orcid';
+import { setDocumentTitle } from '@/lib/useDocumentTitle';
 import type { DatasetSummary } from '@/types/dataset-summary';
 
 const COMMON_CLASSES = [
@@ -79,6 +81,16 @@ const COMMON_CLASSES = [
 export function DatasetDetailPage() {
   const { id } = useParams();
   const ds = useDataset(id);
+  const location = useLocation();
+
+  // Audit 2026-04-23 (#67): as soon as the dataset payload resolves,
+  // push its real name into document.title so SEO link previews +
+  // screen-reader announcements are informative. Falls back to the
+  // generic "Dataset — ..." hook behavior during the loading window.
+  useEffect(() => {
+    if (!ds.data?.name) return undefined;
+    return setDocumentTitle(location.pathname, ds.data.name);
+  }, [ds.data?.name, location.pathname]);
 
   if (!id) return <Navigate to="/datasets" replace />;
 
@@ -109,14 +121,38 @@ export function DatasetDetailPage() {
  */
 function DatasetTabBar({ datasetId }: { datasetId: string }) {
   const base = `/datasets/${datasetId}`;
+  // Audit 2026-04-23 (#65): arrow-key navigation within the tablist per
+  // WAI-ARIA authoring practices. Tab bar ref lets us focus siblings by
+  // index on ArrowLeft / ArrowRight / Home / End.
+  const navRef = useRef<HTMLElement>(null);
+  const onKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (!navRef.current) return;
+    const tabs = Array.from(
+      navRef.current.querySelectorAll<HTMLAnchorElement>('[role="tab"]'),
+    );
+    if (tabs.length === 0) return;
+    const current = tabs.indexOf(document.activeElement as HTMLAnchorElement);
+    if (current < 0) return;
+    let next: number | null = null;
+    if (e.key === 'ArrowRight') next = (current + 1) % tabs.length;
+    else if (e.key === 'ArrowLeft') next = (current - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = tabs.length - 1;
+    if (next !== null) {
+      e.preventDefault();
+      tabs[next].focus();
+    }
+  };
   return (
     <div
       className="sticky top-[58px] z-30 bg-bg-surface border-b border-border-subtle"
       style={{ boxShadow: 'var(--shadow-xs)' }}
     >
       <nav
+        ref={navRef}
         role="tablist"
         aria-label="Dataset sections"
+        onKeyDown={onKeyDown}
         className="mx-auto flex max-w-[1200px] items-center gap-1 px-7"
       >
         <TabLink to={`${base}/overview`} icon={<LayoutDashboard className="h-3.5 w-3.5" />}>
@@ -163,27 +199,35 @@ function TabLink({
   // the path segment. We override with a custom matcher for the tables
   // tab because `Summary tables` must light up for /tables/subject,
   // /tables/probe, AND /pivot/session etc.
+  //
+  // Audit 2026-04-23 (#65): emit `aria-selected` (required for WAI-ARIA
+  // tab role) and use roving tabindex (only the active tab is in the
+  // natural tab-order; other tabs are reachable via arrow keys handled
+  // at the tablist level). We compute the "active" value once via
+  // useLocation so aria-selected / tabIndex stay in sync with className.
+  const location = useLocation();
+  const path = location.pathname;
+  const exact = path === to;
+  const matchedPrefix = to !== '/' && (path === to || path.startsWith(`${to}/`));
+  const matchedAlt =
+    (!!matchPath && path.startsWith(matchPath)) ||
+    (!!altMatchPath && path.startsWith(altMatchPath));
+  const active = exact || matchedPrefix || matchedAlt;
   return (
     <NavLink
       to={to}
       role="tab"
-      className={({ isActive }: { isActive: boolean }) => {
-        const active =
-          isActive ||
-          (!!matchPath &&
-            typeof window !== 'undefined' &&
-            window.location.pathname.startsWith(matchPath)) ||
-          (!!altMatchPath &&
-            typeof window !== 'undefined' &&
-            window.location.pathname.startsWith(altMatchPath));
-        return cn(
+      aria-selected={active}
+      tabIndex={active ? 0 : -1}
+      className={() =>
+        cn(
           '-mb-px inline-flex items-center gap-1.5 border-b-2 px-4 py-3 text-[13.5px] font-medium transition-colors',
           'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ndi-teal',
           active
             ? 'border-ndi-teal text-ndi-teal'
             : 'border-transparent text-fg-secondary hover:text-brand-navy',
-        );
-      }}
+        )
+      }
     >
       {icon}
       <span>{children}</span>

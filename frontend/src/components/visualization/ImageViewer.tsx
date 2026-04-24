@@ -29,7 +29,7 @@ export function ImageViewer({ data, onFrameChange }: ImageViewerProps) {
           ? 'This document does not have an associated image file.'
           : String(data.error);
     return (
-      <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+      <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
         {friendly}
       </div>
     );
@@ -37,7 +37,7 @@ export function ImageViewer({ data, onFrameChange }: ImageViewerProps) {
 
   if (!data.dataUri) {
     return (
-      <div className="text-sm text-gray-500 dark:text-gray-400 p-3">
+      <div className="text-sm text-gray-500 p-3">
         No image data available
       </div>
     );
@@ -56,7 +56,7 @@ export function ImageViewer({ data, onFrameChange }: ImageViewerProps) {
     <div className="space-y-3">
       {/* Info bar */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 font-mono">
+        <div className="flex items-center gap-3 text-xs text-gray-500 font-mono">
           <span>
             {data.width} × {data.height}
           </span>
@@ -74,7 +74,7 @@ export function ImageViewer({ data, onFrameChange }: ImageViewerProps) {
           >
             <ZoomOut className="h-3.5 w-3.5" />
           </Button>
-          <span className="text-xs text-gray-500 dark:text-gray-400 font-mono w-12 text-center">
+          <span className="text-xs text-gray-500 font-mono w-12 text-center">
             {Math.round(zoom * 100)}%
           </span>
           <Button
@@ -89,7 +89,7 @@ export function ImageViewer({ data, onFrameChange }: ImageViewerProps) {
         </div>
       </div>
 
-      <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-black/40 overflow-auto max-h-[calc(100vh-200px)] min-h-[320px] flex items-center justify-center p-2">
+      <div className="rounded-md border border-gray-200 bg-gray-50 overflow-auto max-h-[calc(100vh-200px)] min-h-[320px] flex items-center justify-center p-2">
         <img
           src={data.dataUri}
           alt="NDI image data"
@@ -129,7 +129,7 @@ export function ImageViewer({ data, onFrameChange }: ImageViewerProps) {
           >
             <ChevronRight className="h-3.5 w-3.5" />
           </Button>
-          <span className="text-xs text-gray-500 dark:text-gray-400 font-mono w-20 text-center">
+          <span className="text-xs text-gray-500 font-mono w-20 text-center">
             {currentFrame + 1} / {nFrames}
           </span>
         </div>

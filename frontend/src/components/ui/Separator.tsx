@@ -15,14 +15,14 @@ export function Separator({
       <span
         role="separator"
         aria-orientation="vertical"
-        className={cn('inline-block w-px self-stretch bg-gray-200 dark:bg-gray-700', className)}
+        className={cn('inline-block w-px self-stretch bg-gray-200', className)}
         {...rest}
       />
     );
   }
   return (
     <hr
-      className={cn('border-0 h-px bg-gray-200 dark:bg-gray-700', className)}
+      className={cn('border-0 h-px bg-gray-200', className)}
       {...rest}
     />
   );
