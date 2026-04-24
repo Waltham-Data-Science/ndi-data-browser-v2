@@ -45,12 +45,21 @@ def verify(signed: str) -> bool:
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 EXEMPT_PATHS = {
-    "/api/auth/csrf",   # issues the token
-    "/api/auth/login",  # login itself can't have a prior session's CSRF
+    # Issues the CSRF cookie — must be reachable without one.
+    "/api/auth/csrf",
+    # Health + observability — never mutating, never exempt from rate-limit.
     "/api/health",
     "/api/health/ready",
     "/metrics",
 }
+# Previously `/api/auth/login` was also exempted on the premise that a
+# pre-session user couldn't have a CSRF token. That's wrong: the frontend's
+# `ensureCsrfToken()` (see frontend/src/api/client.ts) fetches
+# /api/auth/csrf to mint a token before submitting the login form, so login
+# DOES have a valid token pair. Exempting it opened classic login-CSRF
+# where evil.com could POST the victim's browser to /api/auth/login with
+# the attacker's credentials, silently switching the victim into the
+# attacker's account. Audit 2026-04-23, issue #53.
 
 
 class CsrfMiddleware:

@@ -91,21 +91,37 @@ class SessionData:
 
     @classmethod
     def from_redis(cls, data: dict[str, Any], fernet: Fernet) -> SessionData:
-        access_token = fernet.decrypt(data["access_token"].encode()).decode()
-        raw_orgs = data.get("organization_ids") or []
-        return cls(
-            session_id=data["session_id"],
-            user_id=data["user_id"],
-            user_email_hash=data["user_email_hash"],
-            access_token=access_token,
-            access_token_expires_at=int(data["access_token_expires_at"]),
-            issued_at=int(data["issued_at"]),
-            last_active=int(data["last_active"]),
-            ip_addr_hash=data["ip_addr_hash"],
-            user_agent_hash=data["user_agent_hash"],
-            organization_ids=[str(x) for x in raw_orgs],
-            is_admin=bool(data.get("is_admin", False)),
-        )
+        """Rehydrate a session from its Redis blob.
+
+        Raises ``CorruptSession`` if the blob is missing required fields or
+        any field is the wrong type. Audit 2026-04-23 (#56): previously this
+        raised ``KeyError`` / ``TypeError`` / ``ValueError`` directly, and
+        only ``InvalidToken`` + ``CorruptSession`` were caught upstream, so a
+        drifted Redis payload crashed session reads with a 500 instead of
+        falling through to re-login.
+        """
+        try:
+            access_token = fernet.decrypt(data["access_token"].encode()).decode()
+            raw_orgs = data.get("organization_ids") or []
+            return cls(
+                session_id=data["session_id"],
+                user_id=data["user_id"],
+                user_email_hash=data["user_email_hash"],
+                access_token=access_token,
+                access_token_expires_at=int(data["access_token_expires_at"]),
+                issued_at=int(data["issued_at"]),
+                last_active=int(data["last_active"]),
+                ip_addr_hash=data["ip_addr_hash"],
+                user_agent_hash=data["user_agent_hash"],
+                organization_ids=[str(x) for x in raw_orgs],
+                is_admin=bool(data.get("is_admin", False)),
+            )
+        except InvalidToken:
+            # Propagate so callers can distinguish "decryption failed"
+            # (encryption-key rotation) from "schema drift".
+            raise
+        except (KeyError, TypeError, ValueError, AttributeError) as e:
+            raise CorruptSession(f"session schema drift: {e}") from e
 
 
 def user_scope_for(session: SessionData | None) -> str:
@@ -182,10 +198,20 @@ class SessionStore:
         try:
             payload = json.loads(raw)
         except (TypeError, ValueError):
+            log.warning("session.corrupt_json", session_id=session_id[:8])
+            await self.redis.delete(key)
             return None
         try:
             return SessionData.from_redis(payload, self.fernet)
-        except (CorruptSession, InvalidToken):
+        except (CorruptSession, InvalidToken) as e:
+            # Drift / decryption-failure / missing-field all surface here
+            # as a soft re-auth rather than a 500. Clean up the bad blob
+            # so the session doesn't keep re-crashing every request.
+            log.warning(
+                "session.corrupt_payload",
+                session_id=session_id[:8],
+                reason=type(e).__name__,
+            )
             await self.redis.delete(key)
             return None
 

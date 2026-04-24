@@ -50,6 +50,8 @@ from typing import Any, cast
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from ..auth.dependencies import SESSION_COOKIE
+
 # Routes that shouldn't get ETag/Cache-Control — auth flows and
 # anything that sets cookies must always vary.
 _NEVER_CACHE_PREFIXES = (
@@ -129,11 +131,16 @@ class CacheControlMiddleware:
                     h304: list[tuple[bytes, bytes]] = [
                         (b"etag", etag.encode("ascii")),
                         (b"cache-control", cache_header.encode("ascii")),
+                        # Defense in depth (audit 2026-04-23, #50): always
+                        # advertise cookie+encoding in Vary so shared caches
+                        # can't share responses across differently-cookied
+                        # clients even if Cache-Control is accidentally
+                        # public.
+                        (b"vary", b"Cookie, Accept-Encoding"),
                     ]
-                    # Preserve request-id / vary if upstream set them.
+                    # Preserve request-id if upstream set it.
                     for k, v in headers:
-                        lk = k.lower()
-                        if lk in (b"x-request-id", b"vary"):
+                        if k.lower() == b"x-request-id":
                             h304.append((k, v))
                     await send({
                         "type": "http.response.start",
@@ -152,11 +159,18 @@ class CacheControlMiddleware:
                 # sentinel X-Cache-Max-Age if the handler set one, and
                 # forward body as-is.
                 new_headers = _strip_header(headers, b"x-cache-max-age")
+                # Drop any upstream-set Vary so we can emit our canonical
+                # value rather than compounding with stale values.
+                new_headers = _strip_header(new_headers, b"vary")
                 new_headers.append((b"etag", etag.encode("ascii")))
                 new_headers.append((
                     b"cache-control",
                     _cache_control_for(scope, headers).encode("ascii"),
                 ))
+                # Defense in depth (audit 2026-04-23, #50): always Vary on
+                # Cookie so shared caches segment per-session even if
+                # Cache-Control is accidentally public.
+                new_headers.append((b"vary", b"Cookie, Accept-Encoding"))
                 response_start["headers"] = new_headers
 
                 await send(response_start)
@@ -255,12 +269,18 @@ def _cache_control_for(
 
 def _has_session_cookie(scope: Scope) -> bool:
     cookie = _header_get(scope, b"cookie") or ""
-    # Our session cookie is named `ndi_session` (defined in
-    # auth/session.py). Presence alone doesn't prove validity — but
-    # for cache-visibility purposes it's the right proxy: if the
+    # Our session cookie is named `session` (SESSION_COOKIE in
+    # auth/dependencies.py). Presence alone doesn't prove validity —
+    # but for cache-visibility purposes it's the right proxy: if the
     # client sent the cookie, CDNs must not share the response.
+    #
+    # Historical drift bug (audit 2026-04-23, #50): this check used to
+    # look for `ndi_session=` which never matched, so authenticated
+    # responses were stamped `public, s-maxage=60`. Fixed by importing
+    # the canonical cookie name constant.
+    prefix = f"{SESSION_COOKIE}="
     return any(
-        part.strip().startswith("ndi_session=") for part in cookie.split(";")
+        part.strip().startswith(prefix) for part in cookie.split(";")
     )
 
 

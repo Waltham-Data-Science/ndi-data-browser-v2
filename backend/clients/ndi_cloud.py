@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from ..config import Settings, get_settings
 from ..errors import (
     AuthRequired,
+    BinaryNotFound,
     BulkFetchTooLarge,
     CloudInternalError,
     CloudTimeout,
@@ -486,32 +487,55 @@ class NdiCloudClient:
     ) -> bytes:
         """Download a signed file URL (S3 or similar). Returns raw bytes.
 
-        Security (PR-6): before forwarding the user's Bearer token we check the
-        target host against a static allowlist (+ the cloud host). If the host
-        is NOT on the allowlist:
-          - Always log `cloud.download.off_allowlist_host` (phase-1 observation).
-          - If `DOWNLOAD_ALLOWLIST_ENFORCE=True`, strip the Authorization header
-            so we don't exfiltrate the token to an attacker-controlled host.
-          - Else (phase-1 default): still forward. We'll flip the flag after
-            reviewing 1 week of logs.
+        Security (audit 2026-04-23, issue #49 — SSRF hardening):
+
+        - **Scheme check:** only ``http`` and ``https`` are accepted. Any other
+          scheme (``file://``, ``gopher://``, ``ftp://``, ``javascript:``, etc.)
+          raises :class:`BinaryNotFound` before any network I/O. httpx itself
+          only supports http(s), but this is defense-in-depth against future
+          transport additions and against accidental non-absolute URLs.
+        - **Host allowlist:** the target host must match the runtime allowlist
+          (``DOWNLOAD_HOST_ALLOWLIST`` + the cloud host). An off-allowlist host
+          logs ``cloud.download.off_allowlist_host`` and raises
+          :class:`BinaryNotFound`. We do **not** forward the user's Bearer token
+          to arbitrary hosts, and we do **not** fetch the URL to relay bytes
+          back to the caller (which would be the SSRF vector — e.g. dataset
+          documents could point ``files.file_info.locations.location`` at
+          ``http://169.254.169.254/latest/meta-data/...``).
+
+        The previous phase-1 "observe and forward" behavior (gated by
+        ``DOWNLOAD_ALLOWLIST_ENFORCE``) was removed — hard-reject is always on.
         """
-        headers = {"Accept-Encoding": "gzip"}
         host = extract_host(url)
+        # Scheme check — httpx itself only supports http/https but we are
+        # explicit so any future transport addition can't accidentally fetch
+        # file://, gopher://, javascript:, etc.
+        scheme = ""
+        try:
+            from urllib.parse import urlparse
+            scheme = (urlparse(url).scheme or "").lower()
+        except Exception:
+            scheme = ""
+        if scheme not in {"http", "https"}:
+            log.warning(
+                "cloud.download.invalid_scheme",
+                scheme=scheme,
+                url_pattern=url_pattern_for_log(url),
+            )
+            raise BinaryNotFound()
+
         allowlist = self._runtime_download_allowlist()
         on_allowlist = bool(host) and host_matches_allowlist(host, allowlist)
-
-        forward_bearer = access_token is not None
         if not on_allowlist:
             log.warning(
                 "cloud.download.off_allowlist_host",
                 host=host,
                 url_pattern=url_pattern_for_log(url),
-                enforce=self.settings.DOWNLOAD_ALLOWLIST_ENFORCE,
             )
-            if self.settings.DOWNLOAD_ALLOWLIST_ENFORCE:
-                forward_bearer = False
+            raise BinaryNotFound()
 
-        if forward_bearer and access_token:
+        headers = {"Accept-Encoding": "gzip"}
+        if access_token:
             headers["Authorization"] = f"Bearer {access_token}"
 
         try:
@@ -521,7 +545,6 @@ class NdiCloudClient:
         except httpx.NetworkError as e:
             raise CloudUnreachable("Could not reach binary storage.") from e
         if resp.status_code == 404:
-            from ..errors import BinaryNotFound
             raise BinaryNotFound()
         if resp.status_code >= 400:
             raise CloudInternalError(f"Binary download failed (HTTP {resp.status_code})")

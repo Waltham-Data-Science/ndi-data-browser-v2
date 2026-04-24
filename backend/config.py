@@ -72,15 +72,6 @@ class Settings(BaseSettings):
             "Bearer token. Cloud hostname is added dynamically at runtime."
         ),
     )
-    DOWNLOAD_ALLOWLIST_ENFORCE: bool = Field(
-        default=False,
-        description=(
-            "If true, strip Authorization header when downloading from non-allowlisted "
-            "hosts. If false (default), log a warning but still forward. Flip to true "
-            "in Railway env after reviewing phase-1 logs."
-        ),
-    )
-
     # --- Rate limits ---
     RATE_LIMIT_READS_PER_MIN: int = 120
     RATE_LIMIT_QUERY_PER_MIN: int = 30
