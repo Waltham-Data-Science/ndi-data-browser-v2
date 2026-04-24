@@ -42,16 +42,34 @@ class OntologyTerm:
 
 
 class OntologyCache:
+    """SQLite term cache with a persistent connection per instance.
+
+    Audit 2026-04-23 (#59): previously every ``get`` / ``set`` opened a
+    fresh ``sqlite3.connect`` and ran ``PRAGMA journal_mode=WAL`` under a
+    ``threading.Lock``. Worst case, ``batch_lookup(25)`` serialized 25
+    connection-opens-with-PRAGMA on the event-loop thread. Now we open
+    one connection at construction time (``check_same_thread=False``)
+    and keep reusing it. The lock still serializes writes; reads are
+    still cheap but no longer pay the connect + PRAGMA round-trip.
+    """
+
     def __init__(self, db_path: str | None = None, ttl_days: int | None = None) -> None:
         settings = get_settings()
         self.db_path = db_path or settings.ONTOLOGY_CACHE_DB_PATH
         self.ttl_seconds = (ttl_days or settings.ONTOLOGY_CACHE_TTL_DAYS) * 86400
         self._lock = threading.Lock()
+        # Single long-lived connection. WAL mode + check_same_thread=False
+        # means multiple threads can share this connection; the lock
+        # protects writers from interleaving.
+        self._conn_obj = sqlite3.connect(
+            self.db_path, timeout=5.0, check_same_thread=False,
+        )
+        self._conn_obj.execute("PRAGMA journal_mode=WAL")
         self._init_db()
 
     def _init_db(self) -> None:
-        with self._conn() as conn:
-            conn.execute("""
+        with self._lock:
+            self._conn_obj.execute("""
                 CREATE TABLE IF NOT EXISTS ontology_terms (
                     provider TEXT NOT NULL,
                     term_id TEXT NOT NULL,
@@ -60,17 +78,20 @@ class OntologyCache:
                     PRIMARY KEY (provider, term_id)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_ontology_fetched ON ontology_terms(fetched_at)")
-            conn.commit()
+            self._conn_obj.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ontology_fetched ON ontology_terms(fetched_at)"
+            )
+            self._conn_obj.commit()
 
-    def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=5.0, check_same_thread=False)
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+    def close(self) -> None:
+        """Close the long-lived connection. Safe to call multiple times."""
+        import contextlib
+        with self._lock, contextlib.suppress(Exception):
+            self._conn_obj.close()
 
     def get(self, provider: str, term_id: str) -> OntologyTerm | None:
-        with self._lock, self._conn() as conn:
-            row = conn.execute(
+        with self._lock:
+            row = self._conn_obj.execute(
                 "SELECT payload, fetched_at FROM ontology_terms WHERE provider = ? AND term_id = ?",
                 (provider, term_id),
             ).fetchone()
@@ -101,17 +122,19 @@ class OntologyCache:
         )
 
     def set(self, term: OntologyTerm) -> None:
-        with self._lock, self._conn() as conn:
-            conn.execute(
+        with self._lock:
+            self._conn_obj.execute(
                 "INSERT OR REPLACE INTO ontology_terms (provider, term_id, payload, fetched_at) VALUES (?, ?, ?, ?)",
                 (term.provider, term.term_id, json.dumps(term.to_dict()), int(time.time())),
             )
-            conn.commit()
+            self._conn_obj.commit()
 
     def stats(self) -> dict[str, Any]:
-        with self._lock, self._conn() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM ontology_terms").fetchone()[0]
-            by_provider = conn.execute(
+        with self._lock:
+            count = self._conn_obj.execute(
+                "SELECT COUNT(*) FROM ontology_terms"
+            ).fetchone()[0]
+            by_provider = self._conn_obj.execute(
                 "SELECT provider, COUNT(*) FROM ontology_terms GROUP BY provider"
             ).fetchall()
         return {"total": count, "byProvider": dict(by_provider)}

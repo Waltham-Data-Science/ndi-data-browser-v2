@@ -41,7 +41,7 @@ Every workflow has a happy path, all failure modes, observability notes, and a P
 **Happy path:**
 1. Frontend `GET /api/datasets/my`.
 2. Backend reads session cookie, looks up Redis session, decrypts access token.
-3. If access token expired → W14 transparent refresh.
+3. If access token expired → session deleted, `AUTH_EXPIRED` surfaces (W15).
 4. Backend → cloud `GET /v1/datasets/unpublished` with user's JWT.
 5. Returns merged list (org's private + related public).
 6. Frontend renders with lock icons for private entries.
@@ -263,52 +263,43 @@ Every workflow has a happy path, all failure modes, observability notes, and a P
 
 Logout:
 1. `POST /api/auth/logout` with CSRF.
-2. Backend → cloud `POST /v1/auth/logout` (best effort).
+2. Backend → cloud `POST /v1/auth/logout` (best effort; non-network cloud errors are logged and swallowed so local teardown always completes — audit 2026-04-23 #55).
 3. Backend deletes Redis session.
-4. Backend clears cookie.
+4. Backend clears `session` + `XSRF-TOKEN` cookies (unconditionally, in a `finally`).
 5. Frontend redirects to `/`.
 
 **Failure modes:**
 - Bad creds → [`AUTH_INVALID_CREDENTIALS`]
 - Rate limited → [`AUTH_RATE_LIMITED`] with `Retry-After`
-- CSRF missing → [`CSRF_INVALID`]
+- CSRF missing → [`CSRF_INVALID`] (login is no longer CSRF-exempt — audit 2026-04-23 #53)
 
-**E2E:** `login-logout.spec.ts`
+**E2E:** partial in `auth.spec.ts`; a dedicated `login-logout.spec.ts` is a follow-up in `project_open-followups.md`.
 
 ---
 
-## W14. Transparent access-token refresh (internal)
+## W14. ~~Transparent access-token refresh~~ (Removed — ADR-008)
 
-Not a user-visible workflow, but part of every authenticated request.
+_Deprecated 2026-04-17 per ADR-008._ The cloud does not expose a refresh endpoint, so there is no in-session refresh. Cognito access tokens are 1-hour TTL; when they expire, `get_current_session` deletes the session and the next authenticated request returns `AUTH_EXPIRED`. The frontend's API client intercepts that, stashes `returnTo`, clears the query cache, and redirects to `/login` — the same path as W15.
 
-**Trigger:** authenticated request; access token within 60s of expiry or already expired.
-
-**Flow:**
-1. Auth dependency loads session from Redis.
-2. Checks `access_token_expires_at`.
-3. If stale:
-   a. `SET NX EX 5` on key `session:<id>:refresh-lock` (prevents thundering herd).
-   b. If lock acquired: `POST /v1/auth/refresh { refreshToken }`.
-   c. On success: update Redis session with new `access_token`, new `expires_at`. Release lock.
-   d. On failure (refresh token rejected): delete session, release lock, raise [`AUTH_EXPIRED`].
-   e. If lock NOT acquired (another worker refreshing): `WAIT` on pubsub / poll with exponential backoff up to 5s, then re-read session.
-4. Continue with fresh access token.
-
-**E2E:** `session-refresh.spec.ts` — force stale token, trigger request, assert no 401 reaches browser.
+The previous implementation used a `SET NX EX 5` Redis lock + `POST /v1/auth/refresh`. Both are gone. If anyone writes a "refresh handler" because they saw refresh-adjacent code anywhere in the tree, something has regressed — treat it as a correctness bug.
 
 ---
 
 ## W15. Session expiry mid-session
 
-**Trigger:** user has been browsing, refresh token also expires (>30d session or revoked).
+**Trigger:** user has been browsing; access token reaches its 1-hour TTL.
 
 **Flow:**
-1. Authenticated request → W14 step 3d fires → [`AUTH_EXPIRED`].
+1. Authenticated request → `get_current_session` detects `access_token_expires_at <= now`, deletes the Redis session, returns `None` (or raises `AUTH_EXPIRED` via `require_session`).
 2. Frontend API client intercepts 401 + code `AUTH_EXPIRED`.
 3. Frontend stores current URL as `returnTo`, clears query cache, redirects to `/login?returnTo=...`.
 4. On successful login, frontend navigates to `returnTo`.
 
-**E2E:** `session-expiry.spec.ts`
+Corrupt-payload resilience (audit 2026-04-23 #56): a drifted or
+decryption-failing Redis blob is soft-deleted and falls through to this
+same flow (re-login) instead of raising a 500.
+
+**E2E:** partial in `auth.spec.ts`; a dedicated `session-expiry.spec.ts` is a follow-up in `project_open-followups.md`.
 
 ---
 

@@ -4,7 +4,11 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light dark" />
+    <!-- Audit 2026-04-23 (#68): app is light-mode only (see index.css
+         `color-scheme: light`). Declaring `light dark` here contradicted
+         that and led to 168 dead `dark:*` Tailwind utilities across 24
+         files that never activated. Keep these two values aligned. -->
+    <meta name="color-scheme" content="light" />
     <meta name="description" content="NDI Data Browser — explore neuroscience datasets in NDI Cloud" />
     <!--
       Geist + Geist Mono are self-hosted via `@fontsource-variable/*`

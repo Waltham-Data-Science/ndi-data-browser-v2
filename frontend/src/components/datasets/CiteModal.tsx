@@ -84,7 +84,7 @@ function DoiBlock({ citation }: { citation: DatasetSummaryCitation }) {
   if (!hasDatasetDoi && !hasPaperDois) {
     return (
       <p
-        className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:ring-amber-800"
+        className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200"
         data-testid="cite-no-doi"
       >
         No DOI on record for this dataset yet. Quote the title and NDI Cloud
@@ -97,7 +97,7 @@ function DoiBlock({ citation }: { citation: DatasetSummaryCitation }) {
     <div className="space-y-3" data-testid="cite-doi-block">
       {hasDatasetDoi && (
         <div
-          className="rounded-md border border-brand-300 bg-brand-50 p-3 dark:border-brand-700 dark:bg-brand-900/40"
+          className="rounded-md border border-brand-300 bg-brand-50 p-3"
           data-testid="cite-dataset-doi"
         >
           <div className="mb-1 flex items-center gap-2">
@@ -112,12 +112,12 @@ function DoiBlock({ citation }: { citation: DatasetSummaryCitation }) {
       )}
       {hasPaperDois && (
         <div
-          className="rounded-md border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900"
+          className="rounded-md border border-gray-200 bg-gray-50 p-3"
           data-testid="cite-paper-dois"
         >
           <div className="mb-1 flex items-center gap-2">
             <Badge variant="outline">Paper DOI</Badge>
-            <span className="text-[11px] text-gray-500 dark:text-gray-400">
+            <span className="text-[11px] text-gray-500">
               Secondary — cite when specifically referencing the paper.
             </span>
           </div>
@@ -136,7 +136,7 @@ function DoiBlock({ citation }: { citation: DatasetSummaryCitation }) {
       )}
       {citation.year != null && (
         <p
-          className="text-[11px] text-gray-500 dark:text-gray-400"
+          className="text-[11px] text-gray-500"
           data-testid="cite-upload-year-note"
         >
           Upload year: <span className="font-mono">{citation.year}</span>. This
@@ -166,7 +166,7 @@ function CiteBlock({
   return (
     <section className="space-y-1.5" data-testid={testId}>
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-600">
           {label}
         </h3>
         <CopyButton
@@ -178,8 +178,8 @@ function CiteBlock({
       <pre
         className={
           monospace
-            ? 'whitespace-pre-wrap break-words rounded-md border border-gray-200 bg-gray-50 p-3 font-mono text-[11px] text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100'
-            : 'whitespace-pre-wrap break-words rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100'
+            ? 'whitespace-pre-wrap break-words rounded-md border border-gray-200 bg-gray-50 p-3 font-mono text-[11px] text-gray-800'
+            : 'whitespace-pre-wrap break-words rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-800'
         }
         data-testid={`${testId}-content`}
       >

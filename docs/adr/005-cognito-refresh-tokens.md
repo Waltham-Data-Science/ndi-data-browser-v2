@@ -1,8 +1,7 @@
 # ADR 005 — Transparent Cognito refresh token flow
 
-**Status:** Superseded by ADR-008 (2026-04-17)
-
-**Status:** Accepted, 2026-04-16
+**Status:** Superseded by [ADR-008](008-deprecate-cognito-refresh.md) (2026-04-17). Previously Accepted 2026-04-16.
+**Superseded-by:** ADR-008
 
 ## Context
 

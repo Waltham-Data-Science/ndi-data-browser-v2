@@ -35,6 +35,7 @@ import {
   type PivotResponse,
 } from '@/api/datasets';
 import { ErrorState } from '@/components/errors/ErrorState';
+import { VirtualizedTable } from '@/components/tables/VirtualizedTable';
 import {
   Card,
   CardBody,
@@ -164,7 +165,7 @@ function PivotBody({
   if (!pivot.data || pivot.data.rows.length === 0) {
     return (
       <p
-        className="text-sm text-gray-500 dark:text-gray-400"
+        className="text-sm text-gray-500"
         data-testid="pivot-empty"
       >
         No {GRAIN_LABELS[grain].toLowerCase()} rows for this dataset.
@@ -190,47 +191,38 @@ function PivotTable({ data, grain }: { data: PivotResponse; grain: PivotGrain })
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
+  // Audit 2026-04-23 (#63): render via the shared VirtualizedTable
+  // primitive. Previously this component rendered all rows unbounded —
+  // a 5000-row pivot could freeze the tab for ~450ms on a mid-range
+  // laptop. Virtualization caps visible DOM at ~overscan count. Header
+  // tooltip (per-column description) preserved via `renderHeaderCell`.
   return (
-    <div className="overflow-x-auto" data-testid="pivot-table">
-      <table className="min-w-full text-xs">
-        <thead>
-          {table.getHeaderGroups().map((hg) => (
-            <tr key={hg.id} className="border-b border-gray-200 dark:border-gray-700">
-              {hg.headers.map((h) => {
-                const def = getColumnDefinition(grain, h.column.id);
-                return (
-                  <th
-                    key={h.id}
-                    scope="col"
-                    title={def?.description}
-                    className="px-2 py-1.5 text-left font-semibold text-gray-700 dark:text-gray-300"
-                  >
-                    {flexRender(h.column.columnDef.header, h.getContext())}
-                  </th>
-                );
-              })}
-            </tr>
-          ))}
-        </thead>
-        <tbody>
-          {table.getRowModel().rows.map((row) => (
-            <tr
-              key={row.id}
-              className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
-              {row.getVisibleCells().map((cell) => (
-                <td
-                  key={cell.id}
-                  className="px-2 py-1 text-gray-700 dark:text-gray-300 font-mono"
-                >
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <VirtualizedTable
+      data-testid="pivot-table"
+      table={table}
+      estimateSize={28}
+      renderHeaderCell={(header) => {
+        const def = getColumnDefinition(grain, header.column.id);
+        return (
+          <div
+            title={def?.description}
+            className="px-2 py-1.5 font-semibold text-fg-primary"
+          >
+            {header.isPlaceholder
+              ? null
+              : flexRender(header.column.columnDef.header, header.getContext())}
+          </div>
+        );
+      }}
+      renderCell={(cell) => (
+        <td
+          key={cell.id}
+          className="px-2 py-1 text-fg-primary font-mono whitespace-nowrap align-top"
+        >
+          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+        </td>
+      )}
+    />
   );
 }
 
@@ -247,13 +239,13 @@ function GrainSelector({
 }) {
   return (
     <label
-      className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300"
+      className="flex items-center gap-2 text-xs text-gray-600"
       data-testid="pivot-grain-selector"
     >
       <span className="font-medium">Grain</span>
       <select
         aria-label="Pivot grain"
-        className="rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-2 py-1 text-xs"
+        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs"
         value={active}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value as PivotGrain)}

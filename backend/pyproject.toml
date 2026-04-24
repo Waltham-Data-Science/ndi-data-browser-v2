@@ -18,8 +18,11 @@ dependencies = [
     "python-multipart>=0.0.9",
     "Pillow>=10.4.0",
     "numpy>=2.0.0",
-    "pandas>=2.2.0",
     "scipy>=1.14.0",
+    # pandas was declared but never imported anywhere in backend/. Removed
+    # in audit 2026-04-23 (#58) — it was a ~30 MB wheel for no runtime
+    # use. If a future feature needs it, re-add with a comment pointing
+    # at the specific caller.
 ]
 
 [project.optional-dependencies]
@@ -127,7 +130,12 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-ra --strict-markers --cov=. --cov-report=term-missing --cov-report=xml"
+# Audit 2026-04-23 (M39): dropped `--cov=.` from addopts. Previously
+# this produced different coverage universes depending on whether
+# pytest was invoked from repo root (--cov=backend via Makefile/CI)
+# vs. from inside backend/ (--cov=. from addopts). The caller pins
+# the target now; these addopts only cover formatting.
+addopts = "-ra --strict-markers --cov-report=term-missing --cov-report=xml"
 filterwarnings = ["error"]
 
 [tool.coverage.run]

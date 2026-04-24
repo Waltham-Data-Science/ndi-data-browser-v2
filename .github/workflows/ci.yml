@@ -13,6 +13,31 @@ env:
   NODE_VERSION: "22"
 
 jobs:
+  hygiene:
+    # Audit 2026-04-23 (#51). Rejects macOS Finder / iCloud-Drive
+    # "Filename 2.ext" duplicate files — they previously shipped in the
+    # working tree and distorted local coverage runs. Fast — runs in
+    # ~2s and short-circuits later jobs via `needs:` implicit ordering.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject Finder-duplicate files
+        run: |
+          DUPES=$(find . -regextype posix-extended \
+            -regex '.*[[:space:]][0-9]+\.(py|ts|tsx|json|yml|yaml|md|scss|css)$' \
+            -not -path './.git/*' \
+            -not -path '*/node_modules/*' \
+            -not -path '*/.venv/*' \
+            -not -path '*/dist/*' \
+            -not -path '*/.pytest_cache/*' \
+            -not -path '*/.mypy_cache/*' \
+            -not -path '*/.ruff_cache/*' || true)
+          if [ -n "$DUPES" ]; then
+            echo "::error::Finder-duplicate files detected. Delete them locally:"
+            echo "$DUPES"
+            exit 1
+          fi
+
   backend-lint:
     runs-on: ubuntu-latest
     steps:
@@ -68,7 +93,14 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run lint --if-present
-      - run: npm test --if-present
+      # Audit 2026-04-23 (#73): run tests with coverage + thresholds so a
+      # PR deleting tests fails CI. Thresholds configured in vitest.config.ts.
+      - run: npx vitest run --coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
       - run: npm run build
       # Bundle-size gate (plan §M7-8). Fails if JS+CSS gzip > 200 KB.
       # Run from the repo root so relative `frontend/dist` resolves.

@@ -24,14 +24,23 @@ import base64
 import io
 import struct
 from dataclasses import dataclass
-from typing import Any, Literal
-
-import numpy as np
-from PIL import Image
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..clients.ndi_cloud import NdiCloudClient
 from ..errors import BinaryDecodeFailed, BinaryNotFound, ValidationFailed
 from ..observability.logging import get_logger
+
+# numpy + PIL are only needed when a request actually decodes image or
+# timeseries binary — they're imported lazily inside the relevant
+# functions below. Eagerly loading them at module import time (and
+# therefore at worker boot via routers/binary.py -> app.py) cost ~500ms
+# per worker x 4 workers = ~2s extra cold start per Railway deploy.
+# Audit 2026-04-23, issue #57. `from __future__ import annotations`
+# above makes signature annotations lazy strings so we don't need the
+# TYPE_CHECKING dance for them.
+if TYPE_CHECKING:  # pragma: no cover
+    import numpy as np
+    from PIL import Image  # noqa: F401
 
 log = get_logger(__name__)
 
@@ -133,6 +142,8 @@ class BinaryService:
             raise BinaryNotFound()
         payload = await self.cloud.download_file(refs[0].url, access_token=access_token)
         try:
+            # Lazy-import PIL (audit #57) — see module docstring.
+            from PIL import Image
             img = Image.open(io.BytesIO(payload))
             n_frames = getattr(img, "n_frames", 1)
             buf = io.BytesIO()
@@ -167,6 +178,8 @@ class BinaryService:
             x_max = float(fc.get("x_max", 1.0))
             n_samples = int(fc.get("n_samples", 200))
             n = min(n_samples, MAX_FITCURVE_SAMPLES)
+            # Lazy-import numpy (audit #57) — see module docstring.
+            import numpy as np
             xs = np.linspace(x_min, x_max, n)
             ys = _evaluate_form(form, params, xs)
             return {
@@ -320,6 +333,8 @@ def _timeseries_error(kind: str, message: str) -> dict[str, Any]:
 # treated as a raw float32 stream with sampleRate=1.
 
 def _parse_nbf(data: bytes) -> dict[str, Any]:
+    # Lazy-import numpy (audit #57) — see module docstring.
+    import numpy as np
     if len(data) < 32:
         raise ValueError("NBF payload too small")
     magic = data[:4]
@@ -361,6 +376,8 @@ def _parse_nbf(data: bytes) -> dict[str, Any]:
 # Tutorial-shipped VH files use this layout. Full spec lives in DID-python.
 
 def _parse_vhsb(data: bytes) -> dict[str, Any]:
+    # Lazy-import numpy (audit #57) — see module docstring.
+    import numpy as np
     if len(data) < 24 or data[:4] != b"VHSB":
         raise ValueError("Not a VHSB file")
     sample_rate = struct.unpack_from("<d", data, 8)[0]
@@ -413,6 +430,11 @@ def _timestamps_for(n: int, sample_rate: float) -> list[float] | None:
 
 
 def _evaluate_form(form: str, params: list[float], xs: np.ndarray) -> np.ndarray:
+    # Lazy-import numpy (audit #57) — see module docstring. Caller
+    # (``evaluate_fitcurve``) has already imported numpy to build ``xs``,
+    # so this is a cache hit, but keeping it local means this helper
+    # never triggers import by itself if called on a pre-existing array.
+    import numpy as np
     if form == "linear" and len(params) >= 2:
         a, b = params[0], params[1]
         return a * xs + b

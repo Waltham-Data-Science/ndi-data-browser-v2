@@ -19,9 +19,9 @@ export class ErrorBoundary extends React.Component<React.PropsWithChildren, Stat
   render() {
     if (this.state.error) {
       return (
-        <div className="mx-auto my-16 max-w-md rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-800 text-center">
+        <div className="mx-auto my-16 max-w-md rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200 text-center">
           <h1 className="text-lg font-semibold">Something went wrong</h1>
-          <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+          <p className="mt-2 text-sm text-gray-600">
             Please refresh the page. If the problem persists, contact support.
           </p>
           <Button className="mt-4" onClick={() => window.location.reload()}>

@@ -3,7 +3,17 @@ import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useOntologyLookup } from '@/api/ontology';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { safeHref } from '@/lib/safe-href';
 import { normalizeOntologyTerm } from './ontology-utils';
+
+// TODO(audit-2026-04-23 #66): port this popover's placement / portal /
+// scroll-anchor logic to <FloatingPanel>. The primitive already handles
+// everything below (auto-flip, scroll re-anchor, resize, portal to
+// document.body). ~120 LOC of this file would collapse to a few dozen.
+// Kept as-is for now because the hover-close-delay contract is tricky
+// and needs dedicated testing coverage before a swap; this PR
+// prioritizes the security fix (safeHref on data.url) + structural
+// refactors elsewhere.
 
 /**
  * Grace period (ms) between `mouseleave` on the trigger/popover and the
@@ -200,7 +210,7 @@ export function OntologyPopover({ termId, findEverywherePath }: OntologyPopoverP
     const id = displayId.replace('EMPTY:', '');
     return (
       <span
-        className="font-mono text-xs text-gray-500 dark:text-gray-400"
+        className="font-mono text-xs text-gray-500"
         title="NDI internal identifier (no ontology mapping)"
         data-ontology-term={displayId}
       >
@@ -222,7 +232,7 @@ export function OntologyPopover({ termId, findEverywherePath }: OntologyPopoverP
       >
         <button
           type="button"
-          className="text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300 underline decoration-dotted cursor-help font-mono text-xs"
+          className="text-brand-600 hover:text-brand-700:text-brand-300 underline decoration-dotted cursor-help font-mono text-xs"
           onFocus={openNow}
           onBlur={closeSoon}
           onClick={(e) => {
@@ -253,7 +263,7 @@ export function OntologyPopover({ termId, findEverywherePath }: OntologyPopoverP
               transform:
                 coords.placement === 'above' ? 'translateY(-100%)' : undefined,
             }}
-            className="z-50 rounded-md border border-gray-200 bg-white p-3 shadow-lg text-xs dark:border-gray-700 dark:bg-gray-900"
+            className="z-50 rounded-md border border-gray-200 bg-white p-3 shadow-lg text-xs"
             onMouseEnter={openNow}
             onMouseLeave={closeSoon}
           >
@@ -264,38 +274,47 @@ export function OntologyPopover({ termId, findEverywherePath }: OntologyPopoverP
               </div>
             ) : hasDefinition ? (
               <div className="space-y-1.5">
-                <div className="font-medium text-gray-900 dark:text-gray-100">
+                <div className="font-medium text-gray-900">
                   {data!.label}
                 </div>
-                <div className="font-mono text-[10px] text-gray-500 dark:text-gray-400">
+                <div className="font-mono text-[10px] text-gray-500">
                   {`${data!.provider}:${data!.termId}`}
                 </div>
                 {data!.definition && (
-                  <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
+                  <p className="text-gray-600 leading-relaxed">
                     {data!.definition}
                   </p>
                 )}
-                {data!.url && (
-                  <a
-                    href={data!.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-brand-600 dark:text-brand-400 underline decoration-dotted"
-                  >
-                    View on provider →
-                  </a>
-                )}
+                {/* Audit 2026-04-23 (MEDIUM M3): route the provider
+                    URL through safeHref so a compromised ontology
+                    provider can't slip `javascript:` or `data:` URIs
+                    into the popover. Null return → render as non-link
+                    text. */}
+                {(() => {
+                  const safe = safeHref(data?.url);
+                  if (!safe) return null;
+                  return (
+                    <a
+                      href={safe}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-brand-600 underline decoration-dotted"
+                    >
+                      View on provider →
+                    </a>
+                  );
+                })()}
                 {findEverywherePath && (
                   <Link
                     to={findEverywherePath}
-                    className="block text-brand-600 dark:text-brand-400 underline decoration-dotted pt-1"
+                    className="block text-brand-600 underline decoration-dotted pt-1"
                   >
                     Find everywhere →
                   </Link>
                 )}
               </div>
             ) : (
-              <div className="text-gray-500 dark:text-gray-400">
+              <div className="text-gray-500">
                 No definition found for{' '}
                 <span className="font-mono">{normalized}</span>
               </div>

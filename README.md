@@ -14,7 +14,7 @@ Cloud-first neuroscience data browser for NDI Cloud datasets. No SQLite dataset 
 
 - **Browser** — React 19 + Vite 8 + TanStack Query + React Router 7
 - **Backend** — FastAPI proxy/enricher over ndi-cloud-node (Python 3.12, httpx HTTP/2)
-- **Sessions** — Redis, encrypted Cognito access + refresh tokens, httpOnly cookie
+- **Sessions** — Redis, Fernet-encrypted Cognito access token, httpOnly cookie. 1-hour access-token TTL; no refresh (ADR-008)
 - **Enrichment** — binary decoding (NBF/VHSB/image/video), ontology term cache (ephemeral SQLite)
 - **Stateless backend** — no dataset volume, no local caches that matter
 
@@ -49,7 +49,7 @@ npm run dev
 | M | Name | Gate |
 |---|---|---|
 | 0 | Foundation | CI green, observability wired, docs drafted |
-| 1 | Cloud client + auth | All endpoints callable, refresh flow tested |
+| 1 | Cloud client + auth | All endpoints callable; session expiry via ADR-008 path tested |
 | 2 | Public read paths | Unauthenticated browsing E2E |
 | 3 | Authenticated reads | Login + private browsing E2E |
 | 4 | Summary tables | Single + combined via cloud, <3s |

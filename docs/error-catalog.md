@@ -63,6 +63,6 @@ For React render errors: `<ErrorBoundary>` catches and shows "Something went wro
 1. **No unclassified errors.** Any handler raising a bare `Exception` is caught by the fallback `INTERNAL` mapper.
 2. **No Python tracebacks in responses.** Tracebacks are in logs only.
 3. **Error codes are stable.** Changing a code is a breaking API change (versioned).
-4. **Every code is tested.** `backend/tests/unit/test_error_catalog.py` instantiates and serializes each.
-5. **Every UI recovery is E2E tested.** `frontend/tests-e2e/error-recovery.spec.ts` triggers each code and asserts the correct UI state.
+4. **Every code is tested.** `backend/tests/unit/test_errors.py` instantiates and serializes each.
+5. **Every UI recovery has a test.** `frontend/tests-e2e/error-recovery.spec.ts` covers `NOT_FOUND` and the 404 route today; per-code coverage for `AUTH_EXPIRED`, `CLOUD_UNREACHABLE`, `QUERY_TIMEOUT`, `RATE_LIMITED`, `CSRF_INVALID`, etc. is tracked in `project_open-followups.md` (audit 2026-04-23 #70). This invariant is aspirational until that backlog closes.
 6. **Error messages are localization-ready.** Each `user_message` is a format-string with named placeholders; no concatenation.

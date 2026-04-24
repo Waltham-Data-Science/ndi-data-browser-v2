@@ -9,12 +9,16 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
-from scipy import stats
-
 from ..auth.session import SessionData
 from ..clients.ndi_cloud import NdiCloudClient
 from .summary_table_service import SummaryTableService
+
+# numpy + scipy are imported lazily inside the methods that use them
+# (audit 2026-04-23, #57). Eagerly importing them at module load
+# contributed ~500ms per-worker cold-start; the visualize endpoint is
+# called seldomly and binary_service has the same shape. See
+# _numpy_stats() below — every function that needs the math imports
+# from the shared helper so we don't repeat the try/except dance.
 
 
 class VisualizeService:
@@ -82,6 +86,9 @@ class VisualizeService:
                 values.append(v)
         if not values:
             return {"n": 0, "quartiles": None, "kde": None, "raw": []}
+        # Lazy-import — see module docstring note on audit #57.
+        import numpy as np
+        from scipy import stats
         arr = np.asarray(values)
         q = np.percentile(arr, [25, 50, 75])
         k = stats.gaussian_kde(arr) if len(arr) > 1 else None
@@ -131,6 +138,8 @@ def _coerce_group_key(v: Any) -> str | None:
 
 
 def _summarize_group(name: str, vals: list[float]) -> dict[str, Any]:
+    # Lazy-import numpy — see module docstring note on audit #57.
+    import numpy as np
     arr = np.asarray(vals, dtype=float)
     q = np.percentile(arr, [25, 50, 75])
     return {

@@ -258,7 +258,7 @@ export function QueryBuilder({
                   key={type}
                   type="button"
                   onClick={() => runSimple(type)}
-                  className="px-2.5 py-1 text-xs rounded-full border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors font-mono"
+                  className="px-2.5 py-1 text-xs rounded-full border border-gray-200 hover:bg-gray-100:bg-gray-800 transition-colors font-mono"
                 >
                   {type}
                 </button>
@@ -299,7 +299,7 @@ export function QueryBuilder({
                 <select
                   value={cond.operation}
                   onChange={(e) => updateCondition(i, { operation: e.target.value })}
-                  className="h-7 text-xs rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 shrink-0"
+                  className="h-7 text-xs rounded border border-gray-300 bg-white px-2 shrink-0"
                 >
                   <optgroup label="Positive">
                     {operations.map((op) => (
@@ -381,7 +381,7 @@ export function QueryBuilder({
       <button
         type="button"
         onClick={() => setShowAdvanced(!showAdvanced)}
-        className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
+        className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800:text-gray-200 transition-colors"
       >
         {showAdvanced ? (
           <>
@@ -414,7 +414,7 @@ function ScopeSelect({
     <select
       value={scope}
       onChange={(e) => onChange(e.target.value as Scope)}
-      className={`text-xs rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 ${className ?? ''}`}
+      className={`text-xs rounded border border-gray-300 bg-white px-2 ${className ?? ''}`}
       aria-label="Query scope"
     >
       <option value="public">Public datasets</option>

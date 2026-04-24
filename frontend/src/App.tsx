@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient } from '@tanstack/react-query';
 import {
@@ -7,23 +8,56 @@ import {
 } from '@tanstack/react-query-persist-client';
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import { AppShell } from '@/components/layout/AppShell';
-import { AboutPage } from '@/pages/AboutPage';
+// Eagerly-loaded: the three most-trafficked public entry points. Code-
+// splitting these would add a network round-trip to /datasets and /
+// which users hit first, and the cached-via-persist-client hydration
+// pattern means their component trees are rendering while the JS for
+// detail pages downloads in parallel.
 import { HomePage } from '@/pages/HomePage';
 import { DatasetsPage } from '@/pages/DatasetsPage';
 import {
   DatasetDetailPage,
   OverviewTab,
 } from '@/pages/DatasetDetailPage';
-import { DocumentExplorerPage } from '@/pages/DocumentExplorerPage';
-import { PivotView } from '@/components/datasets/PivotView';
-import { TableTab } from '@/pages/TableTab';
-import { DocumentDetailPage } from '@/pages/DocumentDetailPage';
-import { LoginPage } from '@/pages/LoginPage';
-import { MyDatasetsPage } from '@/pages/MyDatasetsPage';
-import { QueryPage } from '@/pages/QueryPage';
-import { NotFoundPage } from '@/pages/NotFoundPage';
 import { ErrorBoundary } from '@/components/errors/ErrorBoundary';
+import { PageSkeleton } from '@/components/layout/PageSkeleton';
 import { ApiError } from '@/api/errors';
+
+// Audit 2026-04-23 (#52): route-level code splitting. Before this
+// change, the 298 KB / 86.6 KB-gzipped main bundle shipped every
+// route — LoginPage, QueryPage, MyDatasetsPage, DocumentDetailPage
+// (which transitively pulls uPlot via DataPanel), AboutPage, etc. —
+// to every first-time visitor of /datasets. Splitting these behind
+// React.lazy drops ~40-60 KB gzipped off the first paint for the
+// most-trafficked public entry. Cached bundles hit on navigation,
+// so back/forward to a visited route is still instant.
+const AboutPage = lazy(() =>
+  import('@/pages/AboutPage').then((m) => ({ default: m.AboutPage })),
+);
+const DocumentDetailPage = lazy(() =>
+  import('@/pages/DocumentDetailPage').then((m) => ({ default: m.DocumentDetailPage })),
+);
+const DocumentExplorerPage = lazy(() =>
+  import('@/pages/DocumentExplorerPage').then((m) => ({ default: m.DocumentExplorerPage })),
+);
+const LoginPage = lazy(() =>
+  import('@/pages/LoginPage').then((m) => ({ default: m.LoginPage })),
+);
+const MyDatasetsPage = lazy(() =>
+  import('@/pages/MyDatasetsPage').then((m) => ({ default: m.MyDatasetsPage })),
+);
+const NotFoundPage = lazy(() =>
+  import('@/pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })),
+);
+const PivotView = lazy(() =>
+  import('@/components/datasets/PivotView').then((m) => ({ default: m.PivotView })),
+);
+const QueryPage = lazy(() =>
+  import('@/pages/QueryPage').then((m) => ({ default: m.QueryPage })),
+);
+const TableTab = lazy(() =>
+  import('@/pages/TableTab').then((m) => ({ default: m.TableTab })),
+);
 
 /**
  * Cache strategy
@@ -134,7 +168,13 @@ export function App() {
       >
         <BrowserRouter>
           <Routes>
-            <Route element={<AppShell />}>
+            <Route
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <AppShell />
+                </Suspense>
+              }
+            >
               <Route index element={<HomePage />} />
               <Route path="datasets" element={<DatasetsPage />} />
               {/* Dataset detail shell — hero + tab bar + outlet. Three

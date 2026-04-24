@@ -16,7 +16,7 @@ export function AppearsElsewhere({
   if (!enabled) {
     return (
       <div className="rounded border border-dashed border-gray-300 p-3">
-        <p className="text-sm text-gray-600 dark:text-gray-300">
+        <p className="text-sm text-gray-600">
           Find where this document is referenced across all other datasets.
         </p>
         <Button size="sm" variant="secondary" className="mt-2" onClick={() => setEnabled(true)}>
@@ -29,7 +29,7 @@ export function AppearsElsewhere({
   if (q.isLoading) return <p className="text-sm text-gray-500">Searching cross-cloud…</p>;
   if (q.isError) {
     return (
-      <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-900/30">
+      <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm">
         Could not complete cross-cloud search.{' '}
         <button className="underline" onClick={() => q.refetch()}>Retry</button>
       </div>

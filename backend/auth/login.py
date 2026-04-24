@@ -132,13 +132,34 @@ async def do_logout(
     store: SessionStore,
     cloud: NdiCloudClient,
 ) -> None:
-    settings = get_settings()
-    if session is not None:
-        try:
-            await cloud.logout(session.access_token)
-        finally:
-            await store.delete(session.session_id)
+    """Terminate the session locally + best-effort on the cloud.
 
+    Audit 2026-04-23 (#55): previously, if ``cloud.logout()`` raised a
+    non-network error (``CloudInternalError``, ``Forbidden``, etc.) the
+    exception propagated out of this function BEFORE the two
+    ``response.delete_cookie`` calls executed. Result: the browser kept
+    the session + CSRF cookies for 24 h, producing 401 loops until the
+    cookies expired. Logout is a best-effort local operation from the
+    caller's perspective — any upstream failure should be logged and
+    swallowed so the local teardown completes.
+    """
+    settings = get_settings()
     secure = settings.ENVIRONMENT != "development"
-    response.delete_cookie(SESSION_COOKIE, path="/", secure=secure, samesite="lax")
-    response.delete_cookie(CSRF_COOKIE, path="/", secure=secure, samesite="lax")
+    try:
+        if session is not None:
+            try:
+                await cloud.logout(session.access_token)
+            except Exception as e:
+                # Best-effort upstream logout — local teardown continues.
+                log.info(
+                    "auth.logout.cloud_failed",
+                    reason=type(e).__name__,
+                    session_id=session.session_id,
+                )
+            # Local session teardown must run even if cloud logout raised.
+            await store.delete(session.session_id)
+    finally:
+        # Cookies are cleared unconditionally — even if everything above
+        # failed, the client must exit its authenticated state.
+        response.delete_cookie(SESSION_COOKIE, path="/", secure=secure, samesite="lax")
+        response.delete_cookie(CSRF_COOKIE, path="/", secure=secure, samesite="lax")

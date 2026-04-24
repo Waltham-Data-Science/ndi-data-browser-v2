@@ -181,27 +181,80 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
                     )
             await _asyncio.sleep(interval_seconds)
 
+    # Facet-cache warmer — audit 2026-04-23 (#61). Previously the first
+    # user request after every 5-minute TTL expiry paid a ~300-cloud-call
+    # facet build. Now we build it server-side every 4 minutes so the
+    # user-visible request is always a cache hit. Fire-and-forget;
+    # failures swallow (same contract as keepwarm).
+    async def _facets_warm() -> None:
+        from .services.dataset_service import DatasetService
+        from .services.dataset_summary_service import DatasetSummaryService
+        from .services.facet_service import FacetService
+
+        # Re-read the lifespan caches each iteration via app.state so a
+        # Redis reconnect doesn't leave us with a stale RedisTableCache
+        # reference.
+        interval_seconds = 240  # 4 min, same cadence as keep-warm
+        consecutive_failures = 0
+        while True:
+            try:
+                dataset_svc = DatasetService(cloud_client)
+                summary_svc = DatasetSummaryService(
+                    cloud_client,
+                    ontology_service,
+                    cache=app.state.dataset_summary_cache,
+                )
+                svc = FacetService(
+                    dataset_svc,
+                    summary_svc,
+                    cache=app.state.facets_cache,
+                )
+                await svc.build_facets()
+                if consecutive_failures >= 3:
+                    log.warning(
+                        "facets_warm.recovered",
+                        after_failures=consecutive_failures,
+                    )
+                consecutive_failures = 0
+            except _asyncio.CancelledError:
+                raise
+            except Exception as e:
+                consecutive_failures += 1
+                if consecutive_failures <= 2:
+                    log.debug("facets_warm.skip", error=str(e))
+                else:
+                    log.warning(
+                        "facets_warm.sustained_failure",
+                        count=consecutive_failures,
+                        error=str(e),
+                    )
+            await _asyncio.sleep(interval_seconds)
+
     if settings.ENVIRONMENT == "production":
         # Only worth the tiny ongoing cost in prod — dev/test don't
         # suffer the Lambda cold-start problem.
         app.state.keepwarm_task = _asyncio.create_task(_keep_warm())
+        app.state.facets_warm_task = _asyncio.create_task(_facets_warm())
         log.info("keepwarm.started", interval_seconds=240)
+        log.info("facets_warm.started", interval_seconds=240)
 
     log.info("app.startup", environment=settings.ENVIRONMENT)
     try:
         yield
     finally:
-        # Cancel keep-warm loop before tearing down the cloud client so
-        # we don't race a request-in-flight against `cloud_client.close`.
-        task = getattr(app.state, "keepwarm_task", None)
-        if task is not None:
-            task.cancel()
-            # Await-after-cancel expects CancelledError; any *other*
-            # exception from the loop (e.g. a crash in `_request`) must
-            # propagate so it surfaces in logs instead of disappearing.
-            import contextlib as _contextlib
-            with _contextlib.suppress(_asyncio.CancelledError):
-                await task
+        # Cancel background loops before tearing down the cloud client
+        # so we don't race a request-in-flight against
+        # `cloud_client.close` or `ontology_service.close`.
+        import contextlib as _contextlib
+        for task_name in ("keepwarm_task", "facets_warm_task", "ontology_warmup_task"):
+            task = getattr(app.state, task_name, None)
+            if task is not None:
+                task.cancel()
+                # Await-after-cancel expects CancelledError; any *other*
+                # exception from the loop (e.g. a crash) must propagate
+                # so it surfaces in logs instead of disappearing.
+                with _contextlib.suppress(_asyncio.CancelledError):
+                    await task
         await cloud_client.close()
         await ontology_service.close()
         try:

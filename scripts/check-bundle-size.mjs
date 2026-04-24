@@ -38,10 +38,33 @@ const BUDGET_BYTES = Number(args.budget ?? 210 * 1024);
  * naming the dynamic-import chunk. A chunk is excluded from the budget
  * iff its filename starts with one of these prefixes.
  *
+ * Vite picks the chunk name from the `import()` specifier — so
+ * ``const LoginPage = lazy(() => import('@/pages/LoginPage'))`` produces
+ * a chunk named ``LoginPage-<hash>.js``.
+ *
  * Currently:
  *   - xlsx: loaded only when a user clicks "Export XLS" (Plan B B4).
+ *   - uplot: only DataPanel (inside DocumentDetailPage) pulls uPlot.
+ *   - Route chunks: React.lazy-gated routes added in audit 2026-04-23
+ *     #52. Home, Datasets, and DatasetDetail stay eagerly imported —
+ *     they're the primary public entry points.
  */
-const LAZY_CHUNK_PREFIXES = ['xlsx-'];
+const LAZY_CHUNK_PREFIXES = [
+  'xlsx-',
+  'uplot-',
+  // Audit 2026-04-23 #52 — lazy route chunks. Extending this list is a
+  // review signal: if a new lazy route is added, the reviewer needs to
+  // see the allowlist bump alongside the React.lazy call.
+  'AboutPage-',
+  'DocumentDetailPage-',
+  'DocumentExplorerPage-',
+  'LoginPage-',
+  'MyDatasetsPage-',
+  'NotFoundPage-',
+  'PivotView-',
+  'QueryPage-',
+  'TableTab-',
+];
 
 function isLazyChunk(file) {
   return LAZY_CHUNK_PREFIXES.some((p) => file.startsWith(p));

@@ -49,7 +49,7 @@ export function TableLoadingPanel({
   return (
     <div className="space-y-2" aria-label={`Loading ${tableType} table`}>
       <div
-        className="text-xs text-gray-500 dark:text-gray-400 font-mono"
+        className="text-xs text-gray-500 font-mono"
         role="status"
         aria-live="polite"
       >

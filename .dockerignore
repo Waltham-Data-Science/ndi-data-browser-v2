@@ -7,6 +7,7 @@
 **/.mypy_cache
 **/.ruff_cache
 **/.coverage
+**/.coverage.*
 **/coverage.xml
 **/htmlcov
 **/node_modules
@@ -21,9 +22,26 @@ frontend_dist
 **/*.swp
 **/*.db
 **/*.sqlite
+# Exclude tests + fixtures from the production image (audit 2026-04-23, #74).
+# Shipping backend/tests/ — 32+ unit test files, integration suite, contract
+# suite, test-only Fernet keys and fake JWTs — bloats the image and exposes
+# test-only code paths at runtime if mis-imported. frontend/tests-e2e is
+# already covered by the generic `tests-e2e` rule below.
+backend/tests
+backend/**/tests
 tests-e2e
 frontend/playwright-report
 frontend/test-results
 .railway
 infra/docker-compose.yml
 **/tsconfig*.tsbuildinfo
+# Guard against macOS Finder / iCloud "Filename 2.ext" duplicate files
+# ever making it into the image (audit 2026-04-23, #51). CI also rejects
+# these via the `hygiene` job — this is belt-and-suspenders.
+**/* 2.py
+**/* 2.ts
+**/* 2.tsx
+**/* 2.json
+**/* 2.yml
+**/* 2.yaml
+**/* 2.md

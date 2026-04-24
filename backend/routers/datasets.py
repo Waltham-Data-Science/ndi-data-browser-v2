@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ..auth.dependencies import get_current_session, require_session
 from ..auth.session import SessionData
@@ -18,6 +18,7 @@ from ..services.dataset_summary_service import (
     DatasetSummaryService,
 )
 from ..services.pivot_service import PivotService
+from ._cancel import cancel_on_disconnect
 from ._deps import (
     dataset_provenance_service,
     dataset_service,
@@ -118,6 +119,7 @@ async def doc_types(
 
 @router.get("/{dataset_id}/summary", response_model=DatasetSummary)
 async def summary(
+    request: Request,
     dataset_id: DatasetId,
     svc: Annotated[DatasetSummaryService, Depends(dataset_summary_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
@@ -126,12 +128,20 @@ async def summary(
     :class:`~backend.services.dataset_summary_service.DatasetSummary`
     for the response shape; the frontend mirror is in
     ``frontend/src/types/dataset-summary.ts``.
+
+    Audit 2026-04-23 (#62): wrapped in ``cancel_on_disconnect`` so a
+    client navigating away mid-build stops the cloud fan-out instead of
+    wasting Lambda time on a response nobody reads.
     """
-    return await svc.build_summary(dataset_id, session=session)
+    return await cancel_on_disconnect(
+        request,
+        svc.build_summary(dataset_id, session=session),
+    )
 
 
 @router.get("/{dataset_id}/provenance", response_model=DatasetProvenance)
 async def provenance(
+    request: Request,
     dataset_id: DatasetId,
     svc: Annotated[
         DatasetProvenanceService, Depends(dataset_provenance_service),
@@ -150,12 +160,20 @@ async def provenance(
     See :class:`~backend.services.dataset_provenance_service.DatasetProvenance`
     for the response shape; the frontend mirror is in
     ``frontend/src/types/dataset-provenance.ts``.
+
+    Audit 2026-04-23 (#62): cancel-on-disconnect wired — cross-dataset
+    provenance can touch up to ``_MAX_UNIQUE_TARGETS=1000`` ndiquery
+    resolutions on cache miss.
     """
-    return await svc.build_provenance(dataset_id, session=session)
+    return await cancel_on_disconnect(
+        request,
+        svc.build_provenance(dataset_id, session=session),
+    )
 
 
 @router.get("/{dataset_id}/pivot/{grain}")
 async def pivot(
+    request: Request,
     dataset_id: DatasetId,
     grain: str,
     svc: Annotated[PivotService, Depends(pivot_service)],
@@ -178,4 +196,7 @@ async def pivot(
                 "to enable."
             ),
         )
-    return await svc.pivot_by_grain(dataset_id, grain, session=session)
+    return await cancel_on_disconnect(
+        request,
+        svc.pivot_by_grain(dataset_id, grain, session=session),
+    )

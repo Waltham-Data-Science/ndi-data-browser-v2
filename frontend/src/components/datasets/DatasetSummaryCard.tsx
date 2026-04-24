@@ -83,7 +83,7 @@ export function DatasetSummaryCard({
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+    <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
       {children}
     </h2>
   );
@@ -116,13 +116,13 @@ function CountsSection({
         {items.map((i) => (
           <div
             key={i.label}
-            className="rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900"
+            className="rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5"
             data-testid={i.testId}
           >
-            <dt className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+            <dt className="text-[10px] uppercase tracking-wide text-gray-500">
               {i.label}
             </dt>
-            <dd className="font-mono text-sm text-gray-800 dark:text-gray-100">
+            <dd className="font-mono text-sm text-gray-800">
               {new Intl.NumberFormat().format(i.value)}
             </dd>
           </div>
@@ -182,7 +182,7 @@ function ProbeTypesSection({
       <SectionHeading>Probe types</SectionHeading>
       <dl className="space-y-1.5">
         <div className="grid grid-cols-[max-content_minmax(0,1fr)] items-start gap-x-3 gap-y-1">
-          <dt className="pt-0.5 text-xs font-medium text-gray-600 dark:text-gray-300">
+          <dt className="pt-0.5 text-xs font-medium text-gray-600">
             Types
           </dt>
           <dd className="flex flex-wrap gap-1.5">
@@ -212,16 +212,16 @@ function ScaleSection({
     <section aria-label="Scale" className="space-y-2" data-testid="scale">
       <SectionHeading>Scale</SectionHeading>
       <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-xs">
-        <dt className="font-medium text-gray-600 dark:text-gray-300">
+        <dt className="font-medium text-gray-600">
           Date range
         </dt>
-        <dd className="font-mono text-gray-800 dark:text-gray-100">
+        <dd className="font-mono text-gray-800">
           {range}
         </dd>
-        <dt className="font-medium text-gray-600 dark:text-gray-300">
+        <dt className="font-medium text-gray-600">
           Total size
         </dt>
-        <dd className="font-mono text-gray-800 dark:text-gray-100">
+        <dd className="font-mono text-gray-800">
           {totalSizeBytes == null ? '—' : formatBytes(totalSizeBytes)}
         </dd>
       </dl>
@@ -249,7 +249,7 @@ function LabeledOntologyList({
       className="grid grid-cols-[max-content_minmax(0,1fr)] items-start gap-x-3 gap-y-1"
       data-testid={`biology-${slugify(label)}`}
     >
-      <dt className="pt-0.5 text-xs font-medium text-gray-600 dark:text-gray-300">
+      <dt className="pt-0.5 text-xs font-medium text-gray-600">
         {label}
       </dt>
       <dd className="flex flex-wrap gap-1.5">
@@ -263,7 +263,7 @@ function renderOntologyList(terms: OntologyTerm[] | null): React.ReactNode {
   if (terms === null) {
     return (
       <span
-        className="text-[11px] italic text-gray-500 dark:text-gray-400"
+        className="text-[11px] italic text-gray-500"
         data-testid="value-not-applicable"
       >
         Not applicable
@@ -273,7 +273,7 @@ function renderOntologyList(terms: OntologyTerm[] | null): React.ReactNode {
   if (terms.length === 0) {
     return (
       <span
-        className="text-[11px] text-gray-500 dark:text-gray-400"
+        className="text-[11px] text-gray-500"
         data-testid="value-empty"
       >
         —
@@ -289,7 +289,7 @@ function renderStringListOrStatus(values: string[] | null): React.ReactNode {
   if (values === null) {
     return (
       <span
-        className="text-[11px] italic text-gray-500 dark:text-gray-400"
+        className="text-[11px] italic text-gray-500"
         data-testid="value-not-applicable"
       >
         Not applicable
@@ -299,7 +299,7 @@ function renderStringListOrStatus(values: string[] | null): React.ReactNode {
   if (values.length === 0) {
     return (
       <span
-        className="text-[11px] text-gray-500 dark:text-gray-400"
+        className="text-[11px] text-gray-500"
         data-testid="value-empty"
       >
         —
@@ -378,7 +378,6 @@ export function OntologyTermPill({
       className={cn(
         'inline-flex items-center rounded-full px-2 py-0.5 text-[11px] ring-1 ring-inset',
         'bg-brand-50 text-brand-800 ring-brand-200',
-        'dark:bg-brand-900/40 dark:text-brand-200 dark:ring-brand-800',
       )}
       data-testid="ontology-term-pill"
     >
@@ -418,7 +417,7 @@ export function OntologyTermPill({
         width={200}
         estimatedHeight={28}
         testId="ontology-term-tooltip"
-        className="whitespace-nowrap rounded-md border border-gray-200 bg-white px-2 py-1 text-[10px] font-mono shadow-md dark:border-gray-700 dark:bg-gray-900"
+        className="whitespace-nowrap rounded-md border border-gray-200 bg-white px-2 py-1 text-[10px] font-mono shadow-md"
       >
         {term.ontologyId}
       </FloatingPanel>
@@ -471,7 +470,7 @@ function SummaryFooter({
   const toggleRef = useRef<HTMLButtonElement>(null);
   return (
     <footer
-      className="flex items-center justify-between border-t border-gray-200 pt-2 text-[10px] text-gray-500 dark:border-gray-700 dark:text-gray-400"
+      className="flex items-center justify-between border-t border-gray-200 pt-2 text-[10px] text-gray-500"
       data-testid="summary-footer"
     >
       <span data-testid="summary-computed-at">Last computed {age}</span>
@@ -479,7 +478,7 @@ function SummaryFooter({
         <button
           ref={toggleRef}
           type="button"
-          className="inline-flex items-center gap-1 rounded hover:text-gray-700 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          className="inline-flex items-center gap-1 rounded hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
           onClick={() => setWarningsOpen((v) => !v)}
           aria-expanded={warningsOpen}
           data-testid="summary-warnings-toggle"
@@ -496,13 +495,13 @@ function SummaryFooter({
         width={320}
         estimatedHeight={Math.min(240, 40 + extractionWarnings.length * 24)}
         testId="summary-warnings-tooltip"
-        className="rounded-md border border-gray-200 bg-white p-2 text-[10px] shadow-md dark:border-gray-700 dark:bg-gray-900"
+        className="rounded-md border border-gray-200 bg-white p-2 text-[10px] shadow-md"
       >
         <ul className="space-y-1">
           {extractionWarnings.map((w, i) => (
             <li
               key={i}
-              className="text-gray-700 dark:text-gray-200"
+              className="text-gray-700"
               data-testid="summary-warning"
             >
               {w}
