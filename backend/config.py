@@ -31,7 +31,21 @@ class Settings(BaseSettings):
     CSRF_SIGNING_KEY: str = Field(..., min_length=32, description="HMAC key for CSRF signing (hex)")
 
     # --- CORS ---
-    CORS_ORIGINS: str = Field(default="http://localhost:5173")
+    # Production set on Railway via env var. The default keeps localhost
+    # for dev and lists the cross-repo unification (Phase 4) production
+    # origins so the canonical allowlist is documented in code:
+    #   - https://ndi-cloud.com   — apex (new monorepo, post-cutover)
+    #   - https://www.ndi-cloud.com — www redirect target
+    #   - https://app.ndi-cloud.com — legacy data-browser host (kept for
+    #     burn-in; remove after the post-cutover soak per Phase 7+).
+    CORS_ORIGINS: str = Field(
+        default=(
+            "http://localhost:5173,"
+            "https://ndi-cloud.com,"
+            "https://www.ndi-cloud.com,"
+            "https://app.ndi-cloud.com"
+        )
+    )
 
     # --- Session ---
     SESSION_IDLE_TTL_SECONDS: int = 2 * 60 * 60
