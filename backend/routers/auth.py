@@ -6,10 +6,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 
+from ..auth.cookie_attrs import cookie_attrs
 from ..auth.dependencies import get_current_session, require_session
 from ..auth.login import do_login, do_logout
 from ..auth.session import SessionData, SessionStore
 from ..clients.ndi_cloud import NdiCloudClient
+from ..config import get_settings
 from ..middleware.csrf import CSRF_COOKIE, generate_token, sign
 from ..middleware.rate_limit import RateLimiter
 from ._deps import cloud, rate_limiter, session_store
@@ -48,10 +50,10 @@ async def csrf(response: Response) -> CsrfResponse:
         key=CSRF_COOKIE,
         value=token,
         httponly=False,
-        secure=True,
         samesite="lax",
         path="/",
         max_age=86400,
+        **cookie_attrs(get_settings()),
     )
     return CsrfResponse(csrfToken=token)
 

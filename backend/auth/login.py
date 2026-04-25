@@ -16,6 +16,7 @@ from ..middleware.csrf import CSRF_COOKIE, generate_token, sign
 from ..middleware.rate_limit import Limit, RateLimiter
 from ..observability.logging import get_logger
 from ..observability.metrics import login_attempts_total
+from .cookie_attrs import cookie_attrs
 from .dependencies import SESSION_COOKIE
 from .session import SessionData, SessionStore
 
@@ -97,16 +98,16 @@ async def do_login(
     login_attempts_total.labels(outcome="success").inc()
     log.info("auth.login.success", session_id=session.session_id)
 
-    # Session cookie — HttpOnly, Secure.
-    secure = settings.ENVIRONMENT != "development"
+    # Session cookie — HttpOnly; Secure + Domain derived from environment.
+    attrs = cookie_attrs(settings)
     response.set_cookie(
         key=SESSION_COOKIE,
         value=session.session_id,
         max_age=settings.SESSION_ABSOLUTE_TTL_SECONDS,
         httponly=True,
-        secure=secure,
         samesite="lax",
         path="/",
+        **attrs,
     )
 
     # Fresh CSRF cookie (non-HttpOnly so JS can read+echo in X-XSRF-TOKEN).
@@ -117,9 +118,9 @@ async def do_login(
         value=csrf_cookie,
         max_age=settings.SESSION_ABSOLUTE_TTL_SECONDS,
         httponly=False,
-        secure=secure,
         samesite="lax",
         path="/",
+        **attrs,
     )
 
     return LoginResult(session=session, csrf_token=csrf_cookie)
@@ -144,7 +145,7 @@ async def do_logout(
     swallowed so the local teardown completes.
     """
     settings = get_settings()
-    secure = settings.ENVIRONMENT != "development"
+    attrs = cookie_attrs(settings)
     try:
         if session is not None:
             try:
@@ -160,6 +161,8 @@ async def do_logout(
             await store.delete(session.session_id)
     finally:
         # Cookies are cleared unconditionally — even if everything above
-        # failed, the client must exit its authenticated state.
-        response.delete_cookie(SESSION_COOKIE, path="/", secure=secure, samesite="lax")
-        response.delete_cookie(CSRF_COOKIE, path="/", secure=secure, samesite="lax")
+        # failed, the client must exit its authenticated state. The
+        # delete-cookie attributes (Domain, Secure) must match the
+        # set-cookie attributes from do_login or the browser ignores them.
+        response.delete_cookie(SESSION_COOKIE, path="/", samesite="lax", **attrs)
+        response.delete_cookie(CSRF_COOKIE, path="/", samesite="lax", **attrs)
