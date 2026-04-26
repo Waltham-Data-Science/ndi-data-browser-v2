@@ -97,15 +97,15 @@ class CsrfMiddleware:
             elif k.decode().lower() == CSRF_HEADER:
                 header_token = v.decode()
 
-        err: CsrfInvalid | None = None
+        csrf_err: CsrfInvalid | None = None
         if not header_token or not cookie_token:
-            err = CsrfInvalid("CSRF token missing.")
+            csrf_err = CsrfInvalid("CSRF token missing.")
         elif header_token != cookie_token:
-            err = CsrfInvalid("CSRF token mismatch.")
+            csrf_err = CsrfInvalid("CSRF token mismatch.")
         elif not verify(cookie_token):
-            err = CsrfInvalid("CSRF token signature invalid.")
+            csrf_err = CsrfInvalid("CSRF token signature invalid.")
 
-        if err is not None:
+        if csrf_err is not None:
             # Best-effort: find request_id from headers if present.
             rid = None
             for k, v in scope.get("headers", []):
@@ -125,12 +125,14 @@ class CsrfMiddleware:
             # We swallow any rate-limiter error so a Redis hiccup never
             # promotes a CSRF 403 into a 500 — security checks degrade
             # to "still 403" rather than "open."
-            err = await self._maybe_promote_to_rate_limit(scope, err)
+            response_err: CsrfInvalid | AuthRateLimited = (
+                await self._maybe_promote_to_rate_limit(scope, csrf_err)
+            )
 
-            body = json.dumps(err.to_response(rid)).encode()
+            body = json.dumps(response_err.to_response(rid)).encode()
             await send({
                 "type": "http.response.start",
-                "status": err.http_status,
+                "status": response_err.http_status,
                 "headers": [
                     (b"content-type", b"application/json"),
                     (b"content-length", str(len(body)).encode()),
