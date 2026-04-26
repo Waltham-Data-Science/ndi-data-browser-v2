@@ -29,6 +29,7 @@ from .errors import BrowserError, Internal, NotFound, ValidationFailed
 from .middleware.cache_control import CacheControlMiddleware
 from .middleware.csrf import CsrfMiddleware
 from .middleware.metrics import MetricsMiddleware
+from .middleware.origin_enforcement import OriginEnforcementMiddleware
 from .middleware.rate_limit import RateLimiter
 from .middleware.request_id import RequestIdMiddleware
 from .middleware.security_headers import SecurityHeadersMiddleware
@@ -313,6 +314,12 @@ def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, i
     # and adds Cache-Control: private|public depending on whether a
     # session cookie is present.
     app.add_middleware(CacheControlMiddleware)
+    # OriginEnforcement runs BEFORE CSRF in the request flow (i.e.,
+    # added before CsrfMiddleware so it's outer). A non-allowlisted
+    # Origin gets rejected with FORBIDDEN before the CSRF check even
+    # runs — keeps the typed reject codes meaningful (origin failure
+    # vs. CSRF failure).
+    app.add_middleware(OriginEnforcementMiddleware)
     # CSRF last (outermost invocation is first so we want CSRF nearest the app).
     app.add_middleware(CsrfMiddleware)
 

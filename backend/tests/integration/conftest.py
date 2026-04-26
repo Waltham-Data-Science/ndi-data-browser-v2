@@ -50,4 +50,10 @@ def app_and_cloud(fake_redis):  # type: ignore[no-untyped-def]
             app.state.facets_cache = RedisTableCache(
                 fake_redis, ttl_seconds=FACETS_CACHE_TTL_SECONDS,
             )
+            # O5: every mutating request must carry an allowlisted
+            # Origin. The conftest sets CORS_ORIGINS so `http://testserver`
+            # is allowed; stamp it on the client's default headers so
+            # individual tests don't have to thread Origin through every
+            # call.
+            client.headers["Origin"] = "http://testserver"
             yield client, router
