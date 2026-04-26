@@ -61,6 +61,18 @@ class ResendConfirmationBody(BaseModel):
     email: str = Field(..., min_length=1, max_length=256)
 
 
+class ChangePasswordBody(BaseModel):
+    """Body shape for ``POST /api/auth/change-password``.
+
+    Field names are camelCase to match the frontend's ``changePassword``
+    wrapper (``apps/web/lib/api/auth.ts``). The cloud expects a
+    different camelCase pair (``oldPassword``/``newPassword``); the
+    rename happens server-side in ``NdiCloudClient.change_password``.
+    """
+    currentPassword: str = Field(..., min_length=1, max_length=256)
+    newPassword: str = Field(..., min_length=1, max_length=256)
+
+
 class MeResponse(BaseModel):
     userId: str
     email_hash: str
@@ -270,4 +282,48 @@ async def resend_confirmation(
     """
     await _enforce_unauth_ip_limit(request, limiter, bucket="verify-resend-ip")
     await cl.resend_confirmation(email=body.email)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# /api/auth/change-password (B3 close-out)
+#
+# Authenticated change-password flow. Distinct from /api/auth/reset-password
+# (which is the forgot-password follow-up that takes an emailed code).
+# Two-factor verification: session cookie PLUS old password — protects
+# against an attacker with a stolen XSRF cookie but no password from
+# silently rotating creds.
+#
+# Per-USER rate limit (RATE_LIMIT_LOGIN_PER_USER_HOUR), not per-IP, since
+# the user is authenticated. Subject is the session's user_id so a shared
+# NAT or office WiFi doesn't burn another user's quota on this path.
+# ---------------------------------------------------------------------------
+
+@router.post("/change-password")
+async def change_password(
+    body: ChangePasswordBody,
+    session: Annotated[SessionData, Depends(require_session)],
+    cl: Annotated[NdiCloudClient, Depends(cloud)],
+    limiter: Annotated[RateLimiter, Depends(rate_limiter)],
+) -> dict[str, bool]:
+    """Authenticated change-password — proxies cloud `POST /auth/password`
+    with the session's bearer. Cognito codes translate to typed errors:
+    NotAuthorizedException → AUTH_INVALID_CREDENTIALS (wrong old pw),
+    InvalidPasswordException → WEAK_PASSWORD (new pw fails policy).
+    """
+    settings = get_settings()
+    await limiter.check(
+        Limit(
+            bucket="change-password-user",
+            max_requests=settings.RATE_LIMIT_LOGIN_PER_USER_HOUR,
+            window_seconds=60 * 60,
+            auth_bucket=True,
+        ),
+        RateLimiter.subject_for(session.user_id, ip=""),
+    )
+    await cl.change_password(
+        access_token=session.access_token,
+        old_password=body.currentPassword,
+        new_password=body.newPassword,
+    )
     return {"ok": True}
