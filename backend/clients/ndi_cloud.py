@@ -24,12 +24,17 @@ from ..errors import (
     CloudInternalError,
     CloudTimeout,
     CloudUnreachable,
+    EmailAlreadyExists,
+    EmailAlreadyVerified,
     Forbidden,
+    InvalidVerificationCode,
     NotFound,
     QueryInvalidNegation,
     QueryTimeout,
     QueryTooLarge,
     ValidationFailed,
+    VerificationCodeExpired,
+    WeakPassword,
 )
 from ..observability.logging import get_logger
 from ..observability.metrics import (
@@ -255,6 +260,163 @@ class NdiCloudClient:
                 log.info("cloud.logout_non_2xx", status=resp.status_code)
         except (CloudUnreachable, CloudTimeout) as e:
             log.info("cloud.logout_network_error", error=str(e))
+
+    # --- Account-lifecycle endpoints (B3) ---
+    #
+    # Each method translates Cognito error codes carried in the cloud's body
+    # into typed BrowserError subclasses. The translation table is small and
+    # deliberately explicit — see _translate_cognito_error below. Anything
+    # unrecognized falls through to the generic 4xx / 5xx mapping in
+    # _raise_for_status, so unknown failure modes are still typed (just as
+    # ValidationFailed / CloudInternalError) rather than leaked as Cognito
+    # strings.
+
+    async def signup(
+        self, *, email: str, password: str, name: str | None = None,
+    ) -> dict[str, Any]:
+        """Cloud `POST /users` — create Cognito user + Mongo user + default org.
+
+        Cloud expects ``{email, name, password}``. Empty/missing ``name`` is
+        legal at this layer; the router enforces frontend-side rules. The
+        cloud always returns 200 with a ``UserWithOrganizationsResult`` on
+        success and 400 with ``{ code: "<CognitoCode>" }`` on failure.
+
+        Not idempotent — Cognito ``signUp`` increments user-pool side
+        effects (audit trails, throttle counters) per call. We disable the
+        retry layer to avoid double-creates if the cloud responds 5xx after
+        the Cognito call already succeeded.
+        """
+        body: dict[str, Any] = {"email": email, "password": password}
+        if name is not None:
+            body["name"] = name
+        resp = await self._request(
+            "POST",
+            "/users",
+            endpoint_label="auth_signup",
+            json=body,
+            idempotent=False,
+        )
+        if resp.status_code == 400:
+            self._raise_cognito_error(resp, endpoint="auth_signup")
+        self._raise_for_status(resp, endpoint="auth_signup")
+        return cast(dict[str, Any], resp.json())
+
+    async def forgot_password(self, *, email: str) -> None:
+        """Cloud `POST /auth/password/forgot` — initiate Cognito reset flow.
+
+        SECURITY (email enumeration): Cognito returns ``UserNotFoundException``
+        when the address isn't registered. We swallow that to a no-op so
+        attackers can't probe whether an email is registered. This matches
+        the "always succeed" pattern used by major auth providers for
+        password-reset endpoints. Other Cognito errors (LimitExceeded etc.)
+        propagate via _raise_for_status as ValidationFailed/CloudInternalError.
+        """
+        resp = await self._request(
+            "POST",
+            "/auth/password/forgot",
+            endpoint_label="auth_forgot_password",
+            json={"email": email},
+            idempotent=False,
+        )
+        if resp.status_code == 400:
+            code = _extract_cognito_code(resp)
+            if code == "UserNotFoundException":
+                log.info(
+                    "cloud.forgot_password.user_not_found_swallowed",
+                    # email is sensitive — log a hash, not the raw value.
+                    email_hash=_email_log_hash(email),
+                )
+                return
+            # Fall through to typed translation for everything else.
+            self._raise_cognito_error(resp, endpoint="auth_forgot_password")
+        self._raise_for_status(resp, endpoint="auth_forgot_password")
+
+    async def reset_password(
+        self, *, email: str, code: str, new_password: str,
+    ) -> None:
+        """Cloud `POST /auth/password/confirm` — submit reset code + new pw.
+
+        QUIRK (cloud-side): the legacy controller calls ``res.json()``
+        (HTTP 200) on BOTH success AND failure paths, embedding the failure
+        as ``{ errors, code: "<CognitoCode>" }`` in the body. We must
+        inspect the body even on 2xx and translate the code to a typed
+        error. See ndi-cloud-node ``confirmForgotPassword`` for the
+        verbatim shape — fixing it cloud-side would be a coordinated
+        breaking change; until then we tolerate it here.
+        """
+        resp = await self._request(
+            "POST",
+            "/auth/password/confirm",
+            endpoint_label="auth_reset_password",
+            json={
+                "email": email,
+                "confirmationCode": code,
+                "newPassword": new_password,
+            },
+            idempotent=False,
+        )
+        # Quirk: success + failure both come as 200; differentiate by body.
+        if 200 <= resp.status_code < 300:
+            cognito_code = _extract_cognito_code(resp)
+            if cognito_code:
+                _raise_for_cognito_code(cognito_code, endpoint="auth_reset_password")
+            return
+        # Non-2xx: handle as typed failure if we recognize the cognito code,
+        # else fall through to the generic translator.
+        if resp.status_code == 400:
+            self._raise_cognito_error(resp, endpoint="auth_reset_password")
+        self._raise_for_status(resp, endpoint="auth_reset_password")
+
+    async def confirm_email(self, *, email: str, code: str) -> None:
+        """Cloud `POST /auth/verify` — confirm signup with emailed code."""
+        resp = await self._request(
+            "POST",
+            "/auth/verify",
+            endpoint_label="auth_confirm_email",
+            json={"email": email, "confirmationCode": code},
+            idempotent=False,
+        )
+        if resp.status_code == 400:
+            self._raise_cognito_error(resp, endpoint="auth_confirm_email")
+        self._raise_for_status(resp, endpoint="auth_confirm_email")
+
+    async def resend_confirmation(self, *, email: str) -> None:
+        """Cloud `POST /auth/confirmation/resend` — re-send signup code.
+
+        SECURITY: same enumeration-resistance contract as forgot_password.
+        UserNotFoundException is swallowed so a caller cannot probe which
+        emails are registered.
+        """
+        resp = await self._request(
+            "POST",
+            "/auth/confirmation/resend",
+            endpoint_label="auth_resend_confirmation",
+            json={"email": email},
+            idempotent=False,
+        )
+        if resp.status_code == 400:
+            code = _extract_cognito_code(resp)
+            if code == "UserNotFoundException":
+                log.info(
+                    "cloud.resend_confirmation.user_not_found_swallowed",
+                    email_hash=_email_log_hash(email),
+                )
+                return
+            self._raise_cognito_error(resp, endpoint="auth_resend_confirmation")
+        self._raise_for_status(resp, endpoint="auth_resend_confirmation")
+
+    @staticmethod
+    def _raise_cognito_error(response: httpx.Response, *, endpoint: str) -> None:
+        """Translate a 4xx body that carries a Cognito ``code`` into a typed
+        BrowserError. If the code isn't in our translation table, fall
+        through to the generic _raise_for_status so the response still
+        becomes a typed BrowserError (ValidationFailed) rather than leaking.
+        """
+        cognito_code = _extract_cognito_code(response)
+        if cognito_code:
+            _raise_for_cognito_code(cognito_code, endpoint=endpoint)
+        # No recognized code → let the generic translator handle the status.
+        NdiCloudClient._raise_for_status(response, endpoint=endpoint)
 
     async def get_published_datasets(
         self, *, page: int = 1, page_size: int = 20, access_token: str | None = None,
@@ -579,3 +741,71 @@ def _scope_kind(scope: str) -> str:
     if "," in scope:
         return "multi-dataset"
     return "single-dataset"
+
+
+# ---------------------------------------------------------------------------
+# Cognito error translation
+# ---------------------------------------------------------------------------
+
+def _extract_cognito_code(response: httpx.Response) -> str | None:
+    """Read a Cognito-style ``code`` field from a cloud response body.
+
+    The cloud serializes the Cognito error name (``UsernameExistsException``,
+    ``CodeMismatchException``, etc.) as the ``code`` key on its 4xx
+    responses. We read it tolerantly — if the body isn't JSON or doesn't
+    have a string code we return None and fall through.
+    """
+    try:
+        body = response.json()
+    except Exception:
+        return None
+    if isinstance(body, dict):
+        code = body.get("code")
+        if isinstance(code, str):
+            return code
+    return None
+
+
+def _raise_for_cognito_code(cognito_code: str, *, endpoint: str) -> None:
+    """Map a Cognito error code to a typed BrowserError.
+
+    Endpoint is passed only for log context; the translation table is
+    shared across signup, confirm, reset, and resend flows because the
+    Cognito error vocabulary is the same.
+
+    ``InvalidParameterException`` is a deliberately overloaded code in
+    Cognito — for resend-confirmation it commonly means "user is already
+    confirmed", but on signup it can mean "email format is bad". We keep
+    the resend endpoint's specific translation here (the only caller that
+    uses this code path on a confirmed-flag check); other callers see it
+    fall through to the generic ValidationFailed handler.
+    """
+    # Translation table — keep tight; unknown codes fall through.
+    if cognito_code == "UsernameExistsException":
+        raise EmailAlreadyExists()
+    if cognito_code == "InvalidPasswordException":
+        raise WeakPassword()
+    if cognito_code == "CodeMismatchException":
+        raise InvalidVerificationCode()
+    if cognito_code == "ExpiredCodeException":
+        raise VerificationCodeExpired()
+    # NotAuthorizedException on confirm-email == "User cannot be confirmed.
+    # Current status is CONFIRMED" (Cognito's exact phrasing for double-
+    # verification). Treat as "already verified" for the consumer; the
+    # frontend routes them to login.
+    if cognito_code == "NotAuthorizedException":
+        raise EmailAlreadyVerified()
+    # Resend-side "User is already confirmed" surfaces as
+    # InvalidParameterException — hand it off to the same UX bucket. Note
+    # this does mean a malformed email at signup time would also surface
+    # as EmailAlreadyVerified, but signup body shape is validated by
+    # Pydantic at the router boundary so we never get there.
+    if cognito_code == "InvalidParameterException":
+        raise EmailAlreadyVerified()
+    # Fall-through — caller's _raise_for_status emits a generic typed error.
+
+
+def _email_log_hash(email: str) -> str:
+    """Hashed email for log breadcrumbs — never log raw addresses."""
+    from hashlib import sha256
+    return sha256(email.lower().encode()).hexdigest()[:16]

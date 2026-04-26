@@ -15,6 +15,11 @@ class ErrorCode(str, Enum):
     AUTH_EXPIRED = "AUTH_EXPIRED"
     AUTH_INVALID_CREDENTIALS = "AUTH_INVALID_CREDENTIALS"
     AUTH_RATE_LIMITED = "AUTH_RATE_LIMITED"
+    EMAIL_ALREADY_EXISTS = "EMAIL_ALREADY_EXISTS"
+    EMAIL_ALREADY_VERIFIED = "EMAIL_ALREADY_VERIFIED"
+    WEAK_PASSWORD = "WEAK_PASSWORD"
+    INVALID_VERIFICATION_CODE = "INVALID_VERIFICATION_CODE"
+    VERIFICATION_CODE_EXPIRED = "VERIFICATION_CODE_EXPIRED"
     FORBIDDEN = "FORBIDDEN"
     NOT_FOUND = "NOT_FOUND"
     VALIDATION_ERROR = "VALIDATION_ERROR"
@@ -105,6 +110,53 @@ class AuthRateLimited(BrowserError):
     code = ErrorCode.AUTH_RATE_LIMITED
     http_status = 429
     user_message = "Too many login attempts. Please wait a few minutes."
+    recovery = Recovery.NONE
+
+
+# --- Account-lifecycle errors ---
+# Cognito's raw error codes (UsernameExistsException, InvalidPasswordException,
+# CodeMismatchException, etc.) are deliberately translated to typed
+# BrowserError subclasses in NdiCloudClient. The wire never sees Cognito
+# strings — see auth-proxy endpoints in routers/auth.py and the
+# `_translate_cognito_signup_error` / `_translate_cognito_*` helpers.
+
+class EmailAlreadyExists(BrowserError):
+    code = ErrorCode.EMAIL_ALREADY_EXISTS
+    # 409 Conflict — the resource (user account for this email) already exists.
+    http_status = 409
+    user_message = "An account with this email already exists. Try logging in instead."
+    recovery = Recovery.LOGIN
+
+
+class EmailAlreadyVerified(BrowserError):
+    code = ErrorCode.EMAIL_ALREADY_VERIFIED
+    # 409 Conflict — caller asked to (re)verify a verified address.
+    http_status = 409
+    user_message = "This email is already verified. Please log in."
+    recovery = Recovery.LOGIN
+
+
+class WeakPassword(BrowserError):
+    code = ErrorCode.WEAK_PASSWORD
+    http_status = 400
+    user_message = (
+        "Password doesn't meet complexity requirements. Use at least 8 characters "
+        "with uppercase, lowercase, number, and symbol."
+    )
+    recovery = Recovery.NONE
+
+
+class InvalidVerificationCode(BrowserError):
+    code = ErrorCode.INVALID_VERIFICATION_CODE
+    http_status = 400
+    user_message = "The verification code is incorrect. Please check and try again."
+    recovery = Recovery.NONE
+
+
+class VerificationCodeExpired(BrowserError):
+    code = ErrorCode.VERIFICATION_CODE_EXPIRED
+    http_status = 400
+    user_message = "The verification code has expired. Please request a new one."
     recovery = Recovery.NONE
 
 
@@ -234,6 +286,8 @@ class Internal(BrowserError):
 
 ALL_ERRORS: list[type[BrowserError]] = [
     AuthRequired, AuthExpired, AuthInvalidCredentials, AuthRateLimited,
+    EmailAlreadyExists, EmailAlreadyVerified, WeakPassword,
+    InvalidVerificationCode, VerificationCodeExpired,
     Forbidden, NotFound, ValidationFailed, RateLimited,
     CloudUnreachable, CloudTimeout, CloudInternalError,
     BinaryDecodeFailed, BinaryNotFound,
