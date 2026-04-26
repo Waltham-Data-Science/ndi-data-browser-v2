@@ -2648,3 +2648,356 @@ trace lives in:
 The next session resumes Sequence 3 against the latest
 `ndi-cloud-app:main` (head: `a33eef7`).
 
+---
+
+## POST-PHASE-6.7-SEQUENCE-4 STATE — Sequences 3 + 4 + B3 close-out shipped (2026-04-26)
+
+**Status:** Sequences 1, 2, 3, and 4 of Phase 6.7 — including the
+B3 close-out paired backend+frontend PRs and the read-only O6 IDOR
+investigation — are landed across both repos. Sequence 5 (compliance +
+cleanup) is paused awaiting user go-ahead.
+
+This entry supersedes the prior INTERIM STATE for Sequences 1+2.
+Refer to that section for the Sequence 1 / Sequence 2 PR detail. This
+entry covers everything that landed AFTER the INTERIM compact:
+parallel backend track, Sequence 3 code-quality, B3 close-out, O6
+investigation, and Sequence 4 ops + R2 + RUNBOOK + gitleaks.
+
+### Repo state at checkpoint
+
+- `Waltham-Data-Science/ndi-cloud-app:main` head — `adb0aab`
+  (`feat(o9): gitleaks pre-commit hook + CI backstop (#71)`).
+- `Waltham-Data-Science/ndi-data-browser-v2:main` head — `08e457e`
+  (`docs(a7+a9): add RUNBOOK.md operational reference (#91)`).
+- **Zero open PRs** across both repos at the checkpoint moment.
+
+### PRs shipped this stretch (post-INTERIM)
+
+#### Parallel backend track on `ndi-data-browser-v2` (CI billing unblocked when user flipped repo public)
+
+| PR | Title | Squash SHA |
+|----|-------|------------|
+| #79 | chore(observability): drop unused SENTRY_DSN config + sentry-sdk dep | merged after billing flip |
+| #80 | docs(plan): Phase 6.7 interim checkpoint after Sequence 2 | (the INTERIM STATE entry; merged before Sequence 3 work resumed) |
+| #81 | fix(b7): hide Swagger UI / ReDoc / OpenAPI spec in production | merged |
+| #82 | fix(b8): trust X-Forwarded-For from Railway edge for rate-limit IP | merged |
+| #83 | feat(b3): add 5 missing FastAPI auth proxy endpoints (signup, forgot-password, reset-password, confirm-email, resend-confirmation) | merged — dispatched to a background agent that course-corrected the cloud paths against `ndi-cloud-node` source (audit had named them by camelCase intent; actual paths are `/users` + `/auth/password/forgot|confirm` + `/auth/verify` + `/auth/confirmation/resend`) and added 50 new tests with 90% coverage on the new code. |
+
+#### Sequence 3 — Code quality on `ndi-cloud-app`
+
+| PR | Title | Squash SHA |
+|----|-------|------------|
+| #65 | feat(cq1): zod schema validation in apiFetch + 4 high-traffic schemas | merged |
+| #66 | test(cq2): add unit tests for 6 marketing auth forms | merged |
+| #67 | test(cq3): extract viewer math primitives + 26 unit tests | merged — closes GH#45 |
+| #68 | refactor(cq5): drop dead state, debounce URL writes, dynamic-import uPlot | merged |
+
+CQ1 also fixed a Phase 2b type lie surfaced during the schema work:
+`login()` was declared `Promise<AuthUser>` but the backend returned
+`{ ok, user, expiresAt }`. Callers don't read the value (they
+invalidate the `['session']` query and let `useSession` re-read
+`/api/auth/me`), so the lie was benign at runtime — the new
+`LoginResponse` type makes the declaration honest.
+
+CQ2 added 32 tests across 6 marketing auth forms (forgot-password,
+reset-forgotten-password, reset-password, account-verification,
+account-not-confirmed, resend-verification). The 7th form
+(create-account) already had comprehensive tests from Sequence 2's
+M6+M7 work.
+
+CQ3 extracted `kernelDensity`, `silvermanBandwidth`, `classifyColumns`,
+`coerceNumber`, `detectSweeps` from the chart components into
+`apps/web/lib/viewer/math.ts` so they can be unit-tested in isolation.
+26 new tests covering edge cases the chart widgets shipped without
+coverage. Chart components re-import — pure refactor.
+
+CQ5 bundled three independent cleanups: dead `setImageFrame` state in
+DataPanel; per-keystroke `router.replace` for the `tq` URL param
+debounced via a new `useDebouncedValue<T>` hook (250ms window);
+`TimeseriesChart` + `FitcurveChart` dynamic-imported via
+`next/dynamic({ ssr: false })`. Bundle stayed flat (the chart deps
+were already chunked behind the dataset-detail route; dynamic() is
+defensive against any future caller pulling DataPanel into a smaller
+bundle).
+
+#### B3 close-out (paired)
+
+| PR | Title | Squash SHA |
+|----|-------|------------|
+| #84 (`ndi-data-browser-v2`) | feat(b3-closeout): add POST /api/auth/change-password (authenticated) | merged |
+| #69 (`ndi-cloud-app`) | refactor(b3-closeout): rename verifyEmail → confirmEmail to match audit canon | merged |
+
+PR #84 added the authenticated change-password flow that PR #83
+deliberately scoped out. Distinct from `/api/auth/reset-password`
+(emailed-code follow-up): change-password is the AUTHENTICATED rotation
+that requires the OLD password as a second factor. Two-factor
+verification: session cookie PLUS password proof — protects against
+an attacker with a stolen XSRF cookie but no password from silently
+rotating creds. Per-USER rate limit (`change-password-user` bucket).
+Bespoke Cognito error translation: `NotAuthorizedException` at this
+endpoint means "wrong old password" → `AUTH_INVALID_CREDENTIALS`,
+NOT the confirm-email "user already verified" meaning.
+
+PR #69 closed the silent-404 bug where the frontend's
+`verifyEmail({ email, code })` was calling `/api/auth/verify-email`
+that the backend never served. Renamed to `confirmEmail()` calling
+`/api/auth/confirm-email` (the canonical name from
+`apps/web/AUTH_CONTRACT_AUDIT.md`, matching the cloud's
+`confirmEmailAccount` action verb).
+
+#### O6 IDOR investigation (read-only)
+
+Dispatched to a sub-agent with READ-ONLY scope. **No IDOR
+vulnerabilities found.** Report at `/tmp/ndi-review/O6-IDOR-investigation.md`
+(per-session scratch; re-spawn the investigation agent if the file
+is gone after compact). **Phase 7 cutover is NOT blocked on O6.**
+
+Key verifications from the report:
+
+- Every `dataset_id` / `document_id` handler in
+  `routers/{datasets,documents,binary,visualize,query,tables}.py`
+  passes `session.access_token if session else None` to the cloud
+  client — the cloud applies the actual ACL.
+- `/api/datasets/my?scope=all` admin firehose is properly gated
+  server-side (`routers/datasets.py:82`); non-admins are silently
+  downgraded to `mine`.
+- All cache keys (`datasets_list`, `dataset_detail`, `class_counts`,
+  `summary`, `provenance`, `tables`, `pivot`, `dep_graph`) include
+  `user_scope_for(session)` discriminator preventing cross-user cache
+  poisoning.
+- Path validators in `routers/_validators.py` enforce
+  `DATASET_ID_PATTERN` / `DOCUMENT_ID_PATTERN` so traversal can't
+  pivot to sibling cloud resources.
+- `cloud.download_file()` enforces scheme + host allowlist (audit
+  #49) blocking SSRF.
+- Frontend `apps/web/middleware.ts` correctly does NOT auth-gate
+  `/api/*` (FastAPI is the auth source).
+
+Two informational forward-compat notes (NOT live vulns):
+
+1. Cache scoping assumes the cloud returns identical bytes to two
+   different members of the same org — true today, would break
+   silently if the cloud ever ships per-user response variation.
+2. `appears_elsewhere` and `dataset_provenance` use `scope=all` for
+   authenticated callers and rely on cloud-side ACL filtering. The
+   report recommends a cross-repo integration test on `ndi-cloud-node`
+   to lock the contract.
+
+#### Sequence 4 — Ops readiness + R2 + docs (per user's listed order, O6 first)
+
+| PR | Title | Repo | Squash SHA |
+|----|-------|------|------------|
+| #85 | feat(o2): optional CSP violation reporting via report-uri + Report-To | `ndi-data-browser-v2` | merged |
+| #86 | feat(o3): enforce SESSION_IDLE_TTL_SECONDS on session reads | `ndi-data-browser-v2` | merged |
+| #87 | feat(o4): per-IP rate limit on CSRF failures | `ndi-data-browser-v2` | merged |
+| #88 | feat(o5): server-side Origin enforcement on mutating requests | `ndi-data-browser-v2` | merged |
+| #89 | feat(o7): conditional opentelemetry tracing init | `ndi-data-browser-v2` | merged |
+| #90 | docs(o8): ADR 014 documenting the dual-CSP architecture | `ndi-data-browser-v2` | merged |
+| #70 | fix(r2): suppress chrome-gate hydration flash on document-detail pages | `ndi-cloud-app` | merged |
+| #91 | docs(a7+a9): add RUNBOOK.md operational reference | `ndi-data-browser-v2` | merged |
+| #71 | feat(o9): gitleaks pre-commit hook + CI backstop | `ndi-cloud-app` | merged |
+
+Notes on each:
+
+- **O2 CSP report-to.** Opt-in via new `CSP_REPORT_URI` setting. When
+  set, emits both legacy `report-uri` (broadest browser support) and
+  modern `Report-To` (Reporting API) so violations get delivered to
+  whichever endpoint a future collector wires up. Default behavior
+  unchanged — no third-party endpoint contacted out of the box.
+- **O3 idle TTL.** `Settings.SESSION_IDLE_TTL_SECONDS` was defined
+  but never consulted — a 23-hour-idle session was still valid as
+  long as the absolute clock hadn't elapsed. Now belt-and-suspenders:
+  `SessionStore._write` caps Redis TTL at `min(remaining_absolute,
+  idle_ttl)` AND `get_current_session` does an explicit `now -
+  last_active > idle_ttl` check before returning the session.
+- **O4 CSRF rate limit.** Per-IP limit on the CSRF middleware's
+  failure path (default 20/5min, bucket `csrf-fail-ip`). On overflow,
+  the `403 CSRF_INVALID` envelope is replaced with `429
+  AUTH_RATE_LIMITED` so the typed code distinguishes "your CSRF state
+  is out of sync" from "you look like a probe." Limiter failures
+  swallow back to the original 403 — security degrades to "still 403,"
+  never to "open."
+- **O5 Origin enforcement.** New `OriginEnforcementMiddleware` runs
+  BEFORE the CSRF middleware (so origin rejects shortcut CSRF). On
+  mutations: Origin must be in `CORS_ORIGINS`; falls back to
+  `Referer` if Origin absent; rejects with FORBIDDEN if both absent.
+  Strict no-Origin handling per the audit's call-out — legitimate
+  browser-driven mutations always carry one of them. Test harness
+  updated (`tests/conftest.py` pins `CORS_ORIGINS`;
+  `tests/integration/conftest.py` stamps `Origin: http://testserver`
+  on the TestClient defaults) so the existing 499 tests still pass.
+- **O7 opentelemetry deps gate.** The deps were declared in
+  `pyproject.toml`'s `observability` extra but never imported. Wired
+  up `init_tracing(app, settings)` that no-ops when
+  `OTEL_EXPORTER_OTLP_ENDPOINT` is unset OR when the deps aren't
+  installed. Failures degrade silently — a configuration error or
+  missing dep MUST NOT prevent the app from starting.
+- **O8 dual-CSP ADR.** ADR 014 documents the deliberate split: the
+  Vercel-side CSP governs HTML page enforcement (the user-visible
+  layer); the FastAPI-side CSP is defense-in-depth on JSON responses
+  (only matters when a user opens `/api/*` directly in a browser
+  tab). A "reconciled" single CSP would either bring Vercel's
+  analytics origins into the FastAPI allowlist (loosening the API
+  surface) or strip them from Vercel (breaking analytics). Neither
+  is desirable. Future audits that re-find the difference land on
+  ADR 014.
+- **R2 chrome-gate flash.** `DatasetDetailChromeGate` now wraps its
+  rendered chrome in `<div data-dataset-chrome>` and tags the
+  section as `<section data-dataset-chrome-section>`. The
+  document-detail page (`page.tsx`) renders an inline `<style>`
+  that hides those attributes via `display: none !important` and
+  strips the section's max-width / padding. Browsers parse the
+  inline style before painting → chrome never flashes. The audit's
+  recommended minimum-effort path (vs. structural route restructure).
+- **A7+A9 RUNBOOK.** New `docs/RUNBOOK.md`: quick reference (URLs,
+  owners, log destinations, on-call), common-incidents playbook,
+  deploy/rollback procedures, Phase 7 cutover summary, key-rotation
+  procedures for `SESSION_ENCRYPTION_KEY` / `CSRF_SIGNING_KEY` /
+  `OTEL_EXPORTER_OTLP_ENDPOINT`, observability surface,
+  security-review surface (every Sequence 4 PR cross-referenced).
+- **O9 gitleaks.** Two layers on `ndi-cloud-app`: `.githooks/pre-commit`
+  runs `gitleaks protect --staged` (non-blocking when gitleaks isn't
+  installed — prints install hint + exits 0); CI gitleaks job runs
+  the official `zricethezav/gitleaks:v8.21.2` Docker image directly
+  with `fetch-depth: 0` to scan the full PR range. We don't use
+  `gitleaks/gitleaks-action@v2` because its v2 release introduced a
+  paid `GITLEAKS_LICENSE` requirement for org-owned repos; the CLI
+  itself is open source and license-free.
+
+### All 9 cutover blockers closed
+
+| Blocker | Description | Closed by |
+|---------|-------------|-----------|
+| **B1** | Login wire field rename (`email` → `username`) | PR #55 (Sequence 1) |
+| **B2** | CSP overhaul (drop strict-dynamic + per-request nonce) | PR #59 (Sequence 1) |
+| **B3** | 5 missing FastAPI auth proxy endpoints + change-password | PR #83 (parallel backend track) + PR #84 (close-out backend) + PR #69 (close-out frontend rename) |
+| **B4** | `AuthUser` shape alignment with FastAPI `MeResponse` | PR #57 (Sequence 1) |
+| **B5** | Header logout + cache clear | PR #58 (Sequence 1) |
+| **B6** | `SESSION_SECRET` → `SESSION_ENCRYPTION_KEY` rename | PR #48 (Sequence 1) |
+| **B7** | Swagger / ReDoc / OpenAPI spec hidden in production | PR #81 (parallel backend track) |
+| **B8** | uvicorn `--proxy-headers --forwarded-allow-ips '*'` on Railway | PR #82 (parallel backend track) |
+| **B9** | Skew Protection (Vercel UI toggle + curl verification in CUTOVER.md) | Surfaced to user — Vercel UI action; curl check embedded in CUTOVER.md replaced the deleted Playwright spec from Sequence 1's PR #56 (A3) |
+
+### Coverage trajectory
+
+| Phase | Frontend tests | Backend tests | Frontend bundle |
+|-------|----------------|----------------|------------------|
+| Pre-Phase-6.7 baseline | 459 | 438 | 168.0 KB gz |
+| Post-INTERIM (Sequence 1+2) | 486 | (no backend changes Sequences 1+2) | 168.0 KB gz |
+| **Post-Phase-6.7-Sequence-4** | **557** (+98 net) | **507** (+69 net) | **168.0 KB gz** (unchanged) |
+
+Bundle stayed flat through 100+ net new tests + 9 ops PRs +
+B3-backend's 5 new endpoints. The CQ5 dynamic-import work was
+defensive (chart deps were already chunked behind the dataset-detail
+route).
+
+### Two carryovers — surface in the eventual final STATE writeup before cutover
+
+1. 🔒 **`Waltham-Data-Science/ndi-data-browser-v2` is still PUBLIC.**
+   The user flipped it mid-Sequence-3 to unblock the GitHub Actions
+   CI billing block (matched the earlier `ndi-cloud-app` flip during
+   Phase 6.6). **Pre-cutover, flip back to private.** RUNBOOK
+   (`docs/RUNBOOK.md`) does NOT yet record the visibility-flip
+   procedure — add it to the cutover-step checklist.
+
+2. 🔒 **O9 sister PR for `ndi-data-browser-v2` is deferred.** The
+   gitleaks pre-commit hook + CI Docker step shipped on `ndi-cloud-app`
+   (PR #71). The matching `.githooks/pre-commit` + CI workflow update
+   on `ndi-data-browser-v2` is a clean follow-up — same content, just
+   apply to the other repo. Backend has neither layer today.
+
+### Items still surfaced for the user (carried from INTERIM, status updates)
+
+- 🚨 **B9 Skew Protection** — Vercel UI toggle. Per the user's
+  earlier note the toggle reports as on but bogus `?dpl=` returns 200
+  instead of 404. CUTOVER.md embeds the curl verification in-line.
+  Pre-cutover blocker until the Vercel UI toggle is confirmed by
+  the user. Status unchanged from INTERIM.
+
+- 🔒 **`Waltham-Data-Science/ndi-cloud-app` is still public** for
+  the same CI billing reason that prompted the public flip during
+  Phase 6.6. Pre-cutover, flip back to private. (Same as carryover
+  #1 above for the other repo — both repos need the visibility
+  flip.) Status unchanged from INTERIM.
+
+- 📌 **A8 Sentry was dropped from scope.** Closed via PR #53
+  (frontend) + PR #79 (backend) which both merged this stretch.
+  Status: closed.
+
+- 📌 **`app.ndi-cloud.com` DNS does not resolve today.** Verified
+  during the auth contract audit. Non-blocking per the user's resume
+  note — Phase 7 cutover re-attaches the legacy host as a 301
+  redirect to apex anyway. Status unchanged from INTERIM.
+
+- 📌 **Color-contrast a11y (GH#46)** — out of Phase 6.7 scope per
+  the original prompt; deferred to a Lighthouse-CI-driven PR after
+  Phase 7. Status unchanged from INTERIM.
+
+### Sequence 5 items pending (paused)
+
+In the priority order from the user's resume scope:
+
+1. **A10 — `apps/web/COMPLIANCE.md`.** One-page doc covering data
+   residency, encryption (at-rest in Redis via Fernet, in-transit
+   via TLS), access controls (cookie session + CSRF + Origin),
+   audit-trail absence, HIPAA stance for the platform's
+   neuroscience-data context.
+
+2. **A2 architecture — real bundle ratchet.** Currently the
+   `scripts/check-bundle-size.mjs` budget is a hard 200 KB constant.
+   The doc claims it ratchets DOWN over time. Implement: persist the
+   most-recent-passing size to a checked-in file; new PRs must not
+   regress beyond it.
+
+3. **A2 port — `useDocumentTitle` recovery.** The Phase 2b port
+   dropped the source data-browser's per-page document title
+   contract. Restore via `generateMetadata({ params })` for dataset-
+   detail pages (closes audit follow-up #67).
+
+4. **G5 port — legacy table-class slug aliases.** The source data
+   browser routed `subjects`, `probes`, etc. as friendly slugs;
+   Phase 3a only honors the canonical NDI class names. A redirect
+   layer fixes the broken bookmarks.
+
+5. **A6 — Railway state backup audit.** Investigate + document the
+   Redis snapshot story (Railway provides automatic snapshots; verify
+   retention, restore procedure, and the consequences of a
+   point-in-time restore on the encrypted session blobs). Doc-only,
+   no code changes.
+
+6. **Stale comment sweep across both repos.** Targets identified in
+   the INTERIM STATE: `DocumentDetailView.tsx:26-30` "DependencyGraph
+   is D3, deferred" + the audit-error self-correction note in
+   `DependencyGraphView.tsx:22-24`. Plus general housecleaning.
+
+7. **O9 sister PR for `ndi-data-browser-v2`** — carryover from this
+   stretch. Trivial: replicate the `.githooks/pre-commit` + CI
+   Docker step from PR #71 onto the backend repo.
+
+### Persistent memory
+
+This STATE entry is the resume point for Sequence 5. The full session
+trace lives in:
+
+- The 11 PRs merged this stretch on `ndi-cloud-app` and
+  `ndi-data-browser-v2` (PRs #65-#71 on `ndi-cloud-app`, PRs #79-#91
+  on `ndi-data-browser-v2`).
+- The committed `apps/web/AUTH_CONTRACT_AUDIT.md` on
+  `ndi-cloud-app:main` (canonical auth architecture record from
+  Sequence 1's PR #54).
+- The committed ADR 014 (`docs/adr/014-dual-csp-architecture.md`)
+  on `ndi-data-browser-v2:main` from PR #90.
+- The committed RUNBOOK (`docs/RUNBOOK.md`) on
+  `ndi-data-browser-v2:main` from PR #91.
+- The five review artifacts at
+  `/tmp/ndi-review/{SYNTHESIS,01-architecture,02a-port-marketing,
+  02b-port-app,03-code-quality,04-ops-security}.md` plus
+  `O6-IDOR-investigation.md` (per-session scratch — re-spawn
+  the review agents after compact if they're gone). The findings
+  are preserved by the M-/B-/A-/O-/R-/CQ- IDs cited in PR
+  descriptions.
+
+The next session resumes Sequence 5 against the latest
+`ndi-cloud-app:main` (head: `adb0aab`) and
+`ndi-data-browser-v2:main` (head: `08e457e`).
+
