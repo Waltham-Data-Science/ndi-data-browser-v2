@@ -34,6 +34,7 @@ from .middleware.rate_limit import RateLimiter
 from .middleware.request_id import RequestIdMiddleware
 from .middleware.security_headers import SecurityHeadersMiddleware
 from .observability.logging import configure_logging, get_logger, request_id_ctx
+from .observability.tracing import init_tracing
 from .routers import auth, binary, datasets, documents, health, ontology, query, tables, visualize
 from .services.ontology_cache import OntologyCache
 from .services.ontology_service import OntologyService
@@ -46,6 +47,10 @@ log = get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (single-function lifespan orchestrator; wiring N typed caches + services is intentional)
     configure_logging()
     settings = get_settings()
+    # O7: opt-in OpenTelemetry tracing. No-op when
+    # OTEL_EXPORTER_OTLP_ENDPOINT is unset or the observability extra
+    # isn't installed.
+    init_tracing(app, settings)
 
     redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
     app.state.redis = redis
