@@ -10,6 +10,7 @@ from typing import Annotated, cast
 
 from fastapi import Depends, Request
 
+from ..config import get_settings
 from ..errors import AuthRequired
 from ..observability.logging import get_logger, user_id_hash_ctx
 from .session import SessionData, SessionStore, fingerprint
@@ -59,10 +60,31 @@ async def get_current_session(
             current_ip_hash=current_ip_hash,
         )
 
+    now = int(time.time())
+
     # Access tokens are 1-hour TTL and the cloud does not expose a refresh
     # endpoint (see ADR-008). If the token has already expired, drop the
     # session and force re-login via the standard AuthRequired path.
-    if session.access_token_expires_at <= int(time.time()):
+    if session.access_token_expires_at <= now:
+        await store.delete(session.session_id)
+        return None
+
+    # O3: idle-timeout enforcement. Belt-and-suspenders alongside the
+    # Redis-level TTL cap in `SessionStore._write` (which sets the key to
+    # min(remaining_absolute, idle_ttl) on every touch). The explicit
+    # check here covers the edge where the Redis TTL refresh raced ahead
+    # of actual activity and makes the behavior testable in unit-test
+    # time without touching Redis-server clocks. Surfaces as a normal
+    # logged-out state — caller's `require_session` turns it into 401.
+    settings = get_settings()
+    idle_seconds = now - session.last_active
+    if idle_seconds > settings.SESSION_IDLE_TTL_SECONDS:
+        log.info(
+            "session.idle_timeout",
+            session_id=session.session_id[:8],
+            idle_seconds=idle_seconds,
+            limit=settings.SESSION_IDLE_TTL_SECONDS,
+        )
         await store.delete(session.session_id)
         return None
 
