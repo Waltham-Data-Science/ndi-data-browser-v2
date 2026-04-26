@@ -121,6 +121,22 @@ class DocumentService:
 
         The cloud's ndiquery returns `number_matches` (or `totalItems`)
         in the body so we don't need a separate count call.
+
+        ## Anonymous fallback (2026-04-26)
+
+        Production smoke surfaced: cloud's ndiquery returns 0 for
+        anonymous callers on published datasets that DO have
+        documents (e.g. dataset 682e7772... has 78,687 docs but
+        anonymous ndiquery returns `number_matches: 0`). The
+        per-dataset detail (`GET /datasets/:id`) carries the full
+        document-id array inline and works anonymously, so we use
+        that as a fallback whenever ndiquery comes back empty.
+
+        Class-filtered requests stay on ndiquery (the inline
+        document-id array doesn't carry className, so we'd need a
+        bulk-fetch + post-filter pass which is expensive at scale).
+        For unfiltered "All documents" — the most-trafficked view —
+        the fallback gives anonymous users the correct results.
         """
         structure: list[dict[str, Any]] = []
         if class_name:
@@ -146,6 +162,19 @@ class DocumentService:
         total = int(
             body.get("number_matches") or body.get("totalItems") or len(slice_ids),
         )
+
+        # Anonymous-fallback: ndiquery returned nothing AND the user
+        # didn't ask for a class filter. Pull the inline document-id
+        # array from the dataset detail (which works anonymously for
+        # published datasets) and slice it into a page.
+        if not slice_ids and not class_name:
+            slice_ids, total = await self._inline_id_fallback(
+                dataset_id=dataset_id,
+                page=page,
+                page_size=page_size,
+                access_token=access_token,
+            )
+
         docs = (
             await self.cloud.bulk_fetch(
                 dataset_id, slice_ids, access_token=access_token,
@@ -159,6 +188,46 @@ class DocumentService:
             "pageSize": page_size,
             "documents": docs,
         }
+
+    async def _inline_id_fallback(
+        self,
+        *,
+        dataset_id: str,
+        page: int,
+        page_size: int,
+        access_token: str | None,
+    ) -> tuple[list[str], int]:
+        """Slice the dataset's inline document-id array.
+
+        `GET /datasets/:id` returns `documents: [<id>, <id>, ...]` —
+        an array of bare Mongo `_id` strings (verified 2026-04-26 on
+        cloud production). We use this as the source-of-truth for
+        anonymous unfiltered listing where ndiquery silently returns
+        empty.
+
+        Returns `(slice_ids, total)`. `total` is the inline array's
+        full length so pagination controls render correctly.
+        """
+        try:
+            dataset = await self.cloud.get_dataset(
+                dataset_id, access_token=access_token,
+            )
+        except Exception as exc:  # pragma: no cover — network/cloud errors
+            log.warning(
+                "documents.inline_fallback.failed",
+                dataset_id=dataset_id,
+                error=str(exc),
+            )
+            return ([], 0)
+
+        ids_raw = dataset.get("documents") or []
+        # Defensive: only keep string entries (the cloud occasionally ships
+        # full doc objects in older responses; here we want bare ids).
+        ids: list[str] = [x for x in ids_raw if isinstance(x, str)]
+        total = len(ids)
+        start = max(0, (page - 1) * page_size)
+        end = start + page_size
+        return (ids[start:end], total)
 
 
 def _normalize_document(raw: dict[str, Any]) -> dict[str, Any]:
