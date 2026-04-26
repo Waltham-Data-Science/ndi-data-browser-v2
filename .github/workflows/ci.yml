@@ -70,11 +70,12 @@ jobs:
         env:
           NDI_CLOUD_URL: https://api.example.test/v1
           REDIS_URL: redis://localhost:6379/0
-          # Public CI test fixtures — NOT real production secrets. Inline-
-          # allowlisted for the gitleaks job below (production keys live in
-          # Railway dashboard env, not source).
-          SESSION_ENCRYPTION_KEY: Btm_VUmLOztsh3lqD0jZGNzEkuRzi6UMri-63iOT_4A= # gitleaks:allow
-          CSRF_SIGNING_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" # gitleaks:allow
+          # Public CI test fixtures — NOT real production secrets. Allowlisted
+          # value-based in `.gitleaks.toml` because gitleaks scans the entire
+          # git history; production keys live in Railway dashboard env, never
+          # in source.
+          SESSION_ENCRYPTION_KEY: Btm_VUmLOztsh3lqD0jZGNzEkuRzi6UMri-63iOT_4A=
+          CSRF_SIGNING_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
