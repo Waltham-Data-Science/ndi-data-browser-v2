@@ -43,4 +43,12 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 EXPOSE 8000
 
 # Shell form for PORT expansion; uvicorn worker count via env.
-CMD ["sh", "-c", "exec uvicorn backend.app:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-4} --timeout-graceful-shutdown 30"]
+# `--proxy-headers --forwarded-allow-ips '*'` (B8): Railway fronts this
+# container with an edge proxy that rewrites the source IP to its own.
+# Without these flags `request.client.host` resolves to the Railway edge
+# IP for every request, collapsing the per-IP rate-limit envelope onto a
+# single subject. The wildcard is intentional: Railway does not publish a
+# stable edge-IP list and the container is not directly internet-reachable.
+# Tests at backend/tests/unit/test_proxy_headers_config.py pin both this
+# CMD and infra/railway.toml's startCommand to keep belt-and-suspenders.
+CMD ["sh", "-c", "exec uvicorn backend.app:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-4} --timeout-graceful-shutdown 30 --proxy-headers --forwarded-allow-ips '*'"]

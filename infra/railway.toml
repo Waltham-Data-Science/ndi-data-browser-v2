@@ -19,7 +19,16 @@ restartPolicyMaxRetries = 10
 #   - true zero-downtime deploys become user-visible (current ~30s health-check
 #     cutover is tolerable for <10 users but not for larger loads).
 numReplicas = 1
-startCommand = "sh -c 'exec uvicorn backend.app:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-4} --timeout-graceful-shutdown 30'"
+# --proxy-headers + --forwarded-allow-ips '*' (B8): Railway fronts the
+# container with an edge proxy and rewrites the source IP to its own. Without
+# these flags `request.client.host` resolves to the Railway edge IP for every
+# request, silently collapsing the per-IP rate-limit envelope onto a single
+# subject (one bad actor DoS-es every user's login; distributed attacks
+# vanish from logs). The wildcard is intentional: Railway does not publish
+# stable edge-proxy IPs, and the underlying container is not directly
+# internet-reachable. If that ever changes, tighten the allowlist.
+# Tests at backend/tests/unit/test_proxy_headers_config.py pin this contract.
+startCommand = "sh -c 'exec uvicorn backend.app:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-4} --timeout-graceful-shutdown 30 --proxy-headers --forwarded-allow-ips \"*\"'"
 
 # Environment is configured in the Railway dashboard, but these are the keys we require.
 # Set as secrets before deploy:
