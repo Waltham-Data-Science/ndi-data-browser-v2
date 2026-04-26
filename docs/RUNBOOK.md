@@ -160,6 +160,59 @@ CSRF tokens are HMAC-signed with this key. Same blast radius as session encrypti
 
 No blast radius — toggling this just enables/disables tracing. Set or clear, redeploy. Tracing degrades silently if the endpoint is unreachable.
 
+### Offline backup of `SESSION_ENCRYPTION_KEY` + `CSRF_SIGNING_KEY`
+
+Phase 6.7 A6 audit identified one un-version-controlled state: these
+two keys live only in the Railway dashboard. Loss-impact is bounded —
+without them, sessions can't decrypt and users see one forced global
+re-login (same blast radius as a rotation). Not catastrophic, but worth
+keeping a parallel copy off-Railway:
+
+- Store the current values in a password manager / 1Password vault that
+  the operator(s) can access independently of Railway's dashboard.
+- Re-mirror after each rotation.
+- This is a "defense-in-depth against simultaneous Railway-account
+  loss + dashboard-access loss" — not a primary-recovery path.
+
+---
+
+## Disaster recovery (Railway unavailable)
+
+ADR-004 (drop SQLite dataset storage) was written to keep this option
+open: the FastAPI proxy is fully stateless except for Redis sessions
+(ephemeral by design — ADR-003) and the local SQLite ontology cache
+(also ephemeral, re-derives from upstream providers on first request).
+
+**Full Railway outage** → restart the Railway service, accept ~30s of
+"one extra login" for in-flight users, continue. Same as a rollback.
+
+**Total Railway account loss** (apocalyptic but worth documenting):
+
+1. Provision a fresh Redis instance on the alternate platform of
+   choice (Fly.io, Render, AWS ElastiCache, GCP Memorystore — any
+   Redis ≥7).
+2. Provision a container host (Fly.io, Render, AWS Lambda + API
+   Gateway, GCP Cloud Run — any container platform with HTTPS
+   termination).
+3. Deploy via `infra/Dockerfile` (multi-stage, no Railway-specific
+   build args). Set the env-var bundle from your offline backup
+   (see "Offline backup of …" above).
+4. Update the Vercel project's `UPSTREAM_API_URL` env var to point
+   at the new host. Redeploy Vercel preview to verify.
+5. After verification, re-attach `api.ndi-cloud.com` DNS to the new
+   host. Sessions wipe (every user re-logs in once); datasets,
+   binaries, and accounts are unaffected (all in AWS).
+
+**RTO**: ~1 hour for a familiar operator on a known platform; ~half-day
+for a from-cold provisioning. **RPO**: 0 for canonical data (it's all
+in AWS); essentially infinite for sessions (they're not preserved, but
+the contract is "ephemeral by design," so this is by intent).
+
+The Phase 6.7 A6 audit confirmed there's no other state to worry
+about: every other piece of Railway-side data is either ephemeral
+(rate-limit counters, summary cache) or recoverable from upstream
+AWS canonical stores (datasets, users, binaries).
+
 ---
 
 ## Observability
@@ -190,7 +243,7 @@ No blast radius — toggling this just enables/disables tracing. Set or clear, r
 - **Sessions**: Redis-backed, Fernet-encrypted, per-user idle TTL (`SESSION_IDLE_TTL_SECONDS`, default 2h) + absolute TTL (`SESSION_ABSOLUTE_TTL_SECONDS`, default 24h). O3 wired the idle gate.
 - **Rate limits**: per-IP on auth + login + CSRF-fail, per-user on change-password. See `backend/middleware/rate_limit.py`.
 - **IDOR**: investigated O6, no live findings. Cloud handles authorization; FastAPI is a thin pass-through with `access_token` forwarding. Two informational forward-compat notes in `/tmp/ndi-review/O6-IDOR-investigation.md` (cache scoping assumption + cross-repo ACL contract test recommendation).
-- **Secret scanning**: O9 — pre-commit gitleaks hook + CI backstop on `ndi-cloud-app` (sister PR pending on `ndi-data-browser-v2`).
+- **Secret scanning**: O9 — pre-commit gitleaks hook + CI backstop on **both** repos. Activate locally with `git config core.hooksPath .githooks`.
 
 ---
 
