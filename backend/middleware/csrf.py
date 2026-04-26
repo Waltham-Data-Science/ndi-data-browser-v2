@@ -17,7 +17,7 @@ from hashlib import sha256
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ..config import get_settings
-from ..errors import CsrfInvalid
+from ..errors import AuthRateLimited, CsrfInvalid
 
 CSRF_COOKIE = "XSRF-TOKEN"
 CSRF_HEADER = "x-xsrf-token"
@@ -97,25 +97,42 @@ class CsrfMiddleware:
             elif k.decode().lower() == CSRF_HEADER:
                 header_token = v.decode()
 
-        err: CsrfInvalid | None = None
+        csrf_err: CsrfInvalid | None = None
         if not header_token or not cookie_token:
-            err = CsrfInvalid("CSRF token missing.")
+            csrf_err = CsrfInvalid("CSRF token missing.")
         elif header_token != cookie_token:
-            err = CsrfInvalid("CSRF token mismatch.")
+            csrf_err = CsrfInvalid("CSRF token mismatch.")
         elif not verify(cookie_token):
-            err = CsrfInvalid("CSRF token signature invalid.")
+            csrf_err = CsrfInvalid("CSRF token signature invalid.")
 
-        if err is not None:
+        if csrf_err is not None:
             # Best-effort: find request_id from headers if present.
             rid = None
             for k, v in scope.get("headers", []):
                 if k.decode().lower() == "x-request-id":
                     rid = v.decode()
                     break
-            body = json.dumps(err.to_response(rid)).encode()
+
+            # O4: per-IP CSRF-failure rate limit. Probes that spam
+            # mutating endpoints with bogus tokens consume cycles and
+            # bury the real attack signal in the noise. Burn one budget
+            # slot per failure; on overflow, replace the 403 CSRF_INVALID
+            # with a 429 AUTH_RATE_LIMITED so the client (and metrics)
+            # see the right typed reason. The bucket is `csrf-fail-ip`
+            # — distinct from the login buckets so dashboards can split
+            # CSRF probing from login-credential probing.
+            #
+            # We swallow any rate-limiter error so a Redis hiccup never
+            # promotes a CSRF 403 into a 500 — security checks degrade
+            # to "still 403" rather than "open."
+            response_err: CsrfInvalid | AuthRateLimited = (
+                await self._maybe_promote_to_rate_limit(scope, csrf_err)
+            )
+
+            body = json.dumps(response_err.to_response(rid)).encode()
             await send({
                 "type": "http.response.start",
-                "status": err.http_status,
+                "status": response_err.http_status,
                 "headers": [
                     (b"content-type", b"application/json"),
                     (b"content-length", str(len(body)).encode()),
@@ -125,3 +142,54 @@ class CsrfMiddleware:
             return
 
         await self.app(scope, receive, send)
+
+    @staticmethod
+    async def _maybe_promote_to_rate_limit(
+        scope: Scope, original_err: CsrfInvalid,
+    ) -> CsrfInvalid | AuthRateLimited:
+        """Burn a CSRF-fail budget slot for the request's IP. If the
+        budget is exhausted, return a 429 AuthRateLimited; otherwise
+        return the original 403 CsrfInvalid unchanged.
+
+        Any limiter exception (Redis down, missing app.state attr) is
+        swallowed and the original 403 is returned — security checks
+        must degrade to "still 403" not "open."
+        """
+        try:
+            # Pure ASGI middleware — no Request object handy. Pull the
+            # rate limiter off scope["app"].state where the lifespan
+            # planted it (`backend/app.py:lifespan`). If the path goes
+            # through `app.state`, the attribute is set; otherwise we
+            # silently fall through.
+            app = scope.get("app")
+            limiter = getattr(getattr(app, "state", None), "rate_limiter", None)
+            if limiter is None:
+                return original_err
+
+            # Pull the IP. ASGI scope's "client" is (host, port) or None.
+            client = scope.get("client")
+            ip = (
+                client[0]
+                if isinstance(client, (tuple, list)) and len(client) >= 1
+                else "unknown"
+            )
+
+            from .rate_limit import Limit, RateLimiter
+
+            settings = get_settings()
+            await limiter.check(
+                Limit(
+                    bucket="csrf-fail-ip",
+                    max_requests=settings.RATE_LIMIT_CSRF_FAIL_PER_IP_5MIN,
+                    window_seconds=5 * 60,
+                    auth_bucket=True,
+                ),
+                RateLimiter.subject_for(None, ip),
+            )
+        except AuthRateLimited as e:
+            return e
+        except Exception:
+            # Any other failure (Redis, attr lookup, etc.) — leave the
+            # original CSRF 403 in place.
+            return original_err
+        return original_err
