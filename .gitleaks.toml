@@ -1,0 +1,44 @@
+# gitleaks configuration — Phase 6.7 O9 sister.
+#
+# The CI workflow at `.github/workflows/ci.yml` (and historically
+# `.github/workflows/e2e.yml`, since deleted) sets test-fixture
+# values for `SESSION_ENCRYPTION_KEY` and `CSRF_SIGNING_KEY` so the
+# backend test suite can boot a FastAPI app under pytest. These are
+# intentional public test values — they are not, and have never been,
+# real production keys. Production keys live in the Railway dashboard
+# environment, never in source.
+#
+# `gitleaks detect` scans the **entire git history** by default
+# (`fetch-depth: 0` is set in CI), so the test values appear in many
+# commits going back to the FastAPI proxy bootstrap. Inline
+# `# gitleaks:allow` comments only protect the current file state, not
+# historical commits — the only durable fix is value-based allowlisting
+# in this file.
+#
+# If anyone adds a NEW secret value to source, it will not match these
+# regexes and will fail the scan correctly.
+#
+# Reference: https://github.com/gitleaks/gitleaks#configuration
+
+title = "ndi-data-browser-v2 gitleaks config"
+
+# Extend the default ruleset (don't replace it — we still want the
+# generic-api-key, AWS keys, GitHub tokens, etc. rules).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public CI test fixtures across git history — see header comment."
+
+# Match the specific Fernet test key. The base64 trailing `=` is part
+# of the canonical encoding; quoting the literal also escapes any regex
+# metacharacters incidentally.
+regexes = [
+  # SESSION_ENCRYPTION_KEY test value (Fernet, 32 bytes base64-url-safe).
+  '''Btm_VUmLOztsh3lqD0jZGNzEkuRzi6UMri-63iOT_4A=''',
+
+  # CSRF_SIGNING_KEY test value (64 'a' chars — low entropy by design).
+  # Below the gitleaks generic-api-key entropy threshold, but allowlisted
+  # for symmetry / future-proofing if the ruleset ever tightens.
+  '''aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa''',
+]
