@@ -112,6 +112,22 @@ class Settings(BaseSettings):
     LOG_FORMAT: Literal["json", "console"] = "json"
     ENVIRONMENT: Literal["development", "staging", "production"] = "development"
 
+    # --- CSP violation reporting (O2) ---
+    # Optional endpoint for Content-Security-Policy violation reports.
+    # When non-empty, the security-headers middleware adds:
+    #   - `report-uri <URL>` to the CSP (legacy directive — works on
+    #     older Firefox / Safari that don't yet honor the modern
+    #     Reporting API)
+    #   - `report-to csp-endpoint` to the CSP (modern Reporting API
+    #     directive — preferred by Chrome / Edge, falls back to
+    #     report-uri silently if the browser doesn't know it)
+    #   - A `Report-To` response header mapping the `csp-endpoint`
+    #     group to the configured URL.
+    # Default is empty: no reports are emitted, no third-party endpoint
+    # is contacted. Set on Railway when a violation-collection service
+    # is wired up.
+    CSP_REPORT_URI: str = ""
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
