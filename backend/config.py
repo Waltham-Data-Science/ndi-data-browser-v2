@@ -111,6 +111,13 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: Literal["json", "console"] = "json"
     ENVIRONMENT: Literal["development", "staging", "production"] = "development"
+    # OpenTelemetry OTLP endpoint (O7). Empty default → tracing disabled
+    # and zero overhead. Setting a value (e.g.
+    # `https://otel-collector.internal:4318`) opts into FastAPI + httpx
+    # span instrumentation. Requires the `observability` install extra
+    # (see backend/pyproject.toml). If the extra isn't installed, the
+    # gate degrades silently to "disabled" with a warning log.
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = ""
 
     @property
     def cors_origins_list(self) -> list[str]:
