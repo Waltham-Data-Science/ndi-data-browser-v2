@@ -110,7 +110,6 @@ class Settings(BaseSettings):
     # --- Observability ---
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: Literal["json", "console"] = "json"
-    SENTRY_DSN: str = ""
     ENVIRONMENT: Literal["development", "staging", "production"] = "development"
 
     @property

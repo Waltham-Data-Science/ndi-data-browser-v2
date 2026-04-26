@@ -44,7 +44,6 @@ observability = [
     "opentelemetry-sdk>=1.26.0",
     "opentelemetry-instrumentation-fastapi>=0.47b0",
     "opentelemetry-instrumentation-httpx>=0.47b0",
-    "sentry-sdk>=2.13.0",
 ]
 
 [build-system]
