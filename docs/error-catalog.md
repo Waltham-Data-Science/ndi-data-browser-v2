@@ -30,6 +30,11 @@ Every error the system can raise. Types are canonical; the code/message shape is
 | `AUTH_EXPIRED` | 401 | Your session has expired. Please log in again. | login | Cloud returned 401 even after refresh attempt |
 | `AUTH_INVALID_CREDENTIALS` | 401 | Invalid username or password. | none | Login failed at Cognito |
 | `AUTH_RATE_LIMITED` | 429 | Too many login attempts. Please wait {n} minutes. | none | Login rate limit hit |
+| `EMAIL_ALREADY_EXISTS` | 409 | An account with this email already exists. Try logging in instead. | login | Signup with an email that already has a Cognito user (`UsernameExistsException`) |
+| `EMAIL_ALREADY_VERIFIED` | 409 | This email is already verified. Please log in. | login | Resend-confirmation called for an already-confirmed account (`InvalidParameterException` with `User is already confirmed`) |
+| `WEAK_PASSWORD` | 400 | Password doesn't meet complexity requirements. Use at least 8 characters with uppercase, lowercase, number, and symbol. | none | Cognito `InvalidPasswordException` on signup or password reset |
+| `INVALID_VERIFICATION_CODE` | 400 | The verification code is incorrect. Please check and try again. | none | Cognito `CodeMismatchException` on confirm-email or reset-password |
+| `VERIFICATION_CODE_EXPIRED` | 400 | The verification code has expired. Please request a new one. | none | Cognito `ExpiredCodeException` on confirm-email or reset-password |
 | `FORBIDDEN` | 403 | You don't have access to this resource. | none | Cloud returned 403 |
 | `NOT_FOUND` | 404 | This dataset or document doesn't exist or you can't access it. | none | Cloud returned 404 |
 | `VALIDATION_ERROR` | 400 | Your request was invalid: {details}. | none | Pydantic validation failure or invalid query DSL |

@@ -353,3 +353,425 @@ async def test_download_from_cloud_host_always_allowlisted() -> None:
             assert not events, "cloud host should not log the off-allowlist warning"
         finally:
             await client.close()
+
+
+# ---------------------------------------------------------------------------
+# B3: account-lifecycle proxy methods
+#
+# Each method wraps a cloud-side endpoint exposed by ndi-cloud-node:
+#   signup                  → POST /users
+#   forgot_password         → POST /auth/password/forgot
+#   reset_password          → POST /auth/password/confirm
+#   confirm_email           → POST /auth/verify
+#   resend_confirmation     → POST /auth/confirmation/resend
+#
+# The cloud serializes Cognito error codes into the body as `{ code: "..." }`
+# (and HTTP 400 in nearly every failure path). The client method translates
+# those Cognito codes into typed BrowserError subclasses BEFORE returning,
+# so the wire never carries Cognito strings — that's the contract the
+# router relies on.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_signup_success() -> None:
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/users").respond(
+            200,
+            json={
+                "user": {"id": "u-new", "email": "new@example.test", "name": "New"},
+                "organizations": [],
+            },
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            body = await client.signup(
+                email="new@example.test", password="GoodPass1!", name="New",
+            )
+            assert body["user"]["email"] == "new@example.test"
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_signup_existing_email_maps_to_typed_error() -> None:
+    """UsernameExistsException → EmailAlreadyExists. The Cognito string must
+    NOT propagate; the typed error has its own user-facing message."""
+    from backend.errors import EmailAlreadyExists
+
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/users").respond(
+            400,
+            json={
+                "errors": "Unable to create user in AWS Cognito",
+                "code": "UsernameExistsException",
+            },
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(EmailAlreadyExists):
+                await client.signup(
+                    email="dup@example.test", password="GoodPass1!", name="Dup",
+                )
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_signup_weak_password_maps_to_typed_error() -> None:
+    """InvalidPasswordException → WeakPassword."""
+    from backend.errors import WeakPassword
+
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/users").respond(
+            400,
+            json={
+                "errors": "Unable to create user in AWS Cognito",
+                "code": "InvalidPasswordException",
+            },
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(WeakPassword):
+                await client.signup(
+                    email="weak@example.test", password="abc", name="Weak",
+                )
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_signup_network_error_raises_cloud_unreachable() -> None:
+    """A network error must surface as CloudUnreachable, not bubble raw."""
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/users").mock(side_effect=httpx.ConnectError("refused"))
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(CloudUnreachable):
+                await client.signup(
+                    email="net@example.test", password="GoodPass1!", name="Net",
+                )
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_forgot_password_success() -> None:
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/password/forgot").respond(
+            200,
+            json={
+                "CodeDeliveryDetails": {
+                    "Destination": "u***@example.test",
+                    "DeliveryMedium": "EMAIL",
+                    "AttributeName": "email",
+                },
+            },
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            await client.forgot_password(email="user@example.test")
+            # Method returns None on success — no body to assert.
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_forgot_password_user_not_found_swallowed_to_avoid_enumeration() -> None:
+    """SECURITY: UserNotFoundException must NOT raise — the proxy returns
+    success unconditionally so a caller cannot enumerate which emails are
+    registered by observing the response code/timing."""
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/password/forgot").respond(
+            400,
+            json={
+                "errors": "Unable to send Forgot Password Link",
+                "code": "UserNotFoundException",
+            },
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            # Must NOT raise — silently treated as success.
+            await client.forgot_password(email="ghost@example.test")
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_forgot_password_timeout_raises_typed() -> None:
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/password/forgot").mock(
+            side_effect=httpx.TimeoutException("timeout"),
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(CloudTimeout):
+                await client.forgot_password(email="slow@example.test")
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_reset_password_success() -> None:
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/password/confirm").respond(
+            200, json={"message": "Password reset", "code": "Success!"},
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            await client.reset_password(
+                email="user@example.test",
+                code="123456",
+                new_password="NewGood1!",
+            )
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_reset_password_wrong_code_maps_to_typed_error() -> None:
+    """CodeMismatchException → InvalidVerificationCode."""
+    from backend.errors import InvalidVerificationCode
+
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        # The cloud's confirmForgotPassword always uses res.json() (200),
+        # embedding the failure code in the body. We must inspect the body
+        # even on 2xx and translate accordingly.
+        router.post("/auth/password/confirm").respond(
+            200,
+            json={
+                "errors": "Unable to reset password",
+                "code": "CodeMismatchException",
+            },
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(InvalidVerificationCode):
+                await client.reset_password(
+                    email="user@example.test",
+                    code="WRONG1",
+                    new_password="NewGood1!",
+                )
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_reset_password_expired_code_maps_to_typed_error() -> None:
+    """ExpiredCodeException → VerificationCodeExpired."""
+    from backend.errors import VerificationCodeExpired
+
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/password/confirm").respond(
+            200,
+            json={
+                "errors": "Unable to reset password",
+                "code": "ExpiredCodeException",
+            },
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(VerificationCodeExpired):
+                await client.reset_password(
+                    email="user@example.test",
+                    code="OLD123",
+                    new_password="NewGood1!",
+                )
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_reset_password_weak_password_maps_to_typed_error() -> None:
+    """InvalidPasswordException → WeakPassword."""
+    from backend.errors import WeakPassword
+
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/password/confirm").respond(
+            200,
+            json={
+                "errors": "Unable to reset password",
+                "code": "InvalidPasswordException",
+            },
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(WeakPassword):
+                await client.reset_password(
+                    email="user@example.test",
+                    code="123456",
+                    new_password="abc",
+                )
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_confirm_email_success() -> None:
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/verify").respond(
+            200, json={"id": "u1", "email": "new@example.test", "isValidated": True},
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            await client.confirm_email(
+                email="new@example.test", code="123456",
+            )
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_confirm_email_wrong_code_maps_to_typed_error() -> None:
+    """CodeMismatchException → InvalidVerificationCode."""
+    from backend.errors import InvalidVerificationCode
+
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/verify").respond(
+            400,
+            json={
+                "errors": "Unable to authorize user",
+                "code": "CodeMismatchException",
+            },
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(InvalidVerificationCode):
+                await client.confirm_email(
+                    email="new@example.test", code="WRONG1",
+                )
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_confirm_email_expired_code_maps_to_typed_error() -> None:
+    """ExpiredCodeException → VerificationCodeExpired."""
+    from backend.errors import VerificationCodeExpired
+
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/verify").respond(
+            400,
+            json={
+                "errors": "Unable to authorize user",
+                "code": "ExpiredCodeException",
+            },
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(VerificationCodeExpired):
+                await client.confirm_email(
+                    email="new@example.test", code="OLD123",
+                )
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_confirm_email_already_confirmed_maps_to_typed_error() -> None:
+    """NotAuthorizedException with 'already confirmed' → EmailAlreadyVerified."""
+    from backend.errors import EmailAlreadyVerified
+
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/verify").respond(
+            400,
+            json={
+                "errors": "Unable to authorize user",
+                "code": "NotAuthorizedException",
+            },
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(EmailAlreadyVerified):
+                await client.confirm_email(
+                    email="dup@example.test", code="123456",
+                )
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_resend_confirmation_success() -> None:
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/confirmation/resend").respond(
+            200, json={"confirmationResent": True},
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            await client.resend_confirmation(email="new@example.test")
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_resend_confirmation_already_verified_maps_to_typed_error() -> None:
+    """InvalidParameterException ('User is already confirmed') →
+    EmailAlreadyVerified."""
+    from backend.errors import EmailAlreadyVerified
+
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/confirmation/resend").respond(
+            400,
+            json={
+                "errors": "AWS Cognito is unable to resend confirmation to user",
+                "code": "InvalidParameterException",
+            },
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(EmailAlreadyVerified):
+                await client.resend_confirmation(email="done@example.test")
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_resend_confirmation_user_not_found_swallowed_to_avoid_enumeration() -> None:
+    """SECURITY: UserNotFoundException must not differentiate from success.
+    Same enumeration-resistance contract as forgot_password."""
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/confirmation/resend").respond(
+            400,
+            json={
+                "errors": "AWS Cognito is unable to resend confirmation to user",
+                "code": "UserNotFoundException",
+            },
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            # Must NOT raise.
+            await client.resend_confirmation(email="ghost@example.test")
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_resend_confirmation_network_error_raises_cloud_unreachable() -> None:
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/confirmation/resend").mock(
+            side_effect=httpx.ConnectError("refused"),
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(CloudUnreachable):
+                await client.resend_confirmation(email="net@example.test")
+        finally:
+            await client.close()
