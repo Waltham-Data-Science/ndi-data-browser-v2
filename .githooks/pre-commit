@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+#
+# Pre-commit hook: scan the staged diff for committed secrets via gitleaks.
+#
+# Sister of the ndi-cloud-app pre-commit hook (Phase 6.7 O9 sweep). Same
+# behavior, same rationale — keeping the two backend / frontend repos
+# symmetric so contributors who jump between them get identical local
+# safety nets.
+#
+# `gitleaks protect --staged` reads the staged changes (NOT the whole
+# working tree, NOT the history) and matches them against the standard
+# secret-detection ruleset (AWS keys, GitHub tokens, generic API tokens,
+# `.pem` headers, etc.). Exits non-zero if any secret is found, which
+# blocks the commit.
+#
+# **Why pre-commit, not pre-push?**
+# Pre-push catches mistakes too late — the secret is already in your
+# local git history (objectionable to scrub, easy to push later by
+# accident, recoverable via reflog forever). Pre-commit refuses to
+# create the commit at all, so the secret never enters your history.
+#
+# **Why this is non-blocking when gitleaks isn't installed:**
+# Different contributors have different setups; we don't want a missing
+# binary to wedge everyone's commits. The hook prints a one-line
+# install hint and continues — CI runs the same check on every push as
+# the backstop. Audit synthesis §O9.
+#
+# Activate locally with:
+#   git config core.hooksPath .githooks
+#
+# Install gitleaks:
+#   brew install gitleaks                          # macOS
+#   curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/scripts/install.sh | sh
+#                                                  # Linux
+
+set -e
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "[pre-commit] gitleaks not installed — skipping secret scan." >&2
+  echo "[pre-commit] Install:  brew install gitleaks  (macOS)" >&2
+  echo "[pre-commit] CI will run this check on push as the backstop." >&2
+  exit 0
+fi
+
+# `--staged`: scan staged changes only (matches commit content)
+# `--redact`: don't print the matched secret value, just the location
+# `-v`: print rule + file:line on a hit (helps the contributor identify
+#       what to remove without exposing the secret to the terminal)
+if ! gitleaks protect --staged --redact -v; then
+  echo "" >&2
+  echo "[pre-commit] gitleaks blocked the commit — a secret is staged." >&2
+  echo "[pre-commit] Remove the secret from the staged diff and recommit." >&2
+  echo "[pre-commit] If this is a false positive (test fixture, doc example)," >&2
+  echo "[pre-commit] add an inline allowlist comment to .gitleaks.toml." >&2
+  exit 1
+fi
+
+exit 0

@@ -70,6 +70,10 @@ jobs:
         env:
           NDI_CLOUD_URL: https://api.example.test/v1
           REDIS_URL: redis://localhost:6379/0
+          # Public CI test fixtures — NOT real production secrets. Allowlisted
+          # value-based in `.gitleaks.toml` because gitleaks scans the entire
+          # git history; production keys live in Railway dashboard env, never
+          # in source.
           SESSION_ENCRYPTION_KEY: Btm_VUmLOztsh3lqD0jZGNzEkuRzi6UMri-63iOT_4A=
           CSRF_SIGNING_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       - uses: actions/upload-artifact@v4
@@ -131,3 +135,34 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: cd frontend && npm audit --audit-level=high || true
+
+  gitleaks:
+    # O9 sister job (Phase 6.7). Sister of the same-named job in
+    # ndi-cloud-app — secret-scanning backstop catches commits that
+    # slipped past the local pre-commit hook (or contributors who
+    # haven't activated `git config core.hooksPath .githooks`).
+    #
+    # The hook scans the staged diff; CI scans the full PR diff so a
+    # multi-commit PR with a secret added then removed in different
+    # commits is still caught — the secret is in history even if not
+    # in the final tree.
+    #
+    # We use the official Docker image directly rather than the
+    # `gitleaks/gitleaks-action@v2` because that action's v2 release
+    # introduced a paid `GITLEAKS_LICENSE` requirement for organization-
+    # owned repos (no license = the action errors before running the
+    # scan). The CLI itself is open source and license-free.
+    name: gitleaks (secret scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # gitleaks needs full history to scan PR ranges
+      - name: Run gitleaks
+        run: |
+          # Pin a recent stable version so a future gitleaks release
+          # with a different default ruleset doesn't silently change
+          # the CI behavior. Same pin as ndi-cloud-app for parity.
+          docker run --rm -v "$PWD:/repo" \
+            zricethezav/gitleaks:v8.21.2 \
+            detect --source /repo --redact -v --no-banner
