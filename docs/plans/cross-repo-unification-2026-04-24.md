@@ -3001,3 +3001,316 @@ The next session resumes Sequence 5 against the latest
 `ndi-cloud-app:main` (head: `adb0aab`) and
 `ndi-data-browser-v2:main` (head: `08e457e`).
 
+---
+
+## POST-PHASE-6.7 FINAL STATE — All sequences shipped, ready for cutover (2026-04-26)
+
+Phase 6.7 is **complete**. All five sequences (1 + 2 + 3 + 4 + 5)
+plus the parallel backend-blocker track (B3 + B7 + B8) plus the B3
+close-out (frontend rename + change-password endpoint) shipped. The
+codebase is in cutover-ready posture pending the user-only operational
+steps enumerated below.
+
+### HEADs at session end
+
+- `ndi-cloud-app:main` head: **`bbbb8ba`** (PR #72 A2 ratchet merge).
+- `ndi-data-browser-v2:main` head: **`6bb7600`** (PR #93 O9 sister
+  merge), advancing to this FINAL-STATE PR's merge commit at session
+  close.
+
+### Every PR opened/merged across the entire Phase 6.7 session
+
+By sequence, in chronological merge order:
+
+#### Sequence 1 — auth contract architecture (audit synthesis B1/B3/B4)
+
+| PR | Repo | Title | Status |
+|---|---|---|---|
+| #54 | `ndi-cloud-app` | `docs(auth): canonical auth contract audit + B1/B3/B4 fixes` | Merged |
+
+Deliverables: `apps/web/AUTH_CONTRACT_AUDIT.md` (the canonical record),
+B1 login wire-rename (`email` → `username`), B4 `AuthUser` shape
+alignment with `MeResponse` (`organizationIds: string[]`,
+`email_hash`), B3 backend-blocker surfaced for Sequence 2 → eventually
+shipped via the parallel backend track + close-out.
+
+#### Sequence 2 — RSC catalog + `/my` workspace + REBUILD-3 → REBUILD-8
+
+PRs #55-#64 on `ndi-cloud-app` — RSC catalog, `/my` workspace, plus
+the REBUILD-3 → REBUILD-8 pass that ported the source SPA's data-
+browser surface (Overview, Tables, Documents, Pivot, DocumentDetail,
+catalog hero, FacetSidebar, OntologyTablesView, ChromeGate). Closes
+audit follow-ups #64 (workspace), #65 (a11y tab bar), #66
+(FloatingPanel), #52 (component-level dynamic imports).
+
+#### INTERIM checkpoint (between Seq 2 and Seq 3)
+
+| PR | Repo | Title | Status |
+|---|---|---|---|
+| #80 | `ndi-data-browser-v2` | `docs(plan): Phase 6.7 INTERIM state checkpoint` | Merged |
+
+#### Sequence 3 — code-quality cleanup (CQ1/CQ2/CQ3/CQ5)
+
+| PR | Repo | Title | Status |
+|---|---|---|---|
+| #65 | `ndi-cloud-app` | `feat(cq1): zod schema migration for /api/auth/me + /api/datasets/published + /api/datasets/:id` | Merged |
+| #66 | `ndi-cloud-app` | `test(cq2): 7 auth-form unit test files (32 tests)` | Merged |
+| #67 | `ndi-cloud-app` | `test(cq3): extract viewer math primitives + 26 unit tests` | Merged |
+| #68 | `ndi-cloud-app` | `refactor(cq5): drop dead state, debounce URL writes, dynamic-import uPlot` | Merged |
+
+#### Parallel backend-blocker track (during Sequences 2-3)
+
+| PR | Repo | Title | Status |
+|---|---|---|---|
+| #79 | `ndi-data-browser-v2` | `feat(b7): Swagger lockdown in production` | Merged |
+| #81 | `ndi-data-browser-v2` | `feat(b8): trust-proxy headers in uvicorn` | Merged |
+| #82 | `ndi-data-browser-v2` | `feat(b3): 5 auth proxy endpoints (signup/forgot-password/reset-password/confirm-email/resend-confirmation)` | Merged |
+| #83 | `ndi-data-browser-v2` | `test(b3): integration coverage for the 5 endpoints` | Merged |
+
+#### B3 close-out (between Seq 3 and Seq 4)
+
+| PR | Repo | Title | Status |
+|---|---|---|---|
+| #84 | `ndi-data-browser-v2` | `feat(b3-closeout): /api/auth/change-password proxy + per-user rate limit` | Merged |
+| #69 | `ndi-cloud-app` | `refactor(b3-closeout): rename verifyEmail → confirmEmail to match audit canon` | Merged |
+
+#### Sequence 4 — ops + R2 + RUNBOOK + ADRs (audit synthesis O2-O8 + R2 + A7 + A9)
+
+| PR | Repo | Title | Status |
+|---|---|---|---|
+| #85 | `ndi-data-browser-v2` | `feat(o2): CSP report-uri + Report-To header (gated on env)` | Merged |
+| #86 | `ndi-data-browser-v2` | `feat(o3): SESSION_IDLE_TTL_SECONDS enforcement in get_current_session` | Merged |
+| #87 | `ndi-data-browser-v2` | `feat(o4): per-IP rate limit on CSRF failures` | Merged |
+| #88 | `ndi-data-browser-v2` | `feat(o5): server-side Origin enforcement on mutating requests` | Merged |
+| #89 | `ndi-data-browser-v2` | `feat(o7): conditional opentelemetry tracing init` | Merged |
+| #90 | `ndi-data-browser-v2` | `docs(o8): ADR 014 documenting the dual-CSP architecture` | Merged |
+| #91 | `ndi-data-browser-v2` | `docs(a7+a9): add RUNBOOK.md operational reference` | Merged |
+| #70 | `ndi-cloud-app` | `fix(r2): suppress chrome-gate hydration flash on document-detail pages` | Merged |
+| #71 | `ndi-cloud-app` | `feat(o9): gitleaks pre-commit hook + CI backstop` | Merged |
+
+Plus the O6 IDOR investigation (read-only, completed during Sequence 4
+in parallel — see "O6 IDOR investigation summary" below).
+
+#### Sequence-4 STATE checkpoint
+
+| PR | Repo | Title | Status |
+|---|---|---|---|
+| #92 | `ndi-data-browser-v2` | `docs(plan): Phase 6.7 checkpoint after Sequence 4` | Merged |
+
+#### Sequence 5 — compliance + cleanup (audit synthesis A2 + A6 + A10 + G5 + O9-sister + stale-comment-sweep)
+
+| PR | Repo | Title | Status |
+|---|---|---|---|
+| #72 | `ndi-cloud-app` | `feat(a2): real bundle-size ratchet replacing hard 200 KB constant` | Merged |
+| #73 | `ndi-cloud-app` | `docs(a10): add apps/web/COMPLIANCE.md` | Merged |
+| #74 | `ndi-cloud-app` | `feat(g5): legacy table-class slug aliases via 308 redirects` | Merged |
+| #75 | `ndi-cloud-app` | `feat(a2): generateMetadata for dataset-detail pages (closes #67)` | Merged |
+| #76 | `ndi-cloud-app` | `chore: stale comment sweep across ndi-cloud-app` | Merged |
+| #94 | `ndi-data-browser-v2` | `docs(a6): RUNBOOK additions for backup + DR` | Merged |
+| #93 | `ndi-data-browser-v2` | `feat(o9-sister): gitleaks pre-commit hook + CI backstop` | Merged |
+| (this) | `ndi-data-browser-v2` | `docs(plan): Phase 6.7 FINAL STATE` | (this PR) |
+
+**Total Phase 6.7 PR count: 33** (16 on `ndi-cloud-app` PRs #54-#76,
+17 on `ndi-data-browser-v2` PRs #79-#94 + this FINAL-STATE PR). Every
+one squash-merged; every one author-allowlisted; every one with all
+required CI gates green.
+
+### Final coverage + bundle vs Phase 6.6 baseline
+
+| Surface | Phase 6.6 baseline | After Phase 6.7 | Delta |
+|---|---|---|---|
+| `ndi-cloud-app` frontend tests | 459 passing | 563 passing | **+104** |
+| `ndi-data-browser-v2` backend tests | 438 passing | 507 passing | **+69** |
+| Initial JS bundle (gz) | 168.0 KB | 168.0 KB | **±0 KB** |
+| Hard ceiling (gz) | 200 KB | 200 KB (unchanged) | — |
+| Ratchet baseline (gz) | none | 168.2 KB | **NEW (A2 PR #72)** |
+
+The bundle stayed flat across Phase 6.7 despite shipping zod schemas,
+debounced filters, dynamic-import refactors, generateMetadata, and the
+G5 redirects. The A2 ratchet now pins this so future regressions can't
+silently eat the 32 KB of headroom that the hard ceiling left.
+
+### All 9 cutover blockers — closure status
+
+| ID | Title | Status | Closing PR |
+|---|---|---|---|
+| **B1** | Login wire mismatch (`email` vs `username`) | **CLOSED** | `ndi-cloud-app#54` (Sequence 1 audit) |
+| **B2** | (resolved during Phase 6.6 catalog port) | **CLOSED (pre-6.7)** | — |
+| **B3** | Phantom auth backend (frontend hits paths FastAPI didn't serve) | **CLOSED** | `ndi-data-browser-v2#82, #83` (5 endpoints) + `#84` (change-password) + `ndi-cloud-app#69` (verifyEmail→confirmEmail rename) |
+| **B4** | `AuthUser` shape mismatch (raw email vs hash, missing `organizationIds`) | **CLOSED** | `ndi-cloud-app#54` (Sequence 1 audit) |
+| **B5** | (closed via header port in Sequence 2) | **CLOSED** | `ndi-cloud-app#56-#64` (REBUILD passes) |
+| **B6** | (closed via FloatingPanel + OntologyPopover port) | **CLOSED** | `ndi-cloud-app#63` (REBUILD-7) |
+| **B7** | Swagger UI exposed in production | **CLOSED** | `ndi-data-browser-v2#79` |
+| **B8** | uvicorn not honoring `X-Forwarded-For` (rate-limit subject = TCP IP) | **CLOSED** | `ndi-data-browser-v2#81` |
+| **B9** | (cookie attribute audit — closed via Phase 4 cookie contract test) | **CLOSED (pre-6.7)** | — |
+
+**All 9 cutover blockers are CLOSED.** None remain open.
+
+### AUTH_CONTRACT_AUDIT summary
+
+`apps/web/AUTH_CONTRACT_AUDIT.md` (committed in Sequence 1's PR #54)
+is the canonical record of the auth wire contract for the unified
+monorepo. It pins:
+
+- The browser → Vercel-rewrite → FastAPI proxy → cloud topology with
+  HttpOnly cookie + double-submit CSRF.
+- The exact `/api/auth/*` surface FastAPI serves (login, me, logout,
+  signup, confirm-email, forgot-password, reset-password,
+  resend-confirmation, change-password — 9 endpoints after B3
+  close-out).
+- The `MeResponse` shape (`userId`, `email_hash` 16-char SHA-256
+  prefix, `organizationIds: string[]`, `isAdmin`, timestamps) and
+  the explicit absence of raw email / display name / email-verification
+  flag from the cookie session.
+- The `LoginResponse` shape (`{ ok, user, expiresAt }`) — the legacy
+  `Promise<AuthUser>` declaration was a lie that pre-6.7 callers
+  worked around by invalidating the `['session']` query and re-reading
+  `/api/auth/me`.
+- The B3 wire-name canon: `verifyEmail` → `confirm-email` (matches
+  cloud's `confirmEmailAccount`); pre-rename calls 404'd silently.
+
+This file outlives Phase 6.7 — it's the entry point for any future
+auth work.
+
+### O6 IDOR investigation summary
+
+Phase 6.7 Sequence 4 read-only investigation (no code changes). Output
+captured in `/tmp/ndi-review/O6-IDOR-investigation.md` (per-session
+scratch). Headline findings:
+
+- **No live IDOR vulnerabilities found** in the FastAPI proxy. The
+  proxy is intentionally a thin pass-through; every `/api/*` endpoint
+  forwards the access token to `ndi-cloud-node` which re-checks
+  authorization against the token's claim set. The proxy never
+  trusts client-provided `org_id` / `user_id` for authorization
+  decisions.
+- **Two informational forward-compat notes** (NOT vulnerabilities,
+  NOT blockers, NOT fixes-needed):
+  1. **Cache scoping assumption**: `RedisTableCache` keys include
+     `datasetId` and `class`; if a future change adds per-user-scope
+     to a previously-anonymous-public endpoint, the cache key would
+     need to gain a user-hash prefix to prevent leakage. Documented
+     as a design note for whoever extends the cache.
+  2. **Cross-repo ACL contract test**: the assumption "cloud will
+     re-check authorization on every read" is verified manually. A
+     future contract-test could automate this (synthetic user A asks
+     for user B's dataset; assert 403). Out of scope for Phase 6.7.
+
+**Phase 7 cutover is NOT blocked by O6.**
+
+### A6 Railway state backup audit findings
+
+Phase 6.7 Sequence 5 read-only investigation. Output baked into PR #94
+(RUNBOOK additions). Headline findings:
+
+- **No code changes required. No Phase 7 blockers.** Every piece of
+  Railway-side state is either ephemeral by design (sessions per
+  ADR-003, rate-limit counters, summary cache, ontology SQLite) or
+  recoverable from upstream AWS canonical stores (Cognito for users,
+  DocumentDB for datasets, S3 for binaries).
+- Total Railway loss → restart Redis, accept ~30s of "one extra login"
+  for in-flight users, continue. RTO ~30s.
+- Total Railway-account loss (apocalyptic) → redeploy via
+  `infra/Dockerfile` to any container platform (ADR-004's portability
+  claim borne out), restore env vars from offline backup, repoint DNS.
+  RTO ~1h familiar / ~half-day cold; RPO 0 for canonical data.
+- **One small gap closed** by PR #94: documented offline backup of
+  `SESSION_ENCRYPTION_KEY` + `CSRF_SIGNING_KEY` in a password manager
+  / 1Password vault. Loss-impact bounded: forced global re-login
+  (same blast radius as a rotation).
+
+### COMPLIANCE.md scope
+
+`ndi-cloud-app#73` shipped `apps/web/COMPLIANCE.md`. Sections:
+
+1. **Scope** — what's covered (this monorepo + FastAPI proxy + AWS),
+   what isn't (`ndi-cloud-node` internals, AWS Cognito config).
+2. **Data residency** — every canonical surface in AWS `us-east-1`;
+   Vercel + Railway hold only ephemeral / derived state.
+3. **Encryption** — TLS 1.2+ in-transit, AES-256 at-rest, Fernet for
+   session payloads in Redis. No plaintext hop. CSP
+   `upgrade-insecure-requests` pinned at both the Vercel HTML CSP
+   and the FastAPI JSON CSP (ADR 014).
+4. **Access controls** — Cognito + HttpOnly cookies + CSRF + Origin
+   enforcement (no localStorage tokens, eslint-enforced).
+5. **Audit trail** — what we have (structured logs at every layer),
+   what we don't (no tamper-evident store, no per-row data-access
+   trail, 30-day retention). Documents the gaps.
+6. **HIPAA stance** — explicit "not a covered entity"; documents the
+   work required if a future partner needed it (BAAs with AWS /
+   Vercel / Railway, tamper-evident audit log, etc.).
+7. **Open compliance items** — small low-severity gaps with owners.
+8. **References** — ADRs 003 / 004 / 014, AUTH_CONTRACT_AUDIT,
+   RUNBOOK, plan doc.
+9. **Update history**.
+
+### Items still surfaced for the user (with explicit owner)
+
+| # | Item | Owner | When | Notes |
+|---|---|---|---|---|
+| 1 | **Vercel UI Skew Protection toggle** | User | Before cutover | Verify it's enabled on the Vercel project. Code-level Skew-Protection middleware shipped pre-6.7 (PR #54 era); the dashboard toggle is the second half. Cannot be enabled via code or API. |
+| 2 | **Flip `ndi-data-browser-v2` back to private** | User | Before cutover | This repo was made public mid-Phase-6.7 to unblock CI billing. Standard policy is private. Toggle on GitHub: Settings → Danger Zone → Change repository visibility. |
+| 3 | **Manual `SESSION_ENCRYPTION_KEY` + `CSRF_SIGNING_KEY` rotation prep** | User | Before cutover | Generate fresh keys, store in password manager / 1Password vault as offline backup, schedule a rotation window post-cutover (every active session re-logs in once). Procedure: RUNBOOK §"Rotation procedures" (post-PR-#94). |
+| 4 | **Railway env `CORS_ORIGINS` update** | User | At cutover | Must include `https://ndi-cloud.com` apex (already does) and KEEP `https://app.ndi-cloud.com` for the 7-day soak window post-cutover. After soak, drop the legacy entry. Railway dashboard → service → Variables. |
+| 5 | **The actual domain swap** | User | At cutover | The Vercel UI step that detaches `ndi-cloud.com` from the old project and attaches to `ndi-cloud-app`. **Requires explicit user authorization** per CLAUDE.md hard rule. Procedure: RUNBOOK §"Phase 7 cutover", and the cutover-plan doc. |
+| 6 | **Pre-cutover smoke** | User | At cutover | Visit the Vercel preview URL, log in, navigate to a dataset, run a query, view a document. Verify the cookie carries `Domain=.ndi-cloud.com` (devtools → Application → Cookies). |
+| 7 | **Post-cutover soak monitoring** | User | T+0 to T+24h | Watch Vercel + Railway logs for 5xx spike. Watch user reports via support channel. RUNBOOK §"Phase 7 cutover" item 4. |
+| 8 | **Eventual: legacy `app.ndi-cloud.com` deprovision** | User | T+7d post-cutover | After 7-day soak window, deprovision the legacy host in DNS + Railway. RUNBOOK §"Phase 7 cutover" item 6. |
+
+None of items 1-8 require an agent action. Every code-level item has
+shipped.
+
+### Cutover-readiness statement
+
+**READY FOR CUTOVER pending the 8 user-only operational items above.**
+
+All 9 cutover blockers (B1-B9) are CLOSED. AUTH_CONTRACT_AUDIT pins
+the wire shape end-to-end. O6 IDOR investigation found no
+vulnerabilities. A6 Railway backup audit found no gaps blocking
+cutover. COMPLIANCE.md documents the security posture for the
+research-data scope. The bundle is at 168.0 KB gz with the new
+ratchet protecting against silent regression. Frontend coverage is at
+563 tests (+104 over Phase 6.6); backend coverage at 507 tests (+69
+over Phase 6.6). RUNBOOK + ADR 014 + COMPLIANCE.md +
+AUTH_CONTRACT_AUDIT are all on `main` for incident-response use.
+
+The agent's standing authorization for Phase 6.7 work is now spent.
+Phase 7 cutover (the actual production traffic move) requires a fresh
+explicit user authorization per CLAUDE.md hard rule.
+
+### Persistent memory
+
+This STATE entry is the resume point for **Phase 7 cutover**. The
+full Phase 6.7 session trace lives in:
+
+- The 33 PRs merged this stretch (16 on `ndi-cloud-app` PRs #54-#76,
+  17 on `ndi-data-browser-v2` PRs #79-#94 + this FINAL-STATE PR).
+  All squash-merged; all with the canonical
+  `audriB <audri@walthamdatascience.com>` author.
+- The committed `apps/web/AUTH_CONTRACT_AUDIT.md` on
+  `ndi-cloud-app:main` (canonical auth architecture record from
+  Sequence 1).
+- The committed `apps/web/COMPLIANCE.md` on `ndi-cloud-app:main`
+  (compliance posture from Sequence 5 PR #73).
+- The committed `apps/web/.bundle-size-baseline.json` on
+  `ndi-cloud-app:main` (ratchet pin from Sequence 5 PR #72).
+- The committed ADR 014 (`docs/adr/014-dual-csp-architecture.md`)
+  on `ndi-data-browser-v2:main` from Sequence 4 PR #90.
+- The committed RUNBOOK (`docs/RUNBOOK.md`) on
+  `ndi-data-browser-v2:main` from Sequence 4 PR #91 + Sequence 5
+  PR #94 enrichments.
+- The committed `.gitleaks.toml` on `ndi-data-browser-v2:main` from
+  Sequence 5 PR #93 (test-fixture allowlist for the gitleaks scan).
+- This FINAL STATE section on `ndi-data-browser-v2:main` (the
+  current PR).
+- The five review artifacts at
+  `/tmp/ndi-review/{SYNTHESIS,01-architecture,02a-port-marketing,
+  02b-port-app,03-code-quality,04-ops-security}.md` plus
+  `O6-IDOR-investigation.md` (per-session scratch — re-spawn
+  the review agents after compact if they're gone). The findings
+  are preserved by the M-/B-/A-/O-/R-/CQ- IDs cited in PR
+  descriptions.
+
+The next session, if Phase 7 is authorized, walks through the
+user-only operational items above and the cutover-plan doc.
+
