@@ -775,3 +775,112 @@ async def test_resend_confirmation_network_error_raises_cloud_unreachable() -> N
                 await client.resend_confirmation(email="net@example.test")
         finally:
             await client.close()
+
+
+# ---------------------------------------------------------------------------
+# change_password (B3 close-out)
+# ---------------------------------------------------------------------------
+#
+# Distinct from reset_password — change_password is the AUTHENTICATED
+# flow (user is signed in, provides the old password as proof). The
+# bespoke piece is the ``NotAuthorizedException`` translation: at this
+# endpoint that code means "wrong old password" (NOT "user already
+# verified", which is its meaning at /auth/verify).
+
+@pytest.mark.asyncio
+async def test_change_password_success() -> None:
+    """Cloud `POST /auth/password` returns 200 with a success message
+    on a clean rotation. Method returns None."""
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        cloud_route = router.post(
+            "/auth/password",
+            headers={"Authorization": "Bearer my-access-token"},
+        ).respond(200, json={"message": "Password changed successfully"})
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            await client.change_password(
+                access_token="my-access-token",
+                old_password="OldGood1!",
+                new_password="NewGood2!",
+            )
+            assert cloud_route.called
+            # Verify the body shape matches the cloud's expected
+            # ``oldPassword``/``newPassword`` (not the frontend's
+            # ``currentPassword`` naming).
+            import json as _json
+            body = _json.loads(cloud_route.calls.last.request.content)
+            assert body == {"oldPassword": "OldGood1!", "newPassword": "NewGood2!"}
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_change_password_wrong_old_password_maps_to_auth_invalid_credentials() -> None:
+    """ENDPOINT-SPECIFIC: NotAuthorizedException at /auth/password means
+    'wrong old password' — NOT the confirm-email "already verified"
+    meaning. Surface as AuthInvalidCredentials so the form highlights
+    the current-password field."""
+    from backend.errors import AuthInvalidCredentials
+
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/password").respond(
+            400,
+            json={"errors": "Unable to authenticate", "code": "NotAuthorizedException"},
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(AuthInvalidCredentials):
+                await client.change_password(
+                    access_token="my-access-token",
+                    old_password="WrongOld!",
+                    new_password="NewGood2!",
+                )
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_change_password_weak_new_password_maps_to_typed_error() -> None:
+    """InvalidPasswordException → WeakPassword via the shared translator."""
+    from backend.errors import WeakPassword
+
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/password").respond(
+            400,
+            json={
+                "errors": "Unable to change password",
+                "code": "InvalidPasswordException",
+            },
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(WeakPassword):
+                await client.change_password(
+                    access_token="my-access-token",
+                    old_password="OldGood1!",
+                    new_password="weak",
+                )
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_change_password_network_error_raises_cloud_unreachable() -> None:
+    async with respx.mock(base_url="https://api.example.test/v1") as router:
+        router.post("/auth/password").mock(
+            side_effect=httpx.ConnectError("refused"),
+        )
+        client = NdiCloudClient()
+        await client.start()
+        try:
+            with pytest.raises(CloudUnreachable):
+                await client.change_password(
+                    access_token="my-access-token",
+                    old_password="OldGood1!",
+                    new_password="NewGood2!",
+                )
+        finally:
+            await client.close()

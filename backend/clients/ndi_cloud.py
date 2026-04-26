@@ -418,6 +418,46 @@ class NdiCloudClient:
         # No recognized code → let the generic translator handle the status.
         NdiCloudClient._raise_for_status(response, endpoint=endpoint)
 
+    async def change_password(
+        self, *, access_token: str, old_password: str, new_password: str,
+    ) -> None:
+        """Cloud `POST /auth/password` — authenticated change-password flow.
+
+        Distinct from ``reset_password`` (the forgot-password follow-up).
+        The cloud's controller re-authenticates the caller with the old
+        password before delegating to Cognito's ``changePassword``, so a
+        stolen XSRF cookie alone cannot rotate creds — the attacker also
+        needs the old password.
+
+        ENDPOINT-SPECIFIC error translation: ``NotAuthorizedException`` at
+        ``/auth/password`` means "old password is wrong" (NOT "user
+        already confirmed", which is the meaning at ``/auth/verify``).
+        We surface it as ``AuthInvalidCredentials`` so the form can
+        highlight the current-password field. ``InvalidPasswordException``
+        is the new password failing Cognito's policy → ``WeakPassword``.
+        Other Cognito codes fall through to the generic translator.
+        """
+        resp = await self._request(
+            "POST",
+            "/auth/password",
+            endpoint_label="auth_change_password",
+            json={"oldPassword": old_password, "newPassword": new_password},
+            access_token=access_token,
+            idempotent=False,
+        )
+        if resp.status_code == 400:
+            cognito_code = _extract_cognito_code(resp)
+            if cognito_code == "NotAuthorizedException":
+                # Bespoke translation — at THIS endpoint NotAuthorized means
+                # "wrong password," not the confirm-email "already verified."
+                from ..errors import AuthInvalidCredentials
+                raise AuthInvalidCredentials("Current password is incorrect.")
+            # InvalidPasswordException → WeakPassword (handled by the
+            # generic translator below); LimitExceededException, etc.,
+            # fall through to ValidationFailed via _raise_for_status.
+            self._raise_cognito_error(resp, endpoint="auth_change_password")
+        self._raise_for_status(resp, endpoint="auth_change_password")
+
     async def get_published_datasets(
         self, *, page: int = 1, page_size: int = 20, access_token: str | None = None,
     ) -> dict[str, Any]:
