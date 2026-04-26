@@ -92,6 +92,13 @@ class Settings(BaseSettings):
     RATE_LIMIT_BULK_FETCH_PER_MIN: int = 10
     RATE_LIMIT_LOGIN_PER_IP_15MIN: int = 5
     RATE_LIMIT_LOGIN_PER_USER_HOUR: int = 10
+    # Per-IP CSRF-failure rate limit (O4). Only failed CSRF checks
+    # consume budget — successful mutations don't count. Default 20 per
+    # 5 min is generous enough that a stale-token race during a deploy
+    # doesn't lock anyone out, but tight enough that a probe burst is
+    # noticed by the limiter and surfaces as AUTH_RATE_LIMITED instead
+    # of an endless stream of 403 CSRF_INVALID.
+    RATE_LIMIT_CSRF_FAIL_PER_IP_5MIN: int = 20
 
     # --- Ontology cache ---
     ONTOLOGY_CACHE_DB_PATH: str = "/tmp/ndi-ontology.db"
