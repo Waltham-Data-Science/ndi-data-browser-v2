@@ -266,11 +266,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
 
 def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, intentional)
     settings = get_settings()
+    # B7 — hide the live OpenAPI spec, Swagger UI, and ReDoc in production.
+    # Publishing them hands an attacker a free map of every route, every
+    # Pydantic body shape, and every error envelope. In dev/staging the
+    # docs are useful for contributors and integration debugging; only
+    # `production` flips them off. Tests pin this contract in
+    # `backend/tests/unit/test_swagger_lockdown.py`.
+    is_production = settings.ENVIRONMENT == "production"
     app = FastAPI(
         title="NDI Data Browser v2",
         version="2.0.0",
         description="Cloud-first proxy + enricher for NDI Cloud.",
         lifespan=lifespan,
+        docs_url=None if is_production else "/docs",
+        redoc_url=None if is_production else "/redoc",
+        openapi_url=None if is_production else "/openapi.json",
     )
 
     # --- Middleware ---
