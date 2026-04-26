@@ -223,8 +223,27 @@ class SessionStore:
         await self._write(session)
 
     async def _write(self, session: SessionData) -> None:
+        """Persist the session blob with a Redis TTL that respects BOTH
+        the absolute lifetime ceiling AND the idle-window floor (O3).
+
+        TTL = `min(remaining_absolute, idle_ttl)`:
+        - On a fresh session: TTL = idle_ttl (typically 2h). Each `touch`
+          refreshes the TTL back to idle_ttl, so an active session gets
+          a rolling 2-hour grace from its last activity.
+        - On a long-running session in its 23rd hour: remaining_absolute
+          drops below idle_ttl and caps the TTL → the absolute 24h ceiling
+          is respected.
+        - On an idle session: Redis expires the key naturally after
+          idle_ttl with no touch — the session disappears without an
+          explicit reaper.
+
+        The 60-second floor preserves a minimum useful lifetime for the
+        "last few seconds before absolute" edge so a request mid-flight
+        doesn't lose its session before it can finish.
+        """
         payload = session.to_redis(self.fernet)
-        ttl = self.settings.SESSION_ABSOLUTE_TTL_SECONDS
-        # Compute remaining TTL so a refresh doesn't extend absolute lifetime.
-        remaining = max(60, ttl - (int(time.time()) - session.issued_at))
-        await self.redis.set(self._key(session.session_id), json.dumps(payload), ex=remaining)
+        absolute_ttl = self.settings.SESSION_ABSOLUTE_TTL_SECONDS
+        idle_ttl = self.settings.SESSION_IDLE_TTL_SECONDS
+        remaining_absolute = max(60, absolute_ttl - (int(time.time()) - session.issued_at))
+        ttl = min(remaining_absolute, idle_ttl)
+        await self.redis.set(self._key(session.session_id), json.dumps(payload), ex=ttl)
