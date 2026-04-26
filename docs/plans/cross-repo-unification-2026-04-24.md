@@ -2370,3 +2370,281 @@ from PR descriptions if wiped). No source-repo files were modified
 this session — both `ndi-data-browser-v2` and `ndi-web-app-wds`
 remain at their pre-session HEADs.
 
+## POST-PHASE-6.7 INTERIM STATE — Sequence 1 + Sequence 2 shipped (2026-04-26)
+
+**Status:** Sequence 1 (cutover blockers + cleanup) and Sequence 2
+(marketing visual fixes M1-M12) of Phase 6.7 are landed on
+`Waltham-Data-Science/ndi-cloud-app:main`. Sequences 3–5 (code
+quality, ops readiness, compliance + cleanup) are paused awaiting
+mid-session compact + resume per the user's checkpoint instruction.
+
+The phase-6.7 work was driven by an independent architecture-and-
+code-quality review with five parallel sub-agents (architecture,
+port-fidelity-marketing, port-fidelity-app, code-quality, ops-and-
+security) covering ~50 findings. The full review artifacts are at
+`/tmp/ndi-review/SYNTHESIS.md` plus per-dimension drill-downs.
+The user's explicit scope decisions (recorded in the prompt that
+opened Phase 6.7) shaped which findings shipped vs. deferred:
+
+- **Delete overengineered infrastructure.** A1 Edge Config flag
+  system was unused (one flag defined, zero callsites) — dropped.
+- **A8 Sentry — DROPPED ENTIRELY.** At <10 users with the
+  maintainer in direct contact with everyone affected, error
+  tracking adds operational complexity without proportional
+  value. Vercel + Railway native logs cover post-hoc
+  investigation. Two Sentry-cleanup PRs ship the config + comment
+  removals (one per repo).
+- **A3 Skew Protection Playwright spec — DROPPED.** 110 LOC for a
+  Vercel UI toggle check; replaced with a one-line curl in
+  CUTOVER.md.
+- **Auth flows align with the working production system, not
+  invent new ones.** B1 (login wire) + B4 (`AuthUser` shape) are
+  contract drift fixes inside the frontend. B3 (5 missing FastAPI
+  signup/reset/verify endpoints) is the foundational architectural
+  question the audit surfaced — addressed via the
+  AUTH_CONTRACT_AUDIT documents but the actual proxy endpoints are
+  blocked on `ndi-data-browser-v2` CI billing (see Surfaced
+  section).
+
+### PRs opened, merged, or closed this session
+
+#### Sequence 1 — Cutover blockers + cleanup
+
+All against `Waltham-Data-Science/ndi-cloud-app:main`. All 13 PRs
+squash-merged on green CI; all authored as
+`audriB <audri@walthamdatascience.com>`.
+
+| PR | Title | Track | Squash SHA |
+|----|-------|-------|------------|
+| #48 | docs(cutover): rewrite SESSION_SECRET → SESSION_ENCRYPTION_KEY (B6) | Cutover blocker — docs | `b96cd61` |
+| #49 | docs(auth): AUTH_CONTRACT_AUDIT — phantom auth backend is real | Investigation surfaced to user | `845a7de` |
+| #50 | chore: delete unused Edge Config flag system (A1) | Overengineering removed | `9f9f1ca` |
+| #51 | feat(observability): wire Sentry on the frontend | **Closed unmerged** — A8 Sentry dropped from scope mid-session | (closed) |
+| #52 | (rebased reopen of #51) | **Closed unmerged** — same reason | (closed) |
+| #53 | chore(error): drop deferred-Sentry comments from marketing error.tsx | Sentry cleanup — frontend half | `f45520a` |
+| #54 | docs(auth): rewrite AUTH_CONTRACT_AUDIT with canonical contract | Audit doc — post-user-resume canonical version | `9222ce1` |
+| #55 | fix(auth): rename login wire field email → username (B1) | Cutover blocker | `e8f5067` |
+| #56 | chore(test): drop skew-protection.spec.ts; replace with curl in CUTOVER (A3) | Overengineering removed | `78b527e` |
+| #57 | fix(auth): align AuthUser shape with FastAPI MeResponse (B4) | Cutover blocker | `4099203` |
+| #58 | fix(auth): wire real Header logout + cache clear (B5) | Cutover blocker | `dfc4727` |
+| #59 | fix(csp): drop strict-dynamic + per-request nonce; widen matcher (B2 + O1) | Cutover blocker — flip is now safe | `413139b` |
+
+#### Sequence 2 — Marketing visual fixes (M1-M12)
+
+| PR | Title | Squash SHA |
+|----|-------|------------|
+| #60 | fix(a11y): skip-to-content link + global :focus-visible + prefers-reduced-motion (M3+M4) | `c0155f3` |
+| #61 | fix(marketing): visual fidelity cluster 1 (M1+M2+M9+M11+M12) | **Closed unmerged** — replaced by #64 (had stale cherry-picks) |
+| #62 | fix(marketing): restore stacked capability rows + Diagram-2 scatter visualization (M8+M10) | `6166f13` |
+| #63 | fix(marketing): password visibility toggle + signup name required + complexity validation (M5+M6+M7) | `93cbe53` |
+| #64 | fix(marketing): visual fidelity cluster 1 (M1+M2+M9+M11+M12) — replay | `a33eef7` |
+
+**Sequence 2 net** — 4 merged PRs covering all 12 review-flagged
+M-items: M1 brand-blue accents on 4 hero pages; M2 hero centering
++ eyebrow pills on About/Security; M3 skip-to-content + global
+focus-visible; M4 prefers-reduced-motion on home marquee; M5
+password visibility toggle; M6 signup `name` required; M7 complexity
+validation restored client-side; M8 stacked capability rows on
+LabChat + Private Cloud; M9 `--type-h2-marketing` token (40px
+desktop / 30px mobile fluid clamp); M10 Diagram-2 absolute-
+positioned + rotated + connected scatter; M11 standardized CTA
+button sizing via new `MarketingButton size="lg"` variant; M12
+six of seven cluster items shipped (theme-color meta, ArchLayer
+linear-gradients, Diagram-1 white-card-with-floating-pill, hero
+lede 17→19px, marquee 40s→30s, "Browse by topic" promoted to
+button). M12.7 (home hero bottom-padding `pb-16 → pb-9`) **skipped
+deliberately** — Phase 6.6 polish raised it for hero-composition
+reasons; reverting without screenshots could crowd the secondary
+CTA pill against the institution band.
+
+#### Open against `ndi-data-browser-v2` (BLOCKED on CI billing)
+
+| PR | Title | Status |
+|----|-------|--------|
+| #79 | chore(observability): drop unused SENTRY_DSN config + sentry-sdk dep | **Open, all CI jobs failed at "not started — recent account payments have failed or your spending limit needs to be increased."** Local checks pass: `ruff check`, `mypy --strict`, `pytest --cov-fail-under=70` (433/433, 89.05% coverage). |
+
+### Coverage trajectory
+
+| Phase | Statements | Branches | Functions | Lines |
+|-------|-----------|----------|-----------|-------|
+| Phase 6.6 baseline (post-#37) | 72.36% | 64.67% | 72.99% | 73.96% |
+| Floor | 60.00% | 56.00% | 62.00% | 60.00% |
+| **Post-Phase-6.7-Sequence-2** | **74.04%** | **66.17%** | **73.91%** | **75.62%** |
+
+All four metrics moved UP — driven by new specs in the auth-form
+PR (#63: AuthForm password-toggle + create-account complexity tests)
+and the layout-test addition in #60. No metric ratcheted down. Test
+file count: 52 → 54. Test count: 459 → 486 (+27).
+
+### Bundle trajectory
+
+| Phase | Initial JS gz | Headroom under 200 KB |
+|-------|---------------|------------------------|
+| Phase 6.6 baseline | 168.0 KB | 32 KB |
+| **Post-Phase-6.7-Sequence-2** | **168.0 KB** | **32 KB** |
+
+Net: **flat**. 13 PRs of cutover-blocker fixes + 4 PRs of marketing
+visual restoration added zero gzipped initial-JS bytes. The Sentry
+detour (PRs #51/#52) had pushed the bundle to 242.6 KB on the
+first iteration; dropping Sentry from scope reverted it cleanly.
+
+### Lighthouse / CSP
+
+Lighthouse not re-measured (preview-URL noise per the Phase 6.6
+note). The CSP trajectory is the load-bearing pre-cutover finding:
+
+- **Pre-Phase-6.7** — Report-Only nonce CSP that nothing read;
+  flipping to enforced would have white-screened every Next.js
+  client chunk on `/api/*` and `/my/*` (B2 finding).
+- **Post-#59** — Static `script-src 'self' GTM GA` policy applied
+  to every response across the entire surface (matcher widened in
+  O1). Vary: Cookie + Accept-Encoding gated to `/api/*` + `/my/*`
+  inline so anonymous-public catalog edge caching is preserved.
+  **The Phase 7 cutover step "flip CSP-Report-Only to
+  Content-Security-Policy" is now safe.**
+
+### Items still surfaced for the user
+
+- 🔥 **`ndi-data-browser-v2` GitHub Actions CI is billing-blocked.**
+  Every job on PR #79 (and any future PR against this repo —
+  including the deferred B3-backend, B7-Swagger-lockdown,
+  B8-rate-limit-trust-proxy fixes) fails immediately with "recent
+  account payments have failed or your spending limit needs to be
+  increased." `ndi-cloud-app` was flipped public mid-Phase-6.6 for
+  the same reason; `ndi-data-browser-v2` remains private.
+  **User action:** resolve the GitHub billing or flip the repo
+  public to clear the queue. Without this, none of the
+  ndi-data-browser-v2 backend fixes (B3 endpoints, B7 Swagger
+  lockdown, B8 `--proxy-headers`) can ship through CI.
+
+- 🚨 **B9 Skew Protection** — Vercel project setting. Per the
+  user's earlier note, the toggle reports as on but bogus `?dpl=`
+  returns 200 instead of 404. CUTOVER.md now embeds the curl
+  verification in-line (replaced the deleted Playwright spec from
+  A3). Pre-cutover blocker until Vercel UI toggle confirmed.
+
+- 📋 **B3 backend — 5 FastAPI proxy endpoints planned but not yet
+  written.** The AUTH_CONTRACT_AUDIT (committed at
+  `apps/web/AUTH_CONTRACT_AUDIT.md` on `ndi-cloud-app:main`) is
+  the canonical contract — it documents the 5 endpoints that need
+  to be added to `backend/routers/auth.py` (signup, forgot-
+  password, reset-password, confirm-email, resend-confirmation),
+  their cloud-side path mappings, the `LoginResponse`/Cognito
+  error envelope plan, and the architectural reason the legacy
+  Bearer+localStorage pattern is explicitly NOT being ported
+  forward. Six marketing forms (`/create-account`,
+  `/forgot-password`, `/reset-password`,
+  `/account-verification`, `/account-not-confirmed`,
+  `/resend-verification`) currently 404 against FastAPI; this is
+  the work that closes that gap. Blocked on the ndi-data-browser-v2
+  billing issue.
+
+- 📋 **B7 — FastAPI Swagger lockdown.** Trivial change in
+  `backend/app.py:267-274` (pass `docs_url=None, redoc_url=None,
+  openapi_url=None` when `ENVIRONMENT == "production"`). Blocked
+  on ndi-data-browser-v2 billing.
+
+- 📋 **B8 — uvicorn `--proxy-headers --forwarded-allow-ips '*'`
+  on Railway.** Without this, post-cutover all `/api/*` traffic
+  carries Vercel's egress IP, collapsing per-IP rate limits to "5
+  attempts per 15 min for *every Vercel user combined*." Blocked
+  on ndi-data-browser-v2 billing.
+
+- 🔒 **`Waltham-Data-Science/ndi-cloud-app` is still public** for
+  the same CI billing reason that prompted the public flip during
+  Phase 6.6. Pre-cutover, flip back to private.
+
+- 📌 **A8 Sentry was dropped from scope.** The user explicitly
+  removed Sentry from the backlog; the cleanup PRs (#53 frontend
+  comments removed, #79 backend SENTRY_DSN config removed) are
+  the closing artifacts. PR #79 is open + blocked; the file
+  changes themselves are tested locally and will land when the
+  billing issue resolves.
+
+- 📌 **`app.ndi-cloud.com` DNS does not resolve today.** Verified
+  during the auth contract audit. Non-blocking per the user's
+  resume note — the legacy data browser was served at
+  `ndb-v2-production.up.railway.app` directly (FastAPI static
+  mount), and Phase 7 cutover re-attaches the legacy host as a
+  301 redirect to apex anyway.
+
+- 📌 **Color-contrast a11y (GH#46)** — out of Phase 6.7 scope per
+  the prompt; deferred to a Lighthouse-CI-driven PR after Phase 7.
+
+### Pending for resume (after compact)
+
+In priority order:
+
+1. **Sequence 3 — Code quality CQ1-CQ5.**
+   - CQ1: zod schema migration on high-traffic API responses
+     (MeResponse, LoginResponse, catalog response, dataset detail).
+     Wrap `apiFetch` with optional `schema?: ZodType<T>`.
+   - CQ2: 7 marketing auth form unit tests (depends on CQ1 if the
+     schema validators land first).
+   - CQ3: per-helper unit tests for ViolinPlot internals (KDE
+     bandwidth, jitter), QuickPlot.classifyColumns, uPlot sweep
+     aggregation. Closes GH#45.
+   - CQ5 cluster: dead `setImageFrame` deletion, per-keystroke
+     `router.replace` debounce in SummaryTableView, dynamic-
+     import uPlot from TimeseriesChart/FitcurveChart for ~30 KB
+     gz off the doc-detail bundle.
+
+2. **Sequence 4 — Operational readiness (Sentry-related items
+   skipped per scope).**
+   - A7 + A9: UptimeRobot mention + `RUNBOOK.md` covering health-
+     check URLs, common incidents, rollback procedure (link to
+     CUTOVER.md), on-call escalation. The Skew Protection curl
+     check belongs in here.
+   - O2: CSP `report-to` wired (free reporting service, e.g.
+     uriports.com).
+   - O3: Fix or delete `SESSION_IDLE_TTL_SECONDS` (currently a
+     no-op).
+   - O4: `/api/auth/csrf` rate limit.
+   - O5: Origin enforcement no-Origin handling.
+   - O6: IDOR investigation (Playwright spec — investigate-only,
+     report findings, do NOT auto-fix).
+   - O7: Drop unused opentelemetry deps.
+   - O8: FastAPI/Vercel CSP reconciliation.
+   - O9: gitleaks pre-commit hook.
+   - R2: Document detail chrome-gate hydration flash (CSS-only
+     fix preferred over route restructure).
+
+3. **Sequence 5 — Compliance + cleanup.**
+   - A10: One-page `apps/web/COMPLIANCE.md` covering data
+     residency, encryption, access controls, audit-trail absence,
+     HIPAA stance.
+   - A2 architecture: real bundle ratchet (currently a hard
+     200 KB constant; doc claims it ratchets).
+   - A2 port: `useDocumentTitle` recovery via
+     `generateMetadata({ params })` for dataset detail pages
+     (closes audit follow-up #67).
+   - G5 port: legacy table-class slug aliases (`subjects`,
+     `probes`, etc.) — fixes broken bookmarks.
+   - A6: Audit Railway state backup story — investigate +
+     document, no code changes.
+   - Stale comment sweep — `DocumentDetailView.tsx:26-30`
+     "DependencyGraph is D3, deferred" + the audit-error
+     self-correction note in `DependencyGraphView.tsx:22-24`
+     once trust is established.
+
+### Persistent memory
+
+This INTERIM STATE entry is the resume point. The full session
+trace lives in:
+
+- The 13+2-closed PRs on `ndi-cloud-app` (#48-#64 with #51, #52,
+  #61 closed-unmerged).
+- One open + billing-blocked PR on `ndi-data-browser-v2` (#79).
+- The committed `apps/web/AUTH_CONTRACT_AUDIT.md` on
+  `ndi-cloud-app:main` (canonical auth architecture record from
+  PR #54).
+- The five review artifacts at
+  `/tmp/ndi-review/{SYNTHESIS,01-architecture,02a-port-marketing,
+  02b-port-app,03-code-quality,04-ops-security}.md` (these are
+  per-session scratch — re-spawn the review agents after compact
+  if they're gone). The findings the audit catalog used are
+  preserved by the M-/B-/A-/O- IDs cited in PR descriptions.
+
+The next session resumes Sequence 3 against the latest
+`ndi-cloud-app:main` (head: `a33eef7`).
+
