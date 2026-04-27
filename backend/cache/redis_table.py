@@ -87,10 +87,35 @@ class RedisTableCache:
         self,
         key: str,
         producer: Callable[[], Awaitable[dict[str, Any]]],
+        *,
+        ttl_for: Callable[[dict[str, Any]], int] | None = None,
     ) -> dict[str, Any]:
         """Read-through cache. Returns the cached JSON on hit; otherwise runs
         producer under a per-key lock, writes the result with TTL, and returns
         it. Producer errors propagate unchanged — nothing is written on error.
+
+        ``ttl_for`` is an optional **per-call** TTL selector: a function that
+        examines the just-computed value and returns the TTL (in seconds)
+        the entry should live for. Falls back to ``self.ttl_seconds`` when
+        unset, preserving backward-compatible behavior.
+
+        # Why per-call TTL
+
+        Some entries are "fully successful" (deserves long TTL — re-running
+        the producer is expensive and the result is unlikely to change).
+        Others are "degraded" (e.g. partial data because an upstream
+        dependency timed out — deserves a SHORTER TTL so the next caller
+        re-runs the producer sooner, giving us another chance to land a
+        full result before viewers see staleness).
+
+        Example: dataset_summary_service caches summaries for 24h on
+        full success and 5 minutes on degraded results, so a frontend
+        cron re-warming every 5 min has frequent retry chances on
+        degraded entries while full successes ride out a whole day.
+
+        Returning a 0 TTL via ``ttl_for`` skips the cache write
+        altogether — useful when the producer's result is too partial
+        to be worth caching at all.
         """
         try:
             raw = await self.redis.get(key)
@@ -123,11 +148,17 @@ class RedisTableCache:
                 pass
 
             value = await producer()
-            try:
-                await self.redis.set(key, json.dumps(value), ex=self.ttl_seconds)
-                log.debug("table_cache.fill", key=key, ttl=self.ttl_seconds)
-            except Exception as e:
-                log.warning("table_cache.set_failed", key=key, error=str(e))
+            ttl = ttl_for(value) if ttl_for is not None else self.ttl_seconds
+            if ttl > 0:
+                try:
+                    await self.redis.set(key, json.dumps(value), ex=ttl)
+                    log.debug("table_cache.fill", key=key, ttl=ttl)
+                except Exception as e:
+                    log.warning("table_cache.set_failed", key=key, error=str(e))
+            else:
+                # ttl=0 means "don't cache" — used when the producer's
+                # result is too partial to be worth holding at all.
+                log.debug("table_cache.skip_write", key=key)
             return value
 
     async def invalidate(self, key: str) -> None:

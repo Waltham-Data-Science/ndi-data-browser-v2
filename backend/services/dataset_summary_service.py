@@ -54,7 +54,49 @@ from .summary_table_service import (
 log = get_logger(__name__)
 
 SUMMARY_SCHEMA_VERSION = "summary:v1"
-SUMMARY_CACHE_TTL_SECONDS = 5 * 60  # freshness > TTL economy (amendment §4.B3)
+
+# Per-call TTL selector for the summary Redis cache.
+#
+# Smoke-test pass after PR #102 (stage-1 timeouts) found that for the
+# largest published datasets (101k+ docs) the synthesizer succeeds-with-
+# warnings — counts time out, all-zero counts cascade to null per-class
+# facts. With the original blanket 5-minute TTL, that DEGRADED summary
+# would be served verbatim for the next 5 minutes; the next cron tick
+# would retry but if the cloud's Mongo state hadn't warmed yet, it'd
+# cache another degraded summary, ad infinitum. Real users see zeros
+# in the Summary card even though the dataset record has 78k+ docs.
+#
+# Differential TTL fixes this:
+#
+#   - Full success (no extractionWarnings, totalDocuments > 0): 24h.
+#     The dataset's summary doesn't change much day-to-day; once we
+#     land a fully-successful synthesis, every viewer for the next 24h
+#     gets a sub-second cache-hit response with FULL data. Combined
+#     with the frontend cron warming every 5 min on the top-10 datasets,
+#     a real human viewer almost never pays the cold-synth cost — the
+#     cron does, then the cache covers everyone for the day.
+#
+#   - Degraded with warnings: 5 minutes. The next cron tick re-attempts
+#     synthesis. If the cloud's working set has warmed (or the slow
+#     ndiquery has been fixed upstream), the retry might succeed and
+#     promote the entry to the 24h tier.
+#
+#   - Empty dataset (totalDocuments == 0, no warnings): also 24h. An
+#     empty dataset's summary is genuinely empty; treating that the
+#     same as full-success keeps cache pressure low.
+#
+# The 24h pick matches the practical observation that dataset
+# *contents* don't change often (admins occasionally publish new
+# branches; very rarely edit the title/abstract). Cron-driven
+# re-warming covers genuine edits within 5 min anyway.
+SUMMARY_CACHE_TTL_FULL_SECONDS = 24 * 60 * 60  # 24h on full success
+SUMMARY_CACHE_TTL_DEGRADED_SECONDS = 5 * 60  # 5min on partial / warnings
+
+# Backwards-compat alias used elsewhere in the codebase (and pinned
+# from tests). Maps to the DEGRADED tier — the previous blanket-5min
+# behavior.
+SUMMARY_CACHE_TTL_SECONDS = SUMMARY_CACHE_TTL_DEGRADED_SECONDS
+
 SUMMARY_KEY_PREFIX = "summary:v1"
 # Audit 2026-04-23 (#60): bumped 3 → 6 to actually match
 # ``summary_table_service.MAX_CONCURRENT_BULK_FETCH`` (the prior comment
@@ -304,6 +346,7 @@ class DatasetSummaryService:
             payload = await self.cache.get_or_compute(
                 key,
                 lambda: self._build_and_serialize(dataset_id, access_token=access_token),
+                ttl_for=_summary_cache_ttl,
             )
             return DatasetSummary.model_validate(payload)
         payload = await self._build_and_serialize(dataset_id, access_token=access_token)
@@ -622,6 +665,35 @@ class DatasetSummaryService:
 
 def summary_cache_key(dataset_id: str, session: SessionData | None) -> str:
     return f"{SUMMARY_KEY_PREFIX}:{dataset_id}:{user_scope_for(session)}"
+
+
+def _summary_cache_ttl(payload: dict[str, Any]) -> int:
+    """Per-call TTL selector for the summary Redis cache.
+
+    Inspect the just-computed payload (a JSON-serialized
+    :class:`DatasetSummary`) and pick a TTL based on quality:
+
+      - Full success path (no extraction warnings): 24h. Synthesis
+        landed all per-class facts; we want every subsequent viewer
+        for the day to get a sub-second cache-hit instead of paying
+        the 25-30s cold synthesis cost.
+
+      - Degraded path (extraction warnings present): 5 minutes. We
+        cached PARTIAL data; the next cron tick should retry sooner
+        in case the cloud's Mongo state has warmed and a full
+        synthesis is now possible.
+
+    The check uses the structural shape of the cached JSON
+    (extractionWarnings array length) because that's what's available
+    inside the cache layer — we don't have the typed model here. The
+    JSON encoder always emits the array (including for an empty list)
+    so missing-key scenarios just slot into the "full" bucket, which
+    is the safe default.
+    """
+    warnings = payload.get("extractionWarnings")
+    if isinstance(warnings, list) and len(warnings) > 0:
+        return SUMMARY_CACHE_TTL_DEGRADED_SECONDS
+    return SUMMARY_CACHE_TTL_FULL_SECONDS
 
 
 # ---------------------------------------------------------------------------

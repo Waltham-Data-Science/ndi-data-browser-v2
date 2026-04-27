@@ -769,6 +769,127 @@ async def test_stage_1_dataset_timeout_does_not_block_summary(
     assert "exceeded 0.05s" in warnings_text
 
 
+# ---------------------------------------------------------------------------
+# Differential cache TTL based on synthesis quality
+#
+# Smoke-test pass after PRs #101/#102 found the production cache holding
+# DEGRADED summaries (counts=0, warnings present) for the full 5-minute
+# blanket TTL on large datasets — meaning every viewer for those 5 min
+# saw the partial data even when the underlying cloud state had warmed
+# enough for a full synthesis to succeed. PR introduces per-call TTL:
+# 24h on full-success entries, 5min on degraded entries — so the cron
+# (every 5min) gets frequent retry chances on degraded cache while
+# full-success entries ride out a whole day.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_full_success_summary_caches_24h() -> None:
+    """A summary with empty `extractionWarnings` and non-zero counts is
+    a full success — it should cache for 24h so subsequent viewers
+    don't re-synthesize unnecessarily.
+    """
+    from backend.services.dataset_summary_service import (
+        SUMMARY_CACHE_TTL_FULL_SECONDS,
+        _summary_cache_ttl,
+    )
+
+    full_payload = {
+        "datasetId": "d1",
+        "counts": {
+            "sessions": 1, "subjects": 1, "probes": 1, "elements": 1,
+            "epochs": 4, "totalDocuments": 8,
+        },
+        "extractionWarnings": [],
+    }
+    assert _summary_cache_ttl(full_payload) == SUMMARY_CACHE_TTL_FULL_SECONDS
+    assert SUMMARY_CACHE_TTL_FULL_SECONDS == 24 * 60 * 60
+
+
+@pytest.mark.asyncio
+async def test_degraded_summary_caches_5min() -> None:
+    """A summary with non-empty `extractionWarnings` is degraded — it
+    caches for only 5 minutes so the cron's next tick can retry sooner
+    in case the cloud's working set has since warmed.
+    """
+    from backend.services.dataset_summary_service import (
+        SUMMARY_CACHE_TTL_DEGRADED_SECONDS,
+        _summary_cache_ttl,
+    )
+
+    degraded_payload = {
+        "datasetId": "d1",
+        "counts": {
+            "sessions": 0, "subjects": 0, "probes": 0, "elements": 0,
+            "epochs": 0, "totalDocuments": 0,
+        },
+        "extractionWarnings": [
+            "class counts query failed: counts fetch exceeded 20.0s",
+        ],
+    }
+    assert _summary_cache_ttl(degraded_payload) == SUMMARY_CACHE_TTL_DEGRADED_SECONDS
+    assert SUMMARY_CACHE_TTL_DEGRADED_SECONDS == 5 * 60
+
+
+@pytest.mark.asyncio
+async def test_empty_dataset_caches_24h_too() -> None:
+    """A genuinely empty dataset (zero counts, no warnings — synthesis
+    ran cleanly and found nothing) is also a full success. No reason
+    to short-TTL it.
+    """
+    from backend.services.dataset_summary_service import (
+        SUMMARY_CACHE_TTL_FULL_SECONDS,
+        _summary_cache_ttl,
+    )
+
+    empty_payload = {
+        "datasetId": "d1",
+        "counts": {
+            "sessions": 0, "subjects": 0, "probes": 0, "elements": 0,
+            "epochs": 0, "totalDocuments": 0,
+        },
+        "extractionWarnings": [],
+    }
+    assert _summary_cache_ttl(empty_payload) == SUMMARY_CACHE_TTL_FULL_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_cache_uses_differential_ttl_on_compute() -> None:
+    """End-to-end: cache miss → producer runs → result inspected →
+    appropriate TTL written to Redis. We assert the SET ex= value to
+    pin the wire-level contract.
+    """
+    from unittest.mock import AsyncMock
+
+    from backend.cache.redis_table import RedisTableCache
+    from backend.services.dataset_summary_service import _summary_cache_ttl
+
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)  # cache miss
+    redis.set = AsyncMock(return_value=True)
+    cache = RedisTableCache(redis=redis, ttl_seconds=300)
+
+    full_payload = {
+        "datasetId": "d1",
+        "counts": {
+            "sessions": 1, "subjects": 1, "probes": 1, "elements": 1,
+            "epochs": 4, "totalDocuments": 8,
+        },
+        "extractionWarnings": [],
+    }
+
+    async def producer() -> dict[str, Any]:
+        return full_payload
+
+    out = await cache.get_or_compute(
+        "test:full", producer, ttl_for=_summary_cache_ttl,
+    )
+    assert out == full_payload
+    redis.set.assert_called_once()
+    # Pin the actual TTL: 24h for full success.
+    _, kwargs = redis.set.call_args
+    assert kwargs["ex"] == 24 * 60 * 60
+
+
 def test_summary_schema_version_literal() -> None:
     with pytest.raises(Exception):  # noqa: B017 — any pydantic ValidationError variant
         DatasetSummary.model_validate({
