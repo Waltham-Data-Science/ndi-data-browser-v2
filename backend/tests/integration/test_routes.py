@@ -43,11 +43,21 @@ def test_csrf_missing_on_mutation_returns_403_typed(app_and_cloud) -> None:  # t
 
 
 def test_published_datasets_calls_cloud(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
-    """Plan B B2: published catalog embeds a compact summary per row.
-    When the synthesizer has nothing to work with (unmocked endpoints
-    return 404 via respx assert_all_called=False), the row still returns
-    with ``summary: null`` — the enricher degrades gracefully so the
-    catalog keeps rendering.
+    """``/api/datasets/published`` returns raw cloud rows — NO embedded
+    summary fanout.
+
+    Perf fix (2026-04-26): the previous shape called
+    :meth:`DatasetService.list_published_with_summaries`, which fanned out
+    one synth per row under ``Semaphore(3)`` and could pin the route at
+    90s+ when one row's synth stalled. The frontend lazily hydrates
+    summaries per card via the edge-cached
+    ``/api/datasets/[id]/summary`` route, so the catalog page no longer
+    needs the embedded shape. The list endpoint must NOT touch
+    ``build_summary`` — verified by the absence of a ``summary`` key on
+    each row, plus the fact that we never mock the per-dataset cloud
+    fanout endpoints in this test (a regression to the old shape would
+    surface as a 404-driven row enrichment failure even before respx
+    flagged it).
     """
     client, router = app_and_cloud
     router.get("/datasets/published").respond(
@@ -57,10 +67,10 @@ def test_published_datasets_calls_cloud(app_and_cloud) -> None:  # type: ignore[
     assert r.status_code == 200
     body = r.json()
     assert body["datasets"][0]["name"] == "Test"
-    # B2: `summary` is always present on the row, even if null.
-    assert "summary" in body["datasets"][0]
-    # Synth failed (no mocked endpoints) → summary is None rather than propagating.
-    assert body["datasets"][0]["summary"] is None
+    assert body["datasets"][0]["id"] == "d1"
+    # Perf fix: NO summary fanout on /published. The frontend hydrates
+    # per-card via the edge-cached /api/datasets/[id]/summary route.
+    assert "summary" not in body["datasets"][0]
 
 
 def test_my_datasets_requires_session(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
@@ -670,105 +680,85 @@ def test_required_enrichment_failure_skips_cache(app_and_cloud) -> None:  # type
     assert r2.status_code == 200, r2.json()
 
 
-def test_published_datasets_embed_compact_summary(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
-    """Plan B B2: when the cloud mocks are wired for the synth fanout, the
-    published list embeds a fully-populated compact summary per row.
+def test_published_datasets_does_not_fanout_per_row(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
+    """Perf regression guard (2026-04-26): ``/api/datasets/published`` must
+    NOT call any per-dataset cloud endpoint while serving the list.
+
+    Before the fix, the catalog route fanned out
+    :meth:`DatasetSummaryService.build_summary` per row under
+    ``Semaphore(3)`` with no per-row timeout — a single stuck synth could
+    pin the whole route at 90s+.
+
+    The frontend now lazily hydrates per-card summaries via the
+    edge-cached ``/api/datasets/[id]/summary`` route. The list endpoint
+    must stay cheap: one cloud call (``GET /datasets/published``) + JSON
+    parse + return.
+
+    We assert this by passing a multi-row catalog response with no
+    per-dataset mocks installed and confirming:
+      - the route returns 200 (no enrichment failures bubble up),
+      - rows have NO ``summary`` key (no enricher ran), and
+      - the per-row cloud endpoints (``/datasets/DSn``,
+        ``/document-class-counts``, ``/ndiquery``, ``/bulk-fetch``)
+        were never called.
     """
     # ProxyCaches is module-level; other tests may have cached a stale
     # /datasets/published response. Clear before this test so the mock we
-    # install is what hits the enricher.
+    # install is what gets returned.
     from backend.cache.ttl import ProxyCaches
     ProxyCaches.datasets_list.clear()
 
     client, router = app_and_cloud
-    router.get("/datasets/published").respond(
+    list_route = router.get("/datasets/published").respond(
         200,
         json={
-            "totalNumber": 1,
-            "datasets": [{
-                "id": "DS42",
-                "name": "B2 Catalog Dataset",
-                "license": "CC-BY-4.0",
-            }],
+            "totalNumber": 3,
+            "datasets": [
+                {"id": "DS42", "name": "B2 Catalog Dataset", "license": "CC-BY-4.0"},
+                {"id": "DS43", "name": "Another", "license": "CC-BY-4.0"},
+                {"id": "DS44", "name": "Third", "license": "CC-BY-4.0"},
+            ],
         },
     )
-    # Synth fanout — /datasets/DS42 + /document-class-counts + ndiquery +
-    # bulk-fetch. Subjects=1 so the species path fires.
-    router.get("/datasets/DS42").respond(
+    # Per-dataset routes that the OLD enricher would have hit. We register
+    # them so we can assert call_count == 0 — if the old behavior leaked
+    # back in, these would fire and their counts would be > 0.
+    detail_route = router.get("/datasets/DS42").respond(200, json={"_id": "DS42"})
+    counts_route = router.get(
+        "/datasets/DS42/document-class-counts",
+    ).respond(200, json={"datasetId": "DS42", "totalDocuments": 0, "classCounts": {}})
+    ndiquery_route = router.post("/ndiquery").respond(
         200,
-        json={
-            "_id": "DS42",
-            "name": "B2 Catalog Dataset",
-            "license": "CC-BY-4.0",
-            "createdAt": "2025-07-01T00:00:00.000Z",
-            "doi": "https://doi.org/10.63884/ds42",
-        },
+        json={"number_matches": 0, "pageSize": 1000, "page": 1, "documents": []},
     )
-    router.get("/datasets/DS42/document-class-counts").respond(
-        200,
-        json={
-            "datasetId": "DS42",
-            "totalDocuments": 2,
-            "classCounts": {"subject": 1, "openminds_subject": 1},
-        },
+    bulk_route = router.post("/datasets/DS42/documents/bulk-fetch").respond(
+        200, json={"documents": []},
     )
-    router.post("/ndiquery").respond(
-        200,
-        json={
-            "number_matches": 1, "pageSize": 1000, "page": 1,
-            "documents": [{"id": "om-sp"}],
-        },
-    )
-    router.post("/datasets/DS42/documents/bulk-fetch").respond(
-        200,
-        json={"documents": [{
-            "id": "om-sp",
-            "ndiId": "ndi-om-sp",
-            "data": {
-                "base": {"id": "ndi-om-sp"},
-                "depends_on": [
-                    {"name": "subject_id", "value": "ndi-subj"},
-                ],
-                "openminds": {
-                    "openminds_type": "https://openminds.om-i.org/types/Species",
-                    "fields": {
-                        "name": "Mus musculus",
-                        "preferredOntologyIdentifier": "NCBITaxon:10090",
-                    },
-                },
-            },
-        }]},
-    )
+
     r = client.get("/api/datasets/published")
     assert r.status_code == 200, r.json()
     body = r.json()
-    row = body["datasets"][0]
 
-    # ─── Raw DatasetRecord fields MUST be preserved alongside `summary` ───
-    # The wire-shape extension is strictly additive: pre-existing fields
-    # from the cloud's list response pass through unchanged. Regression
-    # guard against an enricher that accidentally drops or rewrites them.
-    assert row["id"] == "DS42"
-    assert row["name"] == "B2 Catalog Dataset"
-    assert row["license"] == "CC-BY-4.0"
+    # All three rows present with raw cloud fields preserved.
+    assert len(body["datasets"]) == 3
+    for row, expected_id in zip(
+        body["datasets"], ["DS42", "DS43", "DS44"], strict=True,
+    ):
+        assert row["id"] == expected_id
+        # Critical: NO `summary` key. The frontend hydrates per-card.
+        assert "summary" not in row
 
-    # ─── `summary` field is attached and populated ─────────────────────────
-    assert row["summary"] is not None
-    s = row["summary"]
-    assert s["datasetId"] == "DS42"
-    assert s["schemaVersion"] == "summary:v1"
-    assert s["counts"]["subjects"] == 1
-    assert s["counts"]["totalDocuments"] == 2
-    assert s["species"][0]["ontologyId"] == "NCBITaxon:10090"
-    assert s["citation"]["license"] == "CC-BY-4.0"
-    assert s["citation"]["year"] == 2025
-    # Compact: no contributors / paperDois / extractionWarnings / probeTypes /
-    # strains / sexes / dateRange / totalSizeBytes — confirm absence.
-    assert "contributors" not in s["citation"]
-    assert "paperDois" not in s["citation"]
-    assert "strains" not in s
-    assert "probeTypes" not in s
-    assert "dateRange" not in s
+    # The list endpoint hit cloud once.
+    assert list_route.call_count == 1
+    # And NONE of the per-dataset enrichment endpoints fired. This is the
+    # perf-fix invariant: zero per-row cloud calls during /published.
+    assert detail_route.call_count == 0, (
+        "Regression: /published is fanning out per-dataset cloud calls again. "
+        "Expected the route to short-circuit at list_published."
+    )
+    assert counts_route.call_count == 0
+    assert ndiquery_route.call_count == 0
+    assert bulk_route.call_count == 0
 
 
 def test_dataset_summary_returns_synthesized_shape(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
