@@ -98,6 +98,26 @@ MAX_CONCURRENT_BULK_FETCH = 6
 # warmer Mongo cache.
 PER_CLASS_FETCH_TIMEOUT_SECONDS = 25.0
 
+# Stage-1 deadline for the cheap, always-needed cloud calls
+# (``GET /datasets/:id`` + ``GET /datasets/:id/document-class-counts``).
+# These typically resolve in 50-200ms warm and 1-5s cold, BUT smoke-test
+# pass after PR #101 found the cloud's ``/document-class-counts``
+# endpoint also takes 60s+ on the largest published datasets — same
+# Mongo-scan-without-index pathology that makes ``ndiquery`` slow there.
+# When stage 1 hits the ceiling without this deadline, the per-class
+# stage-2 timeouts that PR #101 added never run because we're still
+# blocked waiting for counts. The whole synthesis 504s as before.
+#
+# 20s gives stage-1 plenty of headroom for warm + cold-medium responses
+# while still leaving 25s + 25s for stage 2 + ontology resolution under
+# the Railway 88s ceiling. On stage-1 timeout, the synthesizer
+# substitutes a synthetic minimum-record / zero-counts payload and
+# tags ``extractionWarnings`` so operators see the degradation. The
+# resulting summary has the dataset id + empty citation + zero counts
+# — strictly better than a 504 because the frontend renders a typed
+# error/retry affordance + whatever facts are available.
+STAGE_1_FETCH_TIMEOUT_SECONDS = 20.0
+
 
 # ---------------------------------------------------------------------------
 # Data-shape contracts — mirrored in frontend/src/types/dataset-summary.ts
@@ -306,11 +326,74 @@ class DatasetSummaryService:
         # Stage 1: the two cheap, always-needed calls. /datasets/:id can 404 —
         # let NotFound propagate unchanged through the cloud client. counts
         # is resilient against empty datasets (returns zeros).
-        dataset_task = self.cloud.get_dataset(dataset_id, access_token=access_token)
-        counts_task = self.cloud.get_document_class_counts(
-            dataset_id, access_token=access_token,
+        #
+        # Both wrapped in `asyncio.wait_for(..., STAGE_1_FETCH_TIMEOUT_SECONDS)`
+        # because the cloud's `/document-class-counts` endpoint can take
+        # 60s+ on the largest datasets (101k+ docs) — the same pathology
+        # that makes per-class ndiquery slow. Without a stage-1 deadline,
+        # stage 1 alone exhausts Railway's 88s function ceiling and the
+        # per-class deadlines in stage 2 never get a chance to fire.
+        # `return_exceptions=True` keeps timeouts from torpedoing the
+        # whole synthesis: a stage-1 failure adds a typed warning and
+        # falls back to synthetic minimum payloads (empty dict +
+        # zero-counts), which `_counts_from_raw` and the citation
+        # extraction handle as already-tested degenerate cases.
+        dataset_task = asyncio.wait_for(
+            self.cloud.get_dataset(dataset_id, access_token=access_token),
+            timeout=STAGE_1_FETCH_TIMEOUT_SECONDS,
         )
-        dataset_raw, counts_raw = await asyncio.gather(dataset_task, counts_task)
+        counts_task = asyncio.wait_for(
+            self.cloud.get_document_class_counts(
+                dataset_id, access_token=access_token,
+            ),
+            timeout=STAGE_1_FETCH_TIMEOUT_SECONDS,
+        )
+        stage1 = await asyncio.gather(
+            dataset_task, counts_task, return_exceptions=True,
+        )
+        dataset_raw_or_exc, counts_raw_or_exc = stage1
+
+        if isinstance(dataset_raw_or_exc, BaseException):
+            # NotFound (404) propagates as a regular exception — re-raise
+            # so the route handler still 404s cleanly. We only want to
+            # swallow timeouts here; everything else (auth errors, 5xxs
+            # that aren't timeouts) keeps its existing semantics.
+            if not isinstance(dataset_raw_or_exc, TimeoutError):
+                raise dataset_raw_or_exc
+            warnings.append(
+                f"dataset metadata query failed: dataset fetch exceeded "
+                f"{STAGE_1_FETCH_TIMEOUT_SECONDS}s",
+            )
+            # Synthetic minimum: every citation/dateRange/totalSize
+            # extractor downstream tolerates an empty dict (returns the
+            # corresponding `None` / fallback). The dataset id alone is
+            # enough to produce a valid `DatasetSummary` envelope.
+            dataset_raw = {}
+        else:
+            # Mypy narrows the union via the isinstance check above.
+            dataset_raw = dataset_raw_or_exc
+
+        if isinstance(counts_raw_or_exc, BaseException):
+            if not isinstance(counts_raw_or_exc, TimeoutError):
+                raise counts_raw_or_exc
+            warnings.append(
+                f"class counts query failed: counts fetch exceeded "
+                f"{STAGE_1_FETCH_TIMEOUT_SECONDS}s",
+            )
+            # Zero-counts fallback: stage 2 sees `subjects_present=False`
+            # and `probe_present=False`, so the per-class fetches all
+            # short-circuit to `_empty_list()` and stage 2 finishes in
+            # microseconds. Net effect: a degraded summary with all
+            # facts None / 0 + two extraction warnings (counts + the
+            # implicit "no data so we didn't fan out" state).
+            counts_raw = {
+                "datasetId": dataset_id,
+                "totalDocuments": 0,
+                "classCounts": {},
+            }
+        else:
+            # Mypy narrows the union via the isinstance check above.
+            counts_raw = counts_raw_or_exc
 
         counts = _counts_from_raw(counts_raw)
 

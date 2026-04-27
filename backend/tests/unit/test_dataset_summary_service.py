@@ -627,6 +627,148 @@ async def test_per_class_timeout_degrades_to_partial_summary(
     assert "exceeded 0.05s" in warnings_text
 
 
+# ---------------------------------------------------------------------------
+# Stage-1 deadline degradation (Phase 6.7 follow-up to PR #101)
+#
+# Smoke-test pass after PR #101 (per-class 25s deadline) shipped found
+# the production /summary endpoint still 504-ing on 101k-doc datasets.
+# Root cause: the cloud's `/document-class-counts` endpoint also takes
+# 60s+ on those datasets, exhausting Railway's 88s ceiling DURING
+# stage 1 — before the per-class deadlines in stage 2 ever get a
+# chance to fire. PR #102 adds a STAGE_1_FETCH_TIMEOUT_SECONDS deadline
+# around the two stage-1 cloud calls (`get_dataset` +
+# `get_document_class_counts`), so a slow stage 1 degrades to a
+# synthetic minimum payload + extraction warning instead of bubbling
+# the timeout up.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_stage_1_counts_timeout_degrades_to_zero_counts(
+    cloud: NdiCloudClient,
+    ontology_service: OntologyService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When ``/document-class-counts`` exceeds STAGE_1_FETCH_TIMEOUT_SECONDS,
+    the synthesizer must substitute zero counts + emit a warning rather
+    than 504-ing. The synthetic zero-counts then makes
+    ``subjects_present`` and ``probe_present`` both False, so stage 2
+    short-circuits to ``_empty_list()`` and the synthesis completes
+    in microseconds.
+
+    Patches the deadline to 50ms and stalls the counts endpoint with a
+    0.5s sleep so the wait_for fires deterministically.
+    """
+    import asyncio as _asyncio
+
+    import backend.services.dataset_summary_service as svc_module
+
+    monkeypatch.setattr(svc_module, "STAGE_1_FETCH_TIMEOUT_SECONDS", 0.05)
+
+    dataset_id = "DSX"
+    async with respx.mock(
+        base_url="https://api.example.test/v1", assert_all_called=False,
+    ) as router:
+        router.get(f"/datasets/{dataset_id}").respond(
+            200, json=_dataset_raw(_id=dataset_id),
+        )
+
+        async def _slow_counts(
+            request: httpx.Request, route: Any,
+        ) -> httpx.Response:
+            await _asyncio.sleep(0.5)
+            return httpx.Response(
+                200, json=_counts_raw(subject=99, openminds_subject=99),
+            )
+
+        router.get(
+            f"/datasets/{dataset_id}/document-class-counts",
+        ).mock(side_effect=_slow_counts)
+        # Stage 2 should NOT be reached when counts says 0; mock anyway
+        # so respx's strict mode doesn't 404 if a single call slips
+        # through during the race.
+        router.post("/ndiquery").respond(200, json={"documents": []})
+
+        summary_svc = DatasetSummaryService(cloud, ontology_service)
+        summary = await summary_svc.build_summary(dataset_id, session=None)
+
+    # Counts degraded to all-zero (stage-1 timeout substituted the
+    # zero-counts payload). The dataset metadata fetch also fired in
+    # parallel; if it raced and won within the 50ms patched deadline
+    # we keep the citation; if it lost, that's also OK and a second
+    # warning surfaces. Pin only the counts-side contract — the
+    # parallel dataset_task is a separate test below.
+    assert summary.counts.subjects == 0
+    assert summary.counts.totalDocuments == 0
+    # Per-class facts come back None because subjects_present + probe_present
+    # are both False (no fanout fired).
+    assert summary.species is None
+    assert summary.strains is None
+    assert summary.sexes is None
+    assert summary.brainRegions is None
+    assert summary.probeTypes is None
+    # Counts-timeout warning surfaces with a "exceeded 0.05s" suffix so
+    # operators can correlate with logs / patched constants.
+    warnings_text = "\n".join(summary.extractionWarnings)
+    assert "class counts query failed" in warnings_text
+    assert "exceeded 0.05s" in warnings_text
+
+
+@pytest.mark.asyncio
+async def test_stage_1_dataset_timeout_does_not_block_summary(
+    cloud: NdiCloudClient,
+    ontology_service: OntologyService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When ``/datasets/:id`` exceeds STAGE_1_FETCH_TIMEOUT_SECONDS, the
+    synthesizer must substitute an empty dict so citation/dateRange/
+    totalSize default to their null/empty branches and the summary
+    still renders. The counts call (parallel) keeps its own timeout
+    independently.
+    """
+    import asyncio as _asyncio
+
+    import backend.services.dataset_summary_service as svc_module
+
+    monkeypatch.setattr(svc_module, "STAGE_1_FETCH_TIMEOUT_SECONDS", 0.05)
+
+    dataset_id = "DSX"
+    async with respx.mock(
+        base_url="https://api.example.test/v1", assert_all_called=False,
+    ) as router:
+
+        async def _slow_dataset(
+            request: httpx.Request, route: Any,
+        ) -> httpx.Response:
+            await _asyncio.sleep(0.5)
+            return httpx.Response(200, json=_dataset_raw(_id=dataset_id))
+
+        router.get(f"/datasets/{dataset_id}").mock(side_effect=_slow_dataset)
+        # Counts returns fast — no fanout (zero subjects/probes).
+        router.get(
+            f"/datasets/{dataset_id}/document-class-counts",
+        ).respond(200, json=_counts_raw(session=2))
+
+        summary_svc = DatasetSummaryService(cloud, ontology_service)
+        summary = await summary_svc.build_summary(dataset_id, session=None)
+
+    # Counts came through fine.
+    assert summary.counts.sessions == 2
+    # Dataset metadata defaulted (empty dict), so:
+    # - citation gets the dataset_id-as-title fallback (already-tested
+    #   via _citation_from_raw on missing-name input)
+    # - dateRange both None
+    # - totalSizeBytes None
+    # The exact citation title is whatever `_citation_from_raw({})`
+    # returns; we just assert the citation block exists (envelope-shape).
+    assert summary.citation is not None
+    assert summary.dateRange.earliest is None
+    assert summary.dateRange.latest is None
+    assert summary.totalSizeBytes is None
+    warnings_text = "\n".join(summary.extractionWarnings)
+    assert "dataset metadata query failed" in warnings_text
+    assert "exceeded 0.05s" in warnings_text
+
+
 def test_summary_schema_version_literal() -> None:
     with pytest.raises(Exception):  # noqa: B017 — any pydantic ValidationError variant
         DatasetSummary.model_validate({
