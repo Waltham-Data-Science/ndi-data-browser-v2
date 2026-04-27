@@ -30,6 +30,11 @@ export interface FacetsResponse {
   /** Distinct probe-type labels — free-text bucket (amendment §3), no
    *  canonical ontology. */
   probeTypes: string[];
+  /** Distinct license labels post-normalization. The backend collapses
+   *  every raw on-the-wire format (``CC-BY-4.0``, ``ccBy4_0``,
+   *  ``Creative Commons Attribution 4.0 International``) into one
+   *  canonical short label per logical license. */
+  licenses: string[];
   /** How many datasets contributed at least one non-null fact to this
    *  aggregation. Distinct from ``totalNumber`` on the published catalog:
    *  datasets with a failed synthesizer / zero subjects don't contribute. */
