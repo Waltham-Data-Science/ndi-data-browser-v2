@@ -34,6 +34,10 @@ function makeFacets(overrides: Partial<FacetsResponse> = {}): FacetsResponse {
     strains: [{ label: 'N2', ontologyId: 'WBStrain:00000001' }],
     sexes: [{ label: 'male', ontologyId: 'PATO:0000384' }],
     probeTypes: ['patch-Vm', 'stimulator'],
+    // `licenses` field is additive (added in the facet-dedupe + license-
+    // normalization PR). Default empty here — individual tests that need
+    // license-specific behavior override via the `overrides` arg.
+    licenses: [],
     datasetCount: 7,
     computedAt: '2026-04-17T00:00:00Z',
     schemaVersion: 'facets:v1',

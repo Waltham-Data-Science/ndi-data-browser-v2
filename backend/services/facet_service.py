@@ -180,7 +180,10 @@ def _extract_parenthesized_abbrev(label: str) -> str | None:
     matches = _PARENTHESIZED_ABBREV.findall(label)
     if len(matches) != 1:
         return None
-    return matches[0].lower()
+    # `re.findall` is typed as `list[Any]` for the no-group / single-group
+    # cases, so wrap in `str()` to satisfy mypy's `no-any-return` at the
+    # function boundary. The capture group `(\w+)` always yields a string.
+    return str(matches[0]).lower()
 
 
 # ---------------------------------------------------------------------------
