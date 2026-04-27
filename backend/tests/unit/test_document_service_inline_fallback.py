@@ -6,11 +6,20 @@ datasets that DO have documents. The `GET /datasets/:id` response
 carries the document-id array inline and works anonymously, so we
 fall back to slicing that array when ndiquery comes up empty.
 
+A follow-up smoke (same day) surfaced that some user-published datasets
+(e.g. ``69bc5ca11d547b1f6d083761``) ALSO have an empty inline
+``dataset.documents[]`` array. The third tier — ``GET /datasets/:id/
+documents?page&pageSize`` (Mongo-backed, paginated) — handles that.
+
 These tests pin:
   - ndiquery-empty + no-class-filter → falls back to inline IDs
   - ndiquery-empty + class-filter set → no fallback (returns 0)
   - ndiquery non-empty → no fallback (preserves authenticated path)
   - Inline pagination correct (page 2 of size 50 = ids[50:100])
+  - inline-also-empty → third-tier Mongo fallback fires
+  - third-tier returns nothing → service returns clean empty page
+  - third-tier with class-filter set → no fallback (returns 0)
+  - third-tier total comes from /document-count
 """
 from __future__ import annotations
 
@@ -22,6 +31,7 @@ import pytest
 from backend.services.document_service import DocumentService
 
 DATASET_ID = "682e7772cdf3f24938176fac"
+USER_PUBLISHED_DATASET_ID = "69bc5ca11d547b1f6d083761"
 
 
 def _stub_cloud() -> Any:
@@ -29,6 +39,8 @@ def _stub_cloud() -> Any:
         ndiquery = AsyncMock()
         get_dataset = AsyncMock()
         bulk_fetch = AsyncMock()
+        list_documents_by_dataset = AsyncMock(return_value=[])
+        get_dataset_document_count = AsyncMock(return_value=0)
 
     return _Stub()
 
@@ -197,3 +209,163 @@ async def test_inline_fallback_filters_non_string_entries() -> None:
     cloud.bulk_fetch.assert_awaited_once_with(
         DATASET_ID, ["id-001", "id-002", "id-003"], access_token=None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Third-tier Mongo fallback (2026-04-26 follow-up)
+#
+# Repro: dataset 69bc5ca11d547b1f6d083761 has documentCount: 66533 via
+# /document-class-counts, but `dataset.documents[]` is `[]` AND ndiquery
+# anonymously returns `number_matches: 0`. Both PR #96 paths return 0.
+# Third tier asks Mongo via the paginated documents-by-dataset route.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_third_tier_mongo_fallback_fires_when_inline_also_empty() -> None:
+    """ndiquery=0 AND inline=empty → Mongo-backed
+    `GET /datasets/:id/documents?page&pageSize` is called. Total comes
+    from the dedicated `/document-count` endpoint."""
+    cloud = _stub_cloud()
+    cloud.ndiquery.return_value = {"documents": [], "number_matches": 0}
+    # Inline `documents[]` is empty (the user-published-dataset failure mode).
+    cloud.get_dataset.return_value = {
+        "_id": USER_PUBLISHED_DATASET_ID,
+        "documents": [],
+    }
+    mongo_page_ids = [f"id-{i:05d}" for i in range(50)]
+    cloud.list_documents_by_dataset.return_value = mongo_page_ids
+    cloud.get_dataset_document_count.return_value = 66533
+    cloud.bulk_fetch.return_value = [
+        {"id": x, "className": "session"} for x in mongo_page_ids
+    ]
+
+    svc = DocumentService(cloud)
+    result = await svc.list_by_class(
+        dataset_id=USER_PUBLISHED_DATASET_ID,
+        class_name=None,
+        page=1,
+        page_size=50,
+        access_token=None,
+    )
+
+    assert result["total"] == 66533
+    assert result["page"] == 1
+    assert result["pageSize"] == 50
+    assert len(result["documents"]) == 50
+    cloud.list_documents_by_dataset.assert_awaited_once_with(
+        USER_PUBLISHED_DATASET_ID,
+        page=1,
+        page_size=50,
+        access_token=None,
+    )
+    cloud.get_dataset_document_count.assert_awaited_once_with(
+        USER_PUBLISHED_DATASET_ID, access_token=None,
+    )
+    cloud.bulk_fetch.assert_awaited_once_with(
+        USER_PUBLISHED_DATASET_ID, mongo_page_ids, access_token=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_third_tier_returns_empty_when_mongo_route_also_empty() -> None:
+    """Truly empty dataset: every fallback returns 0. Service returns a
+    clean empty page rather than 500'ing or hitting bulk-fetch with [].
+    """
+    cloud = _stub_cloud()
+    cloud.ndiquery.return_value = {"documents": [], "number_matches": 0}
+    cloud.get_dataset.return_value = {"documents": []}
+    cloud.list_documents_by_dataset.return_value = []
+    cloud.get_dataset_document_count.return_value = 0
+
+    svc = DocumentService(cloud)
+    result = await svc.list_by_class(
+        dataset_id=USER_PUBLISHED_DATASET_ID,
+        class_name=None,
+        page=1,
+        page_size=50,
+        access_token=None,
+    )
+
+    assert result["total"] == 0
+    assert result["documents"] == []
+    cloud.list_documents_by_dataset.assert_awaited_once()
+    # No bulk-fetch when there are no ids to fetch.
+    cloud.bulk_fetch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_third_tier_skipped_when_class_filter_set() -> None:
+    """Class-filtered requests must NOT fall through to the third tier
+    either. Same rationale as the inline-id fallback: the Mongo route
+    doesn't filter by class server-side and we don't want to post-filter
+    a 100-page bulk-fetch loop on every class-filtered miss."""
+    cloud = _stub_cloud()
+    cloud.ndiquery.return_value = {"documents": [], "number_matches": 0}
+
+    svc = DocumentService(cloud)
+    result = await svc.list_by_class(
+        dataset_id=USER_PUBLISHED_DATASET_ID,
+        class_name="session",
+        page=1,
+        page_size=50,
+        access_token=None,
+    )
+
+    assert result["total"] == 0
+    assert result["documents"] == []
+    cloud.list_documents_by_dataset.assert_not_awaited()
+    cloud.get_dataset_document_count.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_third_tier_inconsistent_count_falls_back_to_page_length() -> None:
+    """If the Mongo route returns a page of ids but `/document-count`
+    inconsistently reports 0, trust the page we have so the page still
+    renders. Better to show a small (correct) page than '0 of 0'."""
+    cloud = _stub_cloud()
+    cloud.ndiquery.return_value = {"documents": [], "number_matches": 0}
+    cloud.get_dataset.return_value = {"documents": []}
+    page_ids = ["id-001", "id-002", "id-003"]
+    cloud.list_documents_by_dataset.return_value = page_ids
+    cloud.get_dataset_document_count.return_value = 0  # inconsistent
+    cloud.bulk_fetch.return_value = [{"id": x} for x in page_ids]
+
+    svc = DocumentService(cloud)
+    result = await svc.list_by_class(
+        dataset_id=USER_PUBLISHED_DATASET_ID,
+        class_name=None,
+        page=1,
+        page_size=50,
+        access_token=None,
+    )
+
+    # total falls back to page length so the user sees the actual rows.
+    assert result["total"] == 3
+    assert len(result["documents"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_third_tier_skipped_when_inline_fallback_succeeds() -> None:
+    """Tier 2 (inline-id) succeeds → tier 3 (Mongo route) must NOT fire.
+    Belt-and-suspenders: confirm no extra round-trip in the common case."""
+    cloud = _stub_cloud()
+    cloud.ndiquery.return_value = {"documents": [], "number_matches": 0}
+    cloud.get_dataset.return_value = {
+        "documents": [f"id-{i:03d}" for i in range(20)],
+    }
+    cloud.bulk_fetch.return_value = [
+        {"id": f"id-{i:03d}"} for i in range(20)
+    ]
+
+    svc = DocumentService(cloud)
+    result = await svc.list_by_class(
+        dataset_id=DATASET_ID,
+        class_name=None,
+        page=1,
+        page_size=50,
+        access_token=None,
+    )
+
+    assert result["total"] == 20
+    cloud.list_documents_by_dataset.assert_not_awaited()
+    cloud.get_dataset_document_count.assert_not_awaited()
