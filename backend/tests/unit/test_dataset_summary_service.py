@@ -517,6 +517,116 @@ def test_ontology_term_is_strict() -> None:
         OntologyTerm(label="x", ontologyId="NCBITaxon:10090", extra="bad")  # type: ignore[call-arg]
 
 
+# ---------------------------------------------------------------------------
+# Per-class deadline degradation (Phase 6.7 follow-up)
+#
+# Smoke-test pass after the Phase-6.7 cutover-readiness work found the
+# /summary endpoint returning 504 on the largest published datasets
+# (101k+ docs) — the cloud's per-class ndiquery for openminds_subject
+# alone took 60s+, blowing past Railway's 88s function ceiling. This
+# pin asserts the new PER_CLASS_FETCH_TIMEOUT_SECONDS deadline degrades
+# gracefully: the synthesis returns a partial DatasetSummary (counts +
+# citation intact, per-class facts None) plus a typed extraction
+# warning, instead of bubbling the timeout up to the route handler.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_per_class_timeout_degrades_to_partial_summary(
+    cloud: NdiCloudClient,
+    ontology_service: OntologyService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When ndiquery for a class exceeds PER_CLASS_FETCH_TIMEOUT_SECONDS,
+    the synthesis must complete with that class's facts set to ``None``
+    and a class-naming warning in ``extractionWarnings``. counts +
+    citation + dateRange + totalSizeBytes (which come from the cheap
+    stage-1 calls) must still render.
+
+    We patch the deadline to 0.05s and stall ndiquery with a deferred
+    response so the wait_for in `_fetch_class_bounded` fires
+    deterministically — far cheaper than a real-time 25s wait.
+    """
+    import asyncio as _asyncio
+
+    import backend.services.dataset_summary_service as svc_module
+
+    monkeypatch.setattr(svc_module, "PER_CLASS_FETCH_TIMEOUT_SECONDS", 0.05)
+
+    dataset_id = "DSX"
+    async with respx.mock(
+        base_url="https://api.example.test/v1", assert_all_called=False,
+    ) as router:
+        router.get(f"/datasets/{dataset_id}").respond(
+            200, json=_dataset_raw(_id=dataset_id),
+        )
+        router.get(f"/datasets/{dataset_id}/document-class-counts").respond(
+            200,
+            json=_counts_raw(
+                subject=1, session=1, probe=1, element=1, element_epoch=4,
+                openminds_subject=1, probe_location=1,
+            ),
+        )
+
+        async def _slow_ndiquery(
+            request: httpx.Request, route: Any,
+        ) -> httpx.Response:
+            # Stall longer than the patched deadline to deterministically
+            # fire the wait_for. The 0.5s sleep is comfortably above the
+            # 0.05s deadline yet keeps the test wall-clock cheap.
+            await _asyncio.sleep(0.5)
+            return httpx.Response(200, json={"documents": []})
+
+        router.post("/ndiquery").mock(side_effect=_slow_ndiquery)
+        # bulk_fetch never reached because ndiquery times out first; mock
+        # anyway so respx's strict-routing mode doesn't 404 if the wait_for
+        # races and a single ndiquery completes.
+        router.post(f"/datasets/{dataset_id}/documents/bulk-fetch").respond(
+            200, json={"documents": []},
+        )
+
+        summary_svc = DatasetSummaryService(cloud, ontology_service)
+        summary = await summary_svc.build_summary(dataset_id, session=None)
+
+    # Stage 1 facts (cheap path) intact:
+    assert summary.counts.subjects == 1
+    # 1 subject + 1 session + 1 probe + 1 element + 4 element_epoch
+    # + 1 openminds_subject + 1 probe_location = 10. The class-counts
+    # endpoint sums all classes including the ones whose ndiqueries
+    # subsequently time out.
+    assert summary.counts.totalDocuments == 10
+    assert summary.citation.title == "A Testing Dataset"
+    assert summary.citation.license == "CC-BY-4.0"
+    assert summary.dateRange.earliest == "2025-09-01T00:00:00.000Z"
+    assert summary.totalSizeBytes == 12345678
+    # Per-class facts degrade to empty lists (not None). The
+    # `_result_or_warn` helper turns the timeout exception into `[]` so
+    # downstream extractors run on a known-empty input — semantically
+    # "we queried but got 0 successful extractions", with the typed
+    # extraction warning explaining WHY the count is 0. The frontend
+    # renders `[]` as an em-dash and surfaces the warning count via the
+    # SummaryFooter info icon.
+    #
+    # We deliberately don't bubble TimeoutError up as `None` because
+    # `None` already has a distinct semantic meaning in this contract
+    # ("the underlying class isn't applicable here, e.g. zero subjects
+    # → no species lookup attempted") that the timeout case doesn't
+    # match — the lookup WAS attempted, it just didn't return data.
+    assert summary.species == []
+    assert summary.strains == []
+    assert summary.sexes == []
+    assert summary.brainRegions == []
+    assert summary.probeTypes == []
+    # All three classes hit the deadline, surfacing one warning each.
+    # The exact text comes from `_result_or_warn`'s
+    # f"{what} query failed: {result!s}" — message bodies name the class
+    # so operators reading logs can identify which fetch stalled.
+    warnings_text = "\n".join(summary.extractionWarnings)
+    assert "openminds_subject query failed" in warnings_text
+    assert "probe_location query failed" in warnings_text
+    assert "element query failed" in warnings_text
+    assert "exceeded 0.05s" in warnings_text
+
+
 def test_summary_schema_version_literal() -> None:
     with pytest.raises(Exception):  # noqa: B017 — any pydantic ValidationError variant
         DatasetSummary.model_validate({
