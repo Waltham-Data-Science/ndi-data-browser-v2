@@ -423,16 +423,52 @@ class DatasetSummaryService:
                 f"class counts query failed: counts fetch exceeded "
                 f"{STAGE_1_FETCH_TIMEOUT_SECONDS}s",
             )
-            # Zero-counts fallback: stage 2 sees `subjects_present=False`
-            # and `probe_present=False`, so the per-class fetches all
-            # short-circuit to `_empty_list()` and stage 2 finishes in
-            # microseconds. Net effect: a degraded summary with all
-            # facts None / 0 + two extraction warnings (counts + the
-            # implicit "no data so we didn't fan out" state).
+            # Synthesize a counts envelope from the dataset record's
+            # raw fields (``numberOfSubjects``, ``documentCount``)
+            # when the cloud's `/document-class-counts` endpoint
+            # times out. This is critical for large datasets (101k+
+            # docs) where /document-class-counts is THE perf bottleneck:
+            # without this fallback, ``subjects_present`` defaults to
+            # False, stage 2 short-circuits, and the user sees a
+            # degraded summary even though the dataset record itself
+            # has the subject count right there.
+            #
+            # The classCounts blob only includes ``subject`` (mapped
+            # from ``numberOfSubjects``) — the cloud's class-counts
+            # endpoint is the ONLY canonical source for per-class
+            # buckets like sessions/probes/elements/epochs, and we
+            # don't have those on the dataset record. Setting them to
+            # 0 keeps `_counts_from_raw` happy; their absence is
+            # already documented via the warning so an operator sees
+            # the cause-and-effect.
+            #
+            # `probe_present` upstream uses `counts.probes > 0 or
+            # counts.elements > 0` — neither is exposed on the
+            # dataset record. We bridge that by also signaling probe
+            # presence whenever ``documentCount > 0``: if the dataset
+            # has any documents at all, it's worth attempting the
+            # probe_location + element fanout. Worst case the
+            # ndiquery there times out at the per-class deadline and
+            # we fall back to None for those facts. Best case we land
+            # full data despite the counts timeout.
+            record_subjects = _safe_record_int(dataset_raw, "numberOfSubjects")
+            record_docs = _safe_record_int(dataset_raw, "documentCount")
             counts_raw = {
                 "datasetId": dataset_id,
-                "totalDocuments": 0,
-                "classCounts": {},
+                # Subjects + totalDocuments come straight from the
+                # dataset record. The per-class buckets stay empty —
+                # we don't have authoritative numbers for those. The
+                # later stage-2 gating reads `dataset_raw` directly
+                # via `_record_says_has_data()` to decide whether to
+                # attempt the probe_location + element ndiqueries
+                # despite the empty `probes`/`elements` counts (we
+                # don't want to fake those numbers — keeping the
+                # honest 0 means the UI doesn't claim per-class
+                # counts we never measured).
+                "totalDocuments": record_docs,
+                "classCounts": (
+                    {"subject": record_subjects} if record_subjects > 0 else {}
+                ),
             }
         else:
             # Mypy narrows the union via the isinstance check above.
@@ -445,8 +481,25 @@ class DatasetSummaryService:
         # brainRegions; element (primary=probe-like) → probeTypes. These all
         # share the dataset scope so we parallelize via asyncio.gather with
         # a shared semaphore bounding bulk-fetch concurrency.
-        subjects_present = counts.subjects > 0
-        probe_present = counts.probes > 0 or counts.elements > 0
+        #
+        # Gating: prefer the canonical counts (from /document-class-counts)
+        # when available; fall back to the dataset record's raw fields
+        # (``numberOfSubjects``, ``documentCount``) when stage-1 counts
+        # timed out. Without this fallback, every counts-timeout dataset
+        # would short-circuit stage 2 even when the record itself
+        # confirms subjects/documents exist — the user-perceived bug
+        # was Jess Haley's species/brainRegions rendering as `null` on
+        # the Summary card despite the hero band right above showing
+        # "78,687 documents · 1,656 subjects · Caenorhabditis elegans".
+        subjects_present = (
+            counts.subjects > 0
+            or _safe_record_int(dataset_raw, "numberOfSubjects") > 0
+        )
+        probe_present = (
+            counts.probes > 0
+            or counts.elements > 0
+            or _safe_record_int(dataset_raw, "documentCount") > 0
+        )
 
         if subjects_present:
             om_task = self._fetch_class_bounded(
@@ -711,6 +764,25 @@ def _result_or_warn(
         warnings.append(f"{what} query failed: {result!s}")
         return []
     return cast(list[dict[str, Any]], result)
+
+
+def _safe_record_int(raw: Any, field: str) -> int:
+    """Read an integer field off a dataset-record dict, returning 0 on
+    any of: not-a-dict, missing field, non-int value, or negative.
+
+    Used by the stage-1 counts-timeout fallback path so a missing
+    ``numberOfSubjects`` (e.g. Sophie Griswold's record where the cloud
+    didn't populate it) cleanly degrades to 0 instead of a TypeError.
+    The 0 case still lets the Summary card render — it just leaves
+    the corresponding counts column at 0, matching what the cloud's
+    own /datasets/:id response says.
+    """
+    if not isinstance(raw, dict):
+        return 0
+    value = raw.get(field)
+    if isinstance(value, int) and value >= 0:
+        return value
+    return 0
 
 
 def _counts_from_raw(raw: dict[str, Any]) -> DatasetSummaryCounts:
