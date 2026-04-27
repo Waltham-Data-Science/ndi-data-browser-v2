@@ -570,6 +570,89 @@ class NdiCloudClient:
         self._raise_for_status(resp, endpoint="document_class_counts")
         return cast(dict[str, Any], resp.json())
 
+    async def get_dataset_document_count(
+        self, dataset_id: str, *, access_token: str | None = None,
+    ) -> int:
+        """GET ``/datasets/:datasetId/document-count`` — live document count
+        computed via a MongoDB count query.
+
+        Used as the canonical total when the inline ``dataset.documents[]``
+        array is empty (e.g. user-published datasets where the cloud doesn't
+        materialize the inline id list). Returns ``0`` on any cloud failure
+        rather than raising — the caller treats "no count" as "no documents
+        accessible" and the route returns an empty page rather than 500.
+
+        Anonymous-friendly (the cloud route uses the ANONYMOUS_USER_CONTEXT
+        fallback when no Bearer is presented).
+        """
+        try:
+            resp = await self._request(
+                "GET",
+                f"/datasets/{dataset_id}/document-count",
+                endpoint_label="dataset_document_count",
+                access_token=access_token,
+            )
+        except (CloudUnreachable, CloudTimeout):
+            return 0
+        if resp.status_code >= 400:
+            return 0
+        body = resp.json()
+        if isinstance(body, dict):
+            count = body.get("count")
+            if isinstance(count, int) and count >= 0:
+                return count
+        return 0
+
+    async def list_documents_by_dataset(
+        self,
+        dataset_id: str,
+        *,
+        page: int = 1,
+        page_size: int = 100,
+        access_token: str | None = None,
+    ) -> list[str]:
+        """GET ``/datasets/:datasetId/documents?page=N&pageSize=K`` —
+        Mongo-backed paginated listing keyed on ``dataset_id``.
+
+        Used as the third-tier fallback for :meth:`DocumentService.list_by_class`
+        when both ndiquery AND the inline ``dataset.documents[]`` array come
+        up empty. The cloud-node controller paginates via
+        ``Mongo.find({datasetId}).skip(N).limit(K)`` so a single-page request
+        is bounded — avoiding the 504 timeouts the unpaginated variant hits
+        on large datasets (PR #96 commit message).
+
+        Returns just the bare ``_id`` strings; caller bulk-fetches them for
+        full bodies on the same code path the other tiers use. The cloud
+        caps ``pageSize`` at 1000 server-side; we honor that here for clarity.
+
+        Returns ``[]`` on any cloud failure rather than raising — same
+        graceful-degrade contract as :meth:`get_dataset_document_count`.
+        """
+        page_size = min(page_size, 1000)
+        try:
+            resp = await self._request(
+                "GET",
+                f"/datasets/{dataset_id}/documents",
+                endpoint_label="documents_by_dataset",
+                params={"page": page, "pageSize": page_size},
+                access_token=access_token,
+            )
+        except (CloudUnreachable, CloudTimeout):
+            return []
+        if resp.status_code >= 400:
+            return []
+        body = resp.json()
+        if not isinstance(body, dict):
+            return []
+        docs = body.get("documents") or []
+        ids: list[str] = []
+        for d in docs:
+            if isinstance(d, dict):
+                doc_id = d.get("id") or d.get("_id")
+                if isinstance(doc_id, str) and doc_id:
+                    ids.append(doc_id)
+        return ids
+
     async def get_document(
         self, dataset_id: str, document_id: str, *, access_token: str | None = None,
     ) -> dict[str, Any]:

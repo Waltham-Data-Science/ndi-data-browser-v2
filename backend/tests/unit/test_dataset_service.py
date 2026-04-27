@@ -24,8 +24,10 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+import backend.services.dataset_service as ds_svc_module
 from backend.services.dataset_service import (
     MAX_CONCURRENT_SUMMARIES,
+    PER_ROW_SUMMARY_TIMEOUT_SECONDS,
     DatasetService,
     _compact_summary_from_cloud_fields,
     _csv_to_ontology_terms,
@@ -265,6 +267,108 @@ async def test_enricher_downgrades_failed_rows_to_null_summary() -> None:
     # Sanity: the failing row's raw fields remain untouched.
     assert rows[1]["id"] == "BROKEN"
     assert rows[1]["name"] == "Bad"
+
+
+# ---------------------------------------------------------------------------
+# Per-row timeout belt-and-suspenders (PR #98)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_enricher_times_out_stuck_row_to_null_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Defense-in-depth (paired with PR #97): a single ``build_summary``
+    call that hangs past :data:`PER_ROW_SUMMARY_TIMEOUT_SECONDS` must
+    degrade to ``summary: null`` for that row WITHOUT failing the whole
+    list and WITHOUT blocking the sibling rows beyond the timeout
+    window.
+
+    Before this belt, an unbounded per-row await could pin the catalog
+    at ~90s in production (FastAPI's full 30s x 3 retry budget) when one
+    synth got stuck on a slow cloud fan-out.
+
+    Test mechanism:
+      - Patch :data:`PER_ROW_SUMMARY_TIMEOUT_SECONDS` down to 0.05s so
+        we don't sit on the real 5s during CI.
+      - Mock ``build_summary`` to hang ~10x the timeout for the
+        ``HANGS`` row, return promptly for OK rows.
+      - Assert: HTTP 200 (no 500), HANGS row has ``summary: null``,
+        sibling rows still get their summaries, total wall time well
+        below the hang duration.
+    """
+    test_timeout = 0.05  # 50ms — far short of the real 5s default.
+    monkeypatch.setattr(
+        ds_svc_module, "PER_ROW_SUMMARY_TIMEOUT_SECONDS", test_timeout,
+    )
+
+    hang_seconds = test_timeout * 10  # 500ms — way past the timeout.
+    summaries = {
+        "OK1": _full_summary("OK1"),
+        "OK2": _full_summary("OK2"),
+    }
+
+    async def _build(dataset_id: str, *, session: Any = None) -> DatasetSummary:
+        if dataset_id == "HANGS":
+            # Sleep way past the timeout. asyncio.wait_for must cancel
+            # this and the enricher must surface ``None`` for the row.
+            await asyncio.sleep(hang_seconds)
+            return _full_summary("HANGS")  # unreachable — sleep gets cancelled
+        if dataset_id in summaries:
+            return summaries[dataset_id]
+        raise KeyError(dataset_id)
+
+    summary_svc = Mock(spec=DatasetSummaryService)
+    summary_svc.build_summary = AsyncMock(side_effect=_build)
+
+    svc = DatasetService(Mock())
+
+    payload: dict[str, Any] = {
+        "totalNumber": 3,
+        "datasets": [
+            {"id": "OK1", "name": "Ok1"},
+            {"id": "HANGS", "name": "Stuck"},
+            {"id": "OK2", "name": "Ok2"},
+        ],
+    }
+
+    t0 = time.perf_counter()
+    await svc._enrich_list_response(
+        payload, summary_service=summary_svc, session=None,
+    )
+    elapsed = time.perf_counter() - t0
+
+    rows = payload["datasets"]
+    # Critical: no exception bubbled up; the page rendered.
+    assert rows[0]["summary"] is not None, "OK1 should have a summary"
+    assert rows[1]["summary"] is None, (
+        "HANGS row exceeded PER_ROW_SUMMARY_TIMEOUT_SECONDS — must be null"
+    )
+    assert rows[2]["summary"] is not None, "OK2 should have a summary"
+
+    # Sanity: the timed-out row's raw cloud fields are preserved
+    # (frontend still has something to render via the fallback).
+    assert rows[1]["id"] == "HANGS"
+    assert rows[1]["name"] == "Stuck"
+
+    # The whole call must finish near ``test_timeout``, not ``hang_seconds``.
+    # Generous ceiling at half of hang_seconds — leaves plenty of CI
+    # headroom while still catching a regression where the timeout
+    # didn't fire (which would push elapsed past 500ms).
+    assert elapsed < hang_seconds / 2, (
+        f"Enrichment took {elapsed*1000:.0f}ms; expected "
+        f"<{(hang_seconds/2)*1000:.0f}ms (timeout was {test_timeout*1000:.0f}ms). "
+        "asyncio.wait_for is not cancelling the stuck synth."
+    )
+
+
+@pytest.mark.asyncio
+async def test_enricher_default_timeout_is_5_seconds() -> None:
+    """Pin the default budget at 5s — generous enough for genuine cold
+    builds (~3s) without burning the FastAPI retry budget on outliers.
+    Changing this number is a deliberate decision; this test forces a
+    review.
+    """
+    assert PER_ROW_SUMMARY_TIMEOUT_SECONDS == 5.0
 
 
 # ---------------------------------------------------------------------------
