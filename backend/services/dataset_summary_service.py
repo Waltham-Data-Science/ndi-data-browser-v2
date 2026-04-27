@@ -63,6 +63,41 @@ SUMMARY_KEY_PREFIX = "summary:v1"
 # summaries ≈17 rounds for a 100-dataset page.
 MAX_CONCURRENT_BULK_FETCH = 6
 
+# Per-class deadline for the ndiquery + bulk_fetch fan-out inside
+# :meth:`DatasetSummaryService._fetch_class`. Smoke-test pass after the
+# Phase-6.7 cutover-readiness work found that for the largest published
+# datasets (101k+ documents) the cloud's ``ndiquery`` for
+# ``openminds_subject`` alone takes 60+ seconds — burning past Railway's
+# 88s function ceiling and returning 504 to every viewer of those
+# datasets. ``MAX_CONCURRENT_BULK_FETCH`` only bounds the *bulk_fetch*
+# phase; the ndiquery preceding it is unbounded.
+#
+# This deadline (25s per class) is sized so:
+#
+#   - Tiny / medium datasets (≤ 10k docs) finish well within 25s at
+#     0.05-0.5 utilization → no behavior change vs pre-fix.
+#   - Large datasets (50k-200k docs) where ndiquery legitimately takes
+#     >25s degrade to a partial summary: the missing class contributes
+#     an extraction warning ("openminds_subject query failed: timeout")
+#     and the corresponding facts (species/strains/sexes from
+#     openminds_subject; brainRegions from probe_location; probeTypes
+#     from element) come back as ``None``. Counts + citation +
+#     dateRange + totalSizeBytes still render — these come from the
+#     cheap ``/datasets/:id`` + ``/document-class-counts`` calls that
+#     don't fan out per-class.
+#   - Three classes run in parallel via :func:`asyncio.gather`, so the
+#     total bound on stage-2 is also ≈25s (not 75s). Stage 1 (counts +
+#     dataset detail) typically takes 2-5s, so the worst-case full
+#     synthesis stays well under the Railway ceiling.
+#
+# Returning a partial summary is strictly better than a 504: the
+# frontend renders what's there (counts + citation are the most
+# user-visible part of the sidebar) and the typed `extractionWarnings`
+# array tells operators which classes timed out. The next cron warm
+# cycle (every 5 min) gets another shot at synthesis on a possibly
+# warmer Mongo cache.
+PER_CLASS_FETCH_TIMEOUT_SECONDS = 25.0
+
 
 # ---------------------------------------------------------------------------
 # Data-shape contracts — mirrored in frontend/src/types/dataset-summary.ts
@@ -288,7 +323,7 @@ class DatasetSummaryService:
         probe_present = counts.probes > 0 or counts.elements > 0
 
         if subjects_present:
-            om_task = self._fetch_class(
+            om_task = self._fetch_class_bounded(
                 dataset_id, "openminds_subject",
                 access_token=access_token, sem=sem,
             )
@@ -296,11 +331,11 @@ class DatasetSummaryService:
             om_task = _empty_list()
 
         if probe_present:
-            pl_task = self._fetch_class(
+            pl_task = self._fetch_class_bounded(
                 dataset_id, "probe_location",
                 access_token=access_token, sem=sem,
             )
-            element_task = self._fetch_class(
+            element_task = self._fetch_class_bounded(
                 dataset_id, "element",
                 access_token=access_token, sem=sem,
             )
@@ -309,7 +344,13 @@ class DatasetSummaryService:
             element_task = _empty_list()
 
         # Shield each leg with return_exceptions so one flaky class doesn't
-        # torpedo the whole summary — we surface a warning instead.
+        # torpedo the whole summary — we surface a warning instead. The
+        # `_fetch_class_bounded` wrapper raises ``TimeoutError`` on
+        # PER_CLASS_FETCH_TIMEOUT_SECONDS deadline; gather + _result_or_warn
+        # convert that into a "<class> query failed: timeout..." entry in
+        # ``extractionWarnings`` and return ``[]`` so the per-class fact
+        # extraction below cleanly degrades to ``None`` (subjects→species
+        # null, probe_location→brainRegions null, element→probeTypes null).
         results = await asyncio.gather(om_task, pl_task, element_task, return_exceptions=True)
         openminds_docs = _result_or_warn(results[0], "openminds_subject", warnings)
         probe_location_docs = _result_or_warn(results[1], "probe_location", warnings)
@@ -362,6 +403,49 @@ class DatasetSummaryService:
         return summary
 
     # --- Class fanout ----------------------------------------------------
+
+    async def _fetch_class_bounded(
+        self,
+        dataset_id: str,
+        class_name: str,
+        *,
+        access_token: str | None,
+        sem: asyncio.Semaphore,
+    ) -> list[dict[str, Any]]:
+        """Wraps :meth:`_fetch_class` with a per-class wall-clock deadline.
+
+        On ``PER_CLASS_FETCH_TIMEOUT_SECONDS`` exhaustion this raises
+        ``asyncio.TimeoutError`` with a message that names the class — the
+        outer ``asyncio.gather(..., return_exceptions=True)`` then routes
+        it into :func:`_result_or_warn`, producing an
+        ``extractionWarnings`` entry like
+        ``"openminds_subject query failed: openminds_subject fetch
+        exceeded 25.0s"``.
+
+        The deadline applies to the *whole* class fetch (ndiquery +
+        bulk_fetch); we don't split it because the slow path is
+        dominated by ndiquery on huge datasets, and once ndiquery
+        returns the bulk_fetch fanout under the shared semaphore is
+        consistently fast (sub-second per batch). A single deadline
+        keeps the code simple and the worst case bounded.
+        """
+        try:
+            return await asyncio.wait_for(
+                self._fetch_class(
+                    dataset_id, class_name,
+                    access_token=access_token, sem=sem,
+                ),
+                timeout=PER_CLASS_FETCH_TIMEOUT_SECONDS,
+            )
+        except TimeoutError as exc:
+            # Re-raise with a class-naming message so _result_or_warn's
+            # f"{what} query failed: {result!s}" line tells operators
+            # *which* class hit the deadline, not just "timed out".
+            # Preserves traceback chaining for log forensics.
+            raise TimeoutError(
+                f"{class_name} fetch exceeded "
+                f"{PER_CLASS_FETCH_TIMEOUT_SECONDS}s",
+            ) from exc
 
     async def _fetch_class(
         self,
