@@ -713,6 +713,112 @@ async def test_stage_1_counts_timeout_degrades_to_zero_counts(
     assert "exceeded 0.05s" in warnings_text
 
 
+# ---------------------------------------------------------------------------
+# Record-fallback gating for stage-2 fanout
+#
+# Smoke-test follow-up: when stage-1 /document-class-counts times out,
+# stage 2 was short-circuiting entirely (subjects_present=False,
+# probe_present=False) — even when the dataset record itself reports
+# `numberOfSubjects > 0` and `documentCount > 0`. Net effect: a degraded
+# summary with null per-class facts despite the dataset record having
+# enough information to gate the fanout. Fix uses record fields as
+# fallback when counts is degraded so stage 2 still attempts the
+# openminds_subject + probe_location + element ndiqueries.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_stage_1_counts_timeout_still_runs_stage_2_via_record_fields(
+    cloud: NdiCloudClient,
+    ontology_service: OntologyService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When `/document-class-counts` times out but the dataset record
+    has `numberOfSubjects > 0`, stage 2 must still attempt the
+    openminds_subject + probe_location + element fanout. Without this
+    fallback the summary degrades to null facts even on datasets where
+    the record-level signal is clear.
+    """
+    import asyncio as _asyncio
+
+    import backend.services.dataset_summary_service as svc_module
+
+    monkeypatch.setattr(svc_module, "STAGE_1_FETCH_TIMEOUT_SECONDS", 0.05)
+
+    dataset_id = "DSX"
+    async with respx.mock(
+        base_url="https://api.example.test/v1", assert_all_called=False,
+    ) as router:
+        # Dataset record returns fast with numberOfSubjects + documentCount
+        # populated — the FALLBACK signals stage 2 should run.
+        router.get(f"/datasets/{dataset_id}").respond(
+            200,
+            json=_dataset_raw(
+                _id=dataset_id, numberOfSubjects=2, documentCount=12,
+            ),
+        )
+
+        # Counts endpoint is slow → triggers stage-1 timeout.
+        async def _slow_counts(
+            request: httpx.Request, route: Any,
+        ) -> httpx.Response:
+            await _asyncio.sleep(0.5)
+            return httpx.Response(200, json=_counts_raw(subject=99))
+
+        router.get(
+            f"/datasets/{dataset_id}/document-class-counts",
+        ).mock(side_effect=_slow_counts)
+
+        # Stage-2 ndiqueries succeed (fast) and bulk-fetch returns the
+        # openminds species fixture. Demonstrates that the fallback
+        # gate kept stage 2 running and we got real per-class data
+        # despite the counts timeout.
+        router.post("/ndiquery").respond(
+            200, json=_ndiquery_body_for(["om-sp"]),
+        )
+        router.post(f"/datasets/{dataset_id}/documents/bulk-fetch").respond(
+            200, json=_bulk_fetch_body([HALEY_SPECIES]),
+        )
+
+        summary_svc = DatasetSummaryService(cloud, ontology_service)
+        summary = await summary_svc.build_summary(dataset_id, session=None)
+
+    # Counts came from the record fallback (subjects from
+    # numberOfSubjects, totalDocuments from documentCount):
+    assert summary.counts.subjects == 2
+    assert summary.counts.totalDocuments == 12
+    # Stage 2 RAN despite the counts timeout — species was extracted
+    # from the openminds_subject ndiquery+bulk-fetch path. This is
+    # the win this PR introduces.
+    assert summary.species is not None
+    assert len(summary.species) > 0
+    assert summary.species[0].ontologyId == "NCBITaxon:6239"
+    # Counts-timeout warning is still surfaced for operator awareness.
+    warnings_text = "\n".join(summary.extractionWarnings)
+    assert "class counts query failed" in warnings_text
+
+
+def test_safe_record_int_handles_all_input_shapes() -> None:
+    """Pin the helper that powers stage-2 record-fallback gating: it
+    must accept any input shape and return a non-negative int (0 on
+    anything other than a positive integer field value).
+    """
+    from backend.services.dataset_summary_service import _safe_record_int
+
+    # Happy path:
+    assert _safe_record_int({"numberOfSubjects": 42}, "numberOfSubjects") == 42
+    # Field present but null (Sophie Griswold's record):
+    assert _safe_record_int({"numberOfSubjects": None}, "numberOfSubjects") == 0
+    # Field missing entirely:
+    assert _safe_record_int({}, "numberOfSubjects") == 0
+    # Wrong type (string):
+    assert _safe_record_int({"numberOfSubjects": "1656"}, "numberOfSubjects") == 0
+    # Negative value (defensive):
+    assert _safe_record_int({"numberOfSubjects": -1}, "numberOfSubjects") == 0
+    # Non-dict input (e.g. dataset_raw was an exception, not a dict):
+    assert _safe_record_int(None, "numberOfSubjects") == 0
+    assert _safe_record_int("garbage", "numberOfSubjects") == 0
+
+
 @pytest.mark.asyncio
 async def test_stage_1_dataset_timeout_does_not_block_summary(
     cloud: NdiCloudClient,
