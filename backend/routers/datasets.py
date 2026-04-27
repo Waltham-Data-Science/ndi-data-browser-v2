@@ -34,23 +34,32 @@ router = APIRouter(prefix="/api/datasets", tags=["datasets"], dependencies=[Depe
 @router.get("/published")
 async def published(
     svc: Annotated[DatasetService, Depends(dataset_service)],
-    summary_svc: Annotated[DatasetSummaryService, Depends(dataset_summary_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
     page: int = Query(1, ge=1, le=1000),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
-    """Published catalog with compact :class:`DatasetSummary` embedded per
-    row (Plan B B2). Each ``datasets[i]`` gains a ``summary`` key that's
-    ``null`` when the synthesizer failed (the UI falls back to raw-record
-    rendering). Summaries are produced under a Semaphore-3 fanout — see
-    :meth:`DatasetService.list_published_with_summaries`.
+    """Published catalog — raw cloud rows only, NO embedded summary.
+
+    Perf fix (2026-04-26): the previous shape called
+    :meth:`DatasetService.list_published_with_summaries`, which fanned out
+    one :meth:`DatasetSummaryService.build_summary` call per row under
+    ``Semaphore(3)`` with no per-row timeout. A single stuck synthesizer
+    (cold cache + slow cloud) could burn the FastAPI's full 30s x 3
+    retry budget — observed pinning ``/published`` at 90s+ in production.
+
+    The frontend already falls back to raw-record rendering when
+    ``dataset.summary`` is absent (see ``components/datasets/DatasetCard.tsx``
+    in ``ndi-cloud-app``) and lazily hydrates per-card summaries via the
+    edge-cached ``/api/datasets/[id]/summary`` route (60s fresh, 5min SWR
+    — PR #84 in ``ndi-cloud-app``). After ONE viewer pays the per-summary
+    cost, every other viewer for ~6 minutes gets <50ms.
+
+    The synthesizer fanout is still available via
+    :meth:`DatasetService.list_published_with_summaries`, which
+    :class:`FacetService` calls during the cross-catalog facet aggregation
+    (where the wall-clock budget is intentionally larger).
     """
-    return await svc.list_published_with_summaries(
-        page=page,
-        page_size=pageSize,
-        summary_service=summary_svc,
-        session=session,
-    )
+    return await svc.list_published(page=page, page_size=pageSize)
 
 
 @router.get("/my")
