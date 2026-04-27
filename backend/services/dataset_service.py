@@ -54,6 +54,15 @@ log = get_logger(__name__)
 # about the 1000 concurrent-Lambda account budget.
 MAX_CONCURRENT_SUMMARIES = 3
 
+# Per-row enricher timeout (seconds). Belt-and-suspenders against a single
+# stuck synthesizer pinning the whole list response. ``build_summary`` is
+# typically <1s warm and ~3s cold; 5s catches genuine outliers without
+# burning the FastAPI's full 30s x 3 retry budget. On timeout the row
+# degrades to ``summary: null`` (matching the existing exception path) so
+# the card falls back to raw-record rendering. See PR #98 (defense paired
+# with PR #97 dropping the fanout from /published).
+PER_ROW_SUMMARY_TIMEOUT_SECONDS = 5.0
+
 
 class DatasetService:
     def __init__(self, cloud: NdiCloudClient) -> None:
@@ -264,9 +273,28 @@ class DatasetService:
 
             async with sem:
                 try:
-                    full = await summary_service.build_summary(
-                        dataset_id, session=session,
+                    # Belt-and-suspenders: cap each per-row build at
+                    # PER_ROW_SUMMARY_TIMEOUT_SECONDS so one stuck synth
+                    # can't pin the whole list. The semaphore alone is
+                    # not enough — without a per-row deadline, a single
+                    # stalled call burns the full 30s x 3 retry budget.
+                    full = await asyncio.wait_for(
+                        summary_service.build_summary(
+                            dataset_id, session=session,
+                        ),
+                        timeout=PER_ROW_SUMMARY_TIMEOUT_SECONDS,
                     )
+                except TimeoutError:
+                    # Most surgical of degradations. The card renders from
+                    # raw record fields; the next viewer's per-card
+                    # /api/datasets/[id]/summary call (warm cache) will
+                    # likely succeed.
+                    log.warning(
+                        "catalog.summary_enrichment_timed_out",
+                        dataset_id=dataset_id,
+                        timeout_seconds=PER_ROW_SUMMARY_TIMEOUT_SECONDS,
+                    )
+                    return None
                 except Exception as e:
                     # Any synth failure degrades gracefully. The card falls
                     # back to raw-record rendering; we keep the list usable.
