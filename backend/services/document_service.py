@@ -137,6 +137,26 @@ class DocumentService:
         bulk-fetch + post-filter pass which is expensive at scale).
         For unfiltered "All documents" — the most-trafficked view —
         the fallback gives anonymous users the correct results.
+
+        ## Third-tier Mongo fallback (2026-04-26 follow-up)
+
+        Smoke-test cluster 2 surfaced a sub-class of the original
+        bug: some user-published datasets ALSO have an empty inline
+        ``dataset.documents[]`` array (the cloud doesn't populate
+        that list for every publish path). Example: dataset
+        ``69bc5ca11d547b1f6d083761`` reports ``documentCount:
+        66533`` via ``/document-class-counts`` but ``dataset.documents``
+        is ``[]``, so the inline-id fallback also returns 0.
+
+        Third tier: query the cloud's Mongo-backed
+        ``GET /datasets/:id/documents?page=N&pageSize=K`` route
+        directly. Same access scope (anonymous-friendly via
+        ``assignUserIfPresent``); bounded round-trip because we only
+        ask for one page at a time. ``GET /datasets/:id/document-count``
+        gives us the canonical total in one cheap call. The earlier
+        unpaginated variant of this route hit 504s at scale (see
+        PR #96 commit message); pagination here is what makes it
+        viable.
         """
         structure: list[dict[str, Any]] = []
         if class_name:
@@ -169,6 +189,19 @@ class DocumentService:
         # published datasets) and slice it into a page.
         if not slice_ids and not class_name:
             slice_ids, total = await self._inline_id_fallback(
+                dataset_id=dataset_id,
+                page=page,
+                page_size=page_size,
+                access_token=access_token,
+            )
+
+        # Third-tier fallback: when both ndiquery and the inline-id
+        # fallback come up empty (some user-published datasets have
+        # an empty `dataset.documents[]` array), query the cloud's
+        # Mongo-backed `GET /datasets/:id/documents?page&pageSize`
+        # directly. Bounded round-trip: one page only.
+        if not slice_ids and not class_name:
+            slice_ids, total = await self._mongo_dataset_id_fallback(
                 dataset_id=dataset_id,
                 page=page,
                 page_size=page_size,
@@ -228,6 +261,51 @@ class DocumentService:
         start = max(0, (page - 1) * page_size)
         end = start + page_size
         return (ids[start:end], total)
+
+    async def _mongo_dataset_id_fallback(
+        self,
+        *,
+        dataset_id: str,
+        page: int,
+        page_size: int,
+        access_token: str | None,
+    ) -> tuple[list[str], int]:
+        """Query the cloud's Mongo-backed paginated documents route.
+
+        Used only when both ndiquery AND the inline-id fallback return
+        nothing — the cloud-published path that doesn't materialize an
+        inline ``documents[]`` array but still has documents accessible
+        via ``Mongo.find({datasetId})``.
+
+        Two cloud calls in parallel-ish sequence:
+
+        1. ``GET /datasets/:id/documents?page&pageSize`` for the page
+           of bare ids (cloud caps pageSize at 1000; we honor that).
+        2. ``GET /datasets/:id/document-count`` for the canonical total
+           so pagination controls render correctly.
+
+        Both calls return ``[]`` / ``0`` on cloud failure rather than
+        raising, so a Railway/cloud blip degrades to "0 results" instead
+        of 500'ing the documents route.
+        """
+        slice_ids = await self.cloud.list_documents_by_dataset(
+            dataset_id,
+            page=page,
+            page_size=page_size,
+            access_token=access_token,
+        )
+        if not slice_ids:
+            return ([], 0)
+        total = await self.cloud.get_dataset_document_count(
+            dataset_id, access_token=access_token,
+        )
+        # If document-count came back 0 but we have ids, something is
+        # inconsistent on the cloud side. Trust the page we have and
+        # fall back to its length so the page still renders rather than
+        # showing "0 of 0" with N rows below.
+        if total == 0:
+            total = len(slice_ids)
+        return (slice_ids, total)
 
 
 def _normalize_document(raw: dict[str, Any]) -> dict[str, Any]:
