@@ -1,7 +1,7 @@
 """Cross-dataset facet aggregator — Plan B B3.
 
 Aggregates distinct structured facts (species / brain regions / strains /
-sexes / probe types) across **all published datasets** into one
+sexes / probe types / licenses) across **all published datasets** into one
 :class:`FacetsResponse` the query page uses to populate filter chips.
 
 The primitives are already there:
@@ -9,22 +9,42 @@ The primitives are already there:
 - :meth:`DatasetService.list_published_with_summaries` walks the catalog in
   pages and embeds a :class:`CompactDatasetSummary` per row (B2's enricher,
   ADR-010-012 pipeline).
-- That compact summary carries ``species`` and ``brainRegions`` directly.
-  For the remaining facets (``strains``, ``sexes``, ``probeTypes``) we
-  fetch the full :class:`DatasetSummary` per row via
-  :meth:`DatasetSummaryService.build_summary`, which sits behind the same
-  5-minute TTL cache so repeat facet computes inside one TTL window pay no
-  extra cloud cost.
+- That compact summary carries ``species``, ``brainRegions``, and
+  ``citation.license`` directly. For the remaining facets (``strains``,
+  ``sexes``, ``probeTypes``) we fetch the full :class:`DatasetSummary` per
+  row via :meth:`DatasetSummaryService.build_summary`, which sits behind
+  the same 5-minute TTL cache so repeat facet computes inside one TTL
+  window pay no extra cloud cost.
 
 Dedup strategy
 --------------
 
-- Ontology-typed facets (species/brainRegions/strains/sexes) dedupe by
-  ``OntologyTerm.ontologyId``. When the ontology ID is ``None`` we fall
-  back to the label string so label-only terms (Haley's
-  ``GeneticStrainType``) still collapse cross-dataset duplicates.
+- Ontology-typed facets (species/brainRegions/strains/sexes) dedupe first
+  by ``OntologyTerm.ontologyId`` and second by a normalized label key
+  (``lowercase + collapse-whitespace + strip``). The normalized fallback
+  collapses case-identical duplicates (``Caenorhabditis elegans`` reported
+  twice from two datasets) and trivial whitespace drift that the strict
+  ``label::<exact>`` key used to leak.
+
+  For brain regions specifically, we ALSO key on parenthesized
+  abbreviations (``... (BNST)``) extracted from the label — this collapses
+  near-duplicates like ``Bed nucleus of the stria terminalis (BNST)`` and
+  ``Bed nucleus of stria terminalis (BNST)`` into one entry. Same
+  biological entity, different wording — the abbreviation is the
+  authoritative shared identifier.
+
+  When two terms collapse, the displayed label is the more-frequently-seen
+  cased version (ties broken by first-seen). Per-term seen counts are
+  internal; the wire format stays a flat list of distinct
+  :class:`OntologyTerm`.
 - ``probeTypes`` is a free-text bucket (amendment §3). We dedupe by the
   trimmed label.
+- ``licenses`` is a free-text bucket post-:data:`LICENSE_LABELS`
+  normalization. The cloud surfaces three concurrent format families
+  (``CC-BY-4.0``, the human-readable ``Creative Commons Attribution 4.0
+  International``, and camelCase enum-tokens like ``ccByNcSa4_0``). We
+  collapse each into its canonical short label so a chip says
+  ``CC BY 4.0`` once, not three times.
 
 Cache strategy (amendment §4.B3 — CRITICAL)
 -------------------------------------------
@@ -57,6 +77,7 @@ HTTP boundary: every cloud call routes through
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -86,6 +107,84 @@ FACETS_CACHE_KEY = "facets:v1"  # public data — no per-user scope
 _FACET_PAGE_SIZE = 100
 _FACET_MAX_PAGES = 50  # 5000 published datasets — well above realistic corpus
 
+# License-label normalization table — maps the three concurrent format
+# families the cloud surfaces (camelCase enum tokens, dotted SPDX-ish
+# short codes, full human-readable names) onto one canonical short label
+# per logical license. Keys are normalized via :func:`_normalize_license_key`
+# (lowercase + strip non-alphanumerics) so all three forms collapse to
+# the same lookup. Add new entries when the cloud's license enum grows.
+#
+# Sourced from Creative Commons' canonical naming + the cloud-node enum
+# at ``api/src/models/dataset.model.ts`` (license: enum).
+_LICENSE_LABEL_ENTRIES: list[tuple[list[str], str]] = [
+    (["ccBy4_0", "CC-BY-4.0", "CC BY 4.0", "Creative Commons Attribution 4.0 International"], "CC BY 4.0"),
+    (["ccBySa4_0", "CC-BY-SA-4.0", "CC BY-SA 4.0", "Creative Commons Attribution-ShareAlike 4.0 International"], "CC BY-SA 4.0"),
+    (["ccByNc4_0", "CC-BY-NC-4.0", "CC BY-NC 4.0", "Creative Commons Attribution-NonCommercial 4.0 International"], "CC BY-NC 4.0"),
+    (["ccByNcSa4_0", "CC-BY-NC-SA-4.0", "CC BY-NC-SA 4.0", "Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International"], "CC BY-NC-SA 4.0"),
+    (["ccByNd4_0", "CC-BY-ND-4.0", "CC BY-ND 4.0", "Creative Commons Attribution-NoDerivatives 4.0 International"], "CC BY-ND 4.0"),
+    (["ccByNcNd4_0", "CC-BY-NC-ND-4.0", "CC BY-NC-ND 4.0", "Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International"], "CC BY-NC-ND 4.0"),
+    (["ccZero1_0", "CC0-1.0", "CC0 1.0", "Creative Commons Zero 1.0 Universal", "Public Domain"], "CC0 1.0"),
+]
+
+
+def _normalize_license_key(raw: str) -> str:
+    """Normalize a license string for table lookup.
+
+    Strips every non-alphanumeric character and lowercases the rest. The
+    three on-the-wire formats (``CC-BY-4.0``, ``CC BY 4.0``,
+    ``ccBy4_0``, ``Creative Commons Attribution 4.0 International``)
+    all collapse to a comparable shape so the lookup table holds three
+    distinct strings per logical license without N-way string compares
+    at hot-path time.
+    """
+    return re.sub(r"[^a-z0-9]", "", raw.lower())
+
+
+LICENSE_LABELS: dict[str, str] = {
+    _normalize_license_key(raw): canonical
+    for raws, canonical in _LICENSE_LABEL_ENTRIES
+    for raw in raws
+}
+
+
+# Brain-region abbreviation extraction. ``Bed nucleus of the stria
+# terminalis (BNST)`` and ``Bed nucleus of stria terminalis (BNST)``
+# share ``BNST``; we use that as a secondary dedupe key when no
+# ontologyId is available. The pattern requires 2-12 alphanumeric chars
+# inside the parentheses to avoid false positives on numeric measurements
+# or sentence fragments.
+_PARENTHESIZED_ABBREV = re.compile(r"\(([A-Za-z0-9]{2,12})\)")
+
+
+def _normalize_label_key(label: str) -> str:
+    """Normalize a label for case/whitespace-insensitive dedupe.
+
+    Lowercases, collapses runs of whitespace into a single space, and
+    strips leading/trailing whitespace. Used as the fallback dedupe key
+    for ontology terms that lack an ``ontologyId``. Pre-fix repro: cloud
+    occasionally surfaces the same species twice (label-only, identical
+    casing) when two contributing datasets each reported it
+    independently — the strict ``label::<exact>`` key didn't collapse
+    them; this normalized one does.
+    """
+    return re.sub(r"\s+", " ", label.strip().lower())
+
+
+def _extract_parenthesized_abbrev(label: str) -> str | None:
+    """Return the parenthesized abbreviation from ``label``, lowercased,
+    if exactly one is present and it's between 2 and 12 alphanumerics.
+
+    Used as a brain-region-specific secondary dedupe key.
+    Multiple matches → ``None`` (ambiguous; fall back to label-only).
+    """
+    matches = _PARENTHESIZED_ABBREV.findall(label)
+    if len(matches) != 1:
+        return None
+    # `re.findall` is typed as `list[Any]` for the no-group / single-group
+    # cases, so wrap in `str()` to satisfy mypy's `no-any-return` at the
+    # function boundary. The capture group `(\w+)` always yields a string.
+    return str(matches[0]).lower()
+
 
 # ---------------------------------------------------------------------------
 # Data-shape contract — mirrored in frontend/src/types/facets.ts
@@ -98,6 +197,11 @@ class FacetsResponse(BaseModel):
     ``datasetCount`` is the number of datasets that contributed at least one
     non-null summary; datasets with ``summary: null`` (synthesizer failed or
     short-circuit miss) are still walked but contribute nothing.
+
+    ``licenses`` is a free-text bucket post-normalization through
+    :data:`LICENSE_LABELS`. Multiple raw forms (``CC-BY-4.0``,
+    ``ccBy4_0``, ``Creative Commons Attribution 4.0 International``)
+    collapse to a single canonical short label per logical license.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -107,6 +211,7 @@ class FacetsResponse(BaseModel):
     strains: list[OntologyTerm] = Field(default_factory=list)
     sexes: list[OntologyTerm] = Field(default_factory=list)
     probeTypes: list[StrictStr] = Field(default_factory=list)
+    licenses: list[StrictStr] = Field(default_factory=list)
     datasetCount: conint(ge=0) = 0  # type: ignore[valid-type]
     computedAt: StrictStr
     schemaVersion: Literal["facets:v1"] = "facets:v1"
@@ -190,6 +295,7 @@ class FacetService:
             strains=len(response.strains),
             sexes=len(response.sexes),
             probe_types=len(response.probeTypes),
+            licenses=len(response.licenses),
             ms=int((time.perf_counter() - t0) * 1000),
         )
         return response
@@ -283,12 +389,23 @@ class _FacetAccumulator:
         self.strains: list[OntologyTerm] = []
         self.sexes: list[OntologyTerm] = []
         self.probe_types: list[str] = []
+        self.licenses: list[str] = []
 
-        self._species_seen: dict[str, int] = {}
-        self._brain_regions_seen: dict[str, int] = {}
-        self._strains_seen: dict[str, int] = {}
-        self._sexes_seen: dict[str, int] = {}
+        # ``_*_seen`` maps dedupe-key → index into the corresponding
+        # output list. Each entry tracks the per-cased-label seen
+        # counter so that, when duplicates collapse, the displayed
+        # label is the more-frequently-seen casing (ties broken by
+        # first-seen). The label is mutated in-place on the
+        # ``OntologyTerm`` after a winning collision.
+        self._species_seen: dict[str, _DedupedTermBucket] = {}
+        self._brain_regions_seen: dict[str, _DedupedTermBucket] = {}
+        self._strains_seen: dict[str, _DedupedTermBucket] = {}
+        self._sexes_seen: dict[str, _DedupedTermBucket] = {}
         self._probe_types_seen: set[str] = set()
+        # license-key (normalized) → index into self.licenses. The
+        # *displayed* canonical label comes from LICENSE_LABELS, so we
+        # don't need a per-cased-label counter here.
+        self._licenses_seen: dict[str, int] = {}
 
         self.contributing_datasets = 0
 
@@ -315,8 +432,37 @@ class _FacetAccumulator:
         self._ingest_from_compact_or_summary(compact, summary)
         if summary is not None:
             self._ingest_from_full_summary(summary)
+        self._ingest_license(compact, summary)
         if compact is not None or summary is not None:
             self.contributing_datasets += 1
+
+    def _ingest_license(
+        self,
+        compact: CompactDatasetSummary | None,
+        summary: dict[str, Any] | None,
+    ) -> None:
+        """Aggregate the dataset's license string after canonical
+        normalization. Prefers the compact summary's value (already on
+        the catalog row); falls back to the full summary's citation.
+        """
+        raw: str | None = None
+        if compact is not None and compact.citation.license:
+            raw = compact.citation.license
+        elif summary is not None:
+            citation = summary.get("citation") or {}
+            v = citation.get("license")
+            if isinstance(v, str) and v:
+                raw = v
+        if raw is None:
+            return
+        canonical = _canonicalize_license(raw)
+        if canonical is None:
+            return
+        key = _normalize_license_key(canonical)
+        if key in self._licenses_seen:
+            return
+        self._licenses_seen[key] = len(self.licenses)
+        self.licenses.append(canonical)
 
     def _ingest_from_compact_or_summary(
         self,
@@ -343,7 +489,12 @@ class _FacetAccumulator:
                     contributed = True
         if effective_regions:
             for term in effective_regions:
-                if _add_ontology_term(term, self._brain_regions_seen, self.brain_regions):
+                if _add_ontology_term(
+                    term,
+                    self._brain_regions_seen,
+                    self.brain_regions,
+                    use_paren_abbrev=True,
+                ):
                     contributed = True
         return contributed
 
@@ -370,6 +521,7 @@ class _FacetAccumulator:
             strains=self.strains,
             sexes=self.sexes,
             probeTypes=self.probe_types,
+            licenses=self.licenses,
             datasetCount=self.contributing_datasets,
             computedAt=_now_iso8601(),
         )
@@ -379,15 +531,62 @@ class _FacetAccumulator:
 # Dedup helpers
 # ---------------------------------------------------------------------------
 
+class _DedupedTermBucket:
+    """Internal bookkeeping for one deduped facet entry.
+
+    Tracks the index into the output list (so the displayed label can
+    be mutated in-place when a higher-count casing wins) and a counter
+    per cased-label-string. The most-frequently-seen casing is the
+    surviving displayed label; ties are broken by first-seen.
+    """
+
+    __slots__ = ("counts", "index", "winning_label")
+
+    def __init__(self, *, index: int, label: str) -> None:
+        self.index = index
+        # cased label → seen count. First-seen entry inserted with count
+        # 1; subsequent matches bump.
+        self.counts: dict[str, int] = {label: 1}
+        self.winning_label = label
+
+    def record(self, label: str) -> str | None:
+        """Bump the seen counter for ``label`` and, if the new count
+        beats the prior winner, return the new winning label string.
+        Returns ``None`` when no swap is needed.
+        """
+        new_count = self.counts.get(label, 0) + 1
+        self.counts[label] = new_count
+        # Strict >: ties keep the first-seen winning label.
+        if (
+            new_count > self.counts.get(self.winning_label, 0)
+            and label != self.winning_label
+        ):
+            self.winning_label = label
+            return label
+        return None
+
+
 def _add_ontology_term(
     term: Any,
-    seen: dict[str, int],
+    seen: dict[str, _DedupedTermBucket],
     out: list[OntologyTerm],
+    *,
+    use_paren_abbrev: bool = False,
 ) -> bool:
-    """Append ``term`` to ``out`` if its ontology-id (or label fallback) has
-    not been seen yet. Returns True iff something new was added. Tolerates
-    both :class:`OntologyTerm` instances and serialized dicts (facet builder
-    has both on hand since full summaries come through as ``model_dump``).
+    """Append ``term`` to ``out`` if its dedupe key (ontologyId, then
+    parenthesized abbreviation when ``use_paren_abbrev`` is set, then
+    normalized label) has not been seen yet. Returns True iff something
+    new was added.
+
+    On a collision: bump the bucket's per-cased-label counter and, if the
+    new casing now has the highest count, swap the displayed label of the
+    already-emitted :class:`OntologyTerm` in-place. Pre-fix: collisions
+    were silently ignored; the first-seen casing was the only one ever
+    surfaced.
+
+    Tolerates both :class:`OntologyTerm` instances and serialized dicts
+    (facet builder has both on hand since full summaries come through as
+    ``model_dump``).
     """
     if isinstance(term, OntologyTerm):
         raw_label: Any = term.label
@@ -403,10 +602,38 @@ def _add_ontology_term(
     ontology_id: str | None = (
         raw_ontology_id if isinstance(raw_ontology_id, str) and raw_ontology_id else None
     )
-    key = ontology_id if ontology_id else f"label::{label}"
-    if key in seen:
+
+    # Dedupe key resolution, in priority order:
+    # 1. ontologyId (most authoritative — same provider id wins).
+    # 2. Parenthesized abbreviation (brain-region only) — collapses
+    #    "Bed nucleus of the stria terminalis (BNST)" with
+    #    "Bed nucleus of stria terminalis (BNST)".
+    # 3. Normalized label (lowercase + collapse-whitespace + strip) —
+    #    collapses case-identical and trivial-whitespace duplicates.
+    key: str
+    if ontology_id:
+        key = f"oid::{ontology_id}"
+    else:
+        abbrev = (
+            _extract_parenthesized_abbrev(label) if use_paren_abbrev else None
+        )
+        key = (
+            f"abbrev::{abbrev}" if abbrev else f"norm::{_normalize_label_key(label)}"
+        )
+
+    bucket = seen.get(key)
+    if bucket is not None:
+        new_winner = bucket.record(label)
+        if new_winner is not None:
+            # In-place label swap on the already-emitted term so the
+            # output list reflects the most-frequently-seen casing
+            # without us having to re-emit or sort.
+            existing = out[bucket.index]
+            out[bucket.index] = OntologyTerm(
+                label=new_winner, ontologyId=existing.ontologyId,
+            )
         return False
-    seen[key] = len(out)
+    seen[key] = _DedupedTermBucket(index=len(out), label=label)
     out.append(OntologyTerm(label=label, ontologyId=ontology_id))
     return True
 
@@ -427,6 +654,22 @@ def _add_probe_type(
     seen.add(cleaned)
     out.append(cleaned)
     return True
+
+
+def _canonicalize_license(raw: str) -> str | None:
+    """Return the canonical short label for a raw license string, or
+    ``None`` when the input is empty / not stringly meaningful.
+
+    Unknown licenses pass through with whitespace trimmed (so a
+    novel cloud-side enum value still surfaces as a chip rather than
+    being silently dropped). Known licenses go through
+    :data:`LICENSE_LABELS` for normalization.
+    """
+    cleaned = raw.strip()
+    if not cleaned:
+        return None
+    canonical = LICENSE_LABELS.get(_normalize_license_key(cleaned))
+    return canonical if canonical is not None else cleaned
 
 
 def _row_dataset_id(row: dict[str, Any]) -> str | None:
@@ -464,6 +707,7 @@ __all__ = [
     "FACETS_CACHE_TTL_SECONDS",
     "FACETS_KEY_PREFIX",
     "FACETS_SCHEMA_VERSION",
+    "LICENSE_LABELS",
     "FacetService",
     "FacetsResponse",
 ]
