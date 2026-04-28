@@ -34,32 +34,48 @@ router = APIRouter(prefix="/api/datasets", tags=["datasets"], dependencies=[Depe
 @router.get("/published")
 async def published(
     svc: Annotated[DatasetService, Depends(dataset_service)],
+    summary_svc: Annotated[DatasetSummaryService, Depends(dataset_summary_service)],
     session: Annotated[SessionData | None, Depends(get_current_session)],
     page: int = Query(1, ge=1, le=1000),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
-    """Published catalog — raw cloud rows only, NO embedded summary.
+    """Published catalog with embedded compact summary per row (Plan B B2).
 
-    Perf fix (2026-04-26): the previous shape called
-    :meth:`DatasetService.list_published_with_summaries`, which fanned out
-    one :meth:`DatasetSummaryService.build_summary` call per row under
-    ``Semaphore(3)`` with no per-row timeout. A single stuck synthesizer
-    (cold cache + slow cloud) could burn the FastAPI's full 30s x 3
-    retry budget — observed pinning ``/published`` at 90s+ in production.
+    History
+    -------
+    2026-04-26 (PR #97) dropped the per-row summary fanout because the
+    enricher had no per-row timeout — a single stuck synthesizer could
+    pin ``/published`` at 90s+ under ``Semaphore(3)``.
 
-    The frontend already falls back to raw-record rendering when
-    ``dataset.summary`` is absent (see ``components/datasets/DatasetCard.tsx``
-    in ``ndi-cloud-app``) and lazily hydrates per-card summaries via the
-    edge-cached ``/api/datasets/[id]/summary`` route (60s fresh, 5min SWR
-    — PR #84 in ``ndi-cloud-app``). After ONE viewer pays the per-summary
-    cost, every other viewer for ~6 minutes gets <50ms.
+    2026-04-27 (PR #98 + ``PER_ROW_SUMMARY_TIMEOUT_SECONDS = 5.0`` in
+    :mod:`backend.services.dataset_service`) added the missing
+    ``asyncio.wait_for(5s)`` belt: a stuck row degrades to
+    ``summary: null`` and the page keeps rendering. Worst-case wall
+    clock under Semaphore(3) is ``ceil(N_rows / 3) * 5s`` ≤ 35s for a
+    20-row page, and far less when most rows succeed.
 
-    The synthesizer fanout is still available via
-    :meth:`DatasetService.list_published_with_summaries`, which
-    :class:`FacetService` calls during the cross-catalog facet aggregation
-    (where the wall-clock budget is intentionally larger).
+    2026-04-28 (this restore): the post-Steve-PR (#65 / #67) cloud
+    state plus the ``ndi-cloud-app`` Vercel cron warming top-10 dataset
+    ``/summary`` every 5 min brought per-row warm latency to <1.2s on
+    every published dataset (verified live 2026-04-28). With the
+    per-row belt in place, the original PR #97 constraint is no longer
+    reachable, and restoring the embed makes the catalog → detail
+    handoff instant for warm rows: ``<DatasetCard>`` renders from the
+    embedded ``CompactDatasetSummary``, and the detail page paints from
+    already-cached fields on click instead of firing a fresh
+    ``/api/datasets/[id]/summary`` request on the click-through.
+
+    Cold rows still fall through to ``summary: null`` and the
+    frontend's raw-record fallback. Frontend behaviour is unchanged
+    either way — it has handled both shapes since PR #91 in
+    ``ndi-cloud-app``.
     """
-    return await svc.list_published(page=page, page_size=pageSize)
+    return await svc.list_published_with_summaries(
+        page=page,
+        page_size=pageSize,
+        summary_service=summary_svc,
+        session=session,
+    )
 
 
 @router.get("/my")
