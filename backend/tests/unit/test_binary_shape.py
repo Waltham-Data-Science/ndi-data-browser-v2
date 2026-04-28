@@ -8,11 +8,12 @@ regress to the old `{y, sampleRate, nSamples}` shape.
 from __future__ import annotations
 
 import struct
+from unittest.mock import AsyncMock
 
 import numpy as np
 import pytest
 
-from backend.errors import ValidationFailed
+from backend.errors import BinaryNotFound, ValidationFailed
 from backend.services.binary_service import (
     MAX_FITCURVE_SAMPLES,
     BinaryService,
@@ -253,3 +254,77 @@ class TestOomGuards:
         out = svc.evaluate_fitcurve(document)
         assert len(out["x"]) == MAX_FITCURVE_SAMPLES
         assert len(out["y"]) == MAX_FITCURVE_SAMPLES
+
+
+class TestGetRaw:
+    """`get_raw` is the PIL-bypass passthrough for raw-uint8 imageStack files.
+
+    The endpoint exists because PIL's `Image.open` blows up on headerless
+    raw pixel buffers (no PNG/JPEG magic) and surfaces as
+    BINARY_DECODE_FAILED. The frontend opts in for known imageStack docs
+    and decodes the bytes itself using the partner
+    ``imageStack_parameters`` document for shape/dtype.
+    """
+
+    async def test_returns_payload_unchanged(self) -> None:
+        """Bytes from cloud.download_file flow through verbatim — no PIL,
+        no transformation, no header."""
+        cloud = AsyncMock()
+        # Arbitrary "raw uint8" bytes — exactly what would be on S3 for an
+        # imageStack with no PNG/JPEG magic. PIL would choke on this.
+        raw_bytes = bytes(range(256)) * 16  # 4096 bytes, uint8 0..255 cycled
+        cloud.download_file.return_value = raw_bytes
+        svc = BinaryService(cloud=cloud)
+        doc = {
+            "data": {
+                "files": {
+                    "file_info": {
+                        "name": "stack.bin",
+                        "locations": {
+                            "location": "https://ndi-data.s3.us-east-1.amazonaws.com/sig",
+                        },
+                    },
+                },
+            },
+        }
+        out = await svc.get_raw(doc, access_token="t-123")
+        assert out == raw_bytes
+        # And the cloud client got the URL + token straight through.
+        cloud.download_file.assert_awaited_once_with(
+            "https://ndi-data.s3.us-east-1.amazonaws.com/sig",
+            access_token="t-123",
+        )
+
+    async def test_no_file_refs_raises_binary_not_found(self) -> None:
+        """When the document has no file refs, the service raises
+        BinaryNotFound — caller (router) maps to typed 404, not 502."""
+        cloud = AsyncMock()
+        svc = BinaryService(cloud=cloud)
+        # Doc with empty `files` block — common for malformed or partner
+        # docs with no upstream binary.
+        doc = {"data": {"files": {}}}
+        with pytest.raises(BinaryNotFound):
+            await svc.get_raw(doc, access_token=None)
+        # Defensive: never call the cloud when no ref exists. Saves an
+        # SSRF-allowlist round-trip and avoids a misleading log line.
+        cloud.download_file.assert_not_called()
+
+    async def test_propagates_cloud_download_errors(self) -> None:
+        """`cloud.download_file` raises BinaryNotFound on 404 and
+        CloudInternalError on 5xx. Both propagate untouched — the router's
+        exception handler maps them to typed responses."""
+        cloud = AsyncMock()
+        cloud.download_file.side_effect = BinaryNotFound()
+        svc = BinaryService(cloud=cloud)
+        doc = {
+            "data": {
+                "files": {
+                    "file_info": {
+                        "name": "stack.bin",
+                        "locations": {"location": "https://ndi-data.s3.us-east-1.amazonaws.com/x"},
+                    },
+                },
+            },
+        }
+        with pytest.raises(BinaryNotFound):
+            await svc.get_raw(doc, access_token=None)

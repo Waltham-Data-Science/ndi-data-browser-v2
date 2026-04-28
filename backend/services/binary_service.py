@@ -162,6 +162,30 @@ class BinaryService:
             log.warning("binary.decode_failed", kind="image", error=str(e))
             raise BinaryDecodeFailed() from e
 
+    async def get_raw(
+        self, document: dict[str, Any], *, access_token: str | None,
+    ) -> bytes:
+        """Return the raw bytes of the first file ref on the document.
+
+        No PIL, no decoding, no transformation — just the SSRF-hardened S3
+        passthrough provided by ``cloud.download_file``. Used for headerless
+        raw-uint8 imageStack files where PIL's ``Image.open`` chokes (no PNG/
+        JPEG magic, just pixel bytes with sidecar metadata in a separate
+        ``imageStack_parameters`` document the frontend fetches itself).
+
+        Frontend is responsible for:
+          - Knowing this document is actually a raw-bytes blob (we don't
+            validate the bytes look like an imageStack — a non-raw blob
+            hit on this path will return its bytes verbatim).
+          - Fetching the partner ``imageStack_parameters`` document via the
+            existing ``/documents`` endpoint to get ``dimension_size`` /
+            ``data_type`` for decoding.
+        """
+        refs = _file_refs(document)
+        if not refs:
+            raise BinaryNotFound()
+        return await self.cloud.download_file(refs[0].url, access_token=access_token)
+
     async def get_video_url(self, document: dict[str, Any]) -> dict[str, Any]:
         refs = _file_refs(document)
         if not refs:
