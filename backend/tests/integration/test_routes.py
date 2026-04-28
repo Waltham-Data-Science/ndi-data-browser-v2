@@ -43,21 +43,20 @@ def test_csrf_missing_on_mutation_returns_403_typed(app_and_cloud) -> None:  # t
 
 
 def test_published_datasets_calls_cloud(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
-    """``/api/datasets/published`` returns raw cloud rows — NO embedded
-    summary fanout.
+    """``/api/datasets/published`` returns rows with an embedded
+    ``summary`` slot per row (Plan B B2).
 
-    Perf fix (2026-04-26): the previous shape called
-    :meth:`DatasetService.list_published_with_summaries`, which fanned out
-    one synth per row under ``Semaphore(3)`` and could pin the route at
-    90s+ when one row's synth stalled. The frontend lazily hydrates
-    summaries per card via the edge-cached
-    ``/api/datasets/[id]/summary`` route, so the catalog page no longer
-    needs the embedded shape. The list endpoint must NOT touch
-    ``build_summary`` — verified by the absence of a ``summary`` key on
-    each row, plus the fact that we never mock the per-dataset cloud
-    fanout endpoints in this test (a regression to the old shape would
-    surface as a 404-driven row enrichment failure even before respx
-    flagged it).
+    Restore (2026-04-28): the route again calls
+    :meth:`DatasetService.list_published_with_summaries`. With no
+    per-dataset cloud mocks installed, every row's synthesizer hits a
+    404 inside ``_enrich_list_response``, the swallow-and-degrade path
+    fires, and each row gets ``summary: null``. The page still returns
+    200 — that's the contract: per-row failures must not fail the
+    page.
+
+    The per-row ``asyncio.wait_for(5s)`` belt
+    (``PER_ROW_SUMMARY_TIMEOUT_SECONDS``) is what makes restoring the
+    embed safe; see the route docstring for the full history.
     """
     client, router = app_and_cloud
     router.get("/datasets/published").respond(
@@ -68,9 +67,11 @@ def test_published_datasets_calls_cloud(app_and_cloud) -> None:  # type: ignore[
     body = r.json()
     assert body["datasets"][0]["name"] == "Test"
     assert body["datasets"][0]["id"] == "d1"
-    # Perf fix: NO summary fanout on /published. The frontend hydrates
-    # per-card via the edge-cached /api/datasets/[id]/summary route.
-    assert "summary" not in body["datasets"][0]
+    # B2 restore: every row carries a `summary` slot. The slot is `null`
+    # here because no per-dataset cloud mocks are installed — the
+    # synthesizer's per-row 404 handling degrades the row gracefully.
+    assert "summary" in body["datasets"][0]
+    assert body["datasets"][0]["summary"] is None
 
 
 def test_my_datasets_requires_session(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
@@ -680,27 +681,31 @@ def test_required_enrichment_failure_skips_cache(app_and_cloud) -> None:  # type
     assert r2.status_code == 200, r2.json()
 
 
-def test_published_datasets_does_not_fanout_per_row(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
-    """Perf regression guard (2026-04-26): ``/api/datasets/published`` must
-    NOT call any per-dataset cloud endpoint while serving the list.
+def test_published_datasets_per_row_synth_failure_does_not_fail_the_page(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """Perf regression guard (2026-04-28, replacing the 2026-04-26
+    no-fanout guard from PR #97).
 
-    Before the fix, the catalog route fanned out
-    :meth:`DatasetSummaryService.build_summary` per row under
-    ``Semaphore(3)`` with no per-row timeout — a single stuck synth could
-    pin the whole route at 90s+.
+    With the embed restored, the route DOES call
+    :meth:`DatasetService.list_published_with_summaries`. The invariant
+    we now guard is the one that makes restoring the embed safe: when a
+    per-row synthesizer fails (404, timeout, exception), the route must
+    still return 200 with that row's ``summary`` set to ``null``. A
+    single misbehaving row — or all of them — must not fail the page.
 
-    The frontend now lazily hydrates per-card summaries via the
-    edge-cached ``/api/datasets/[id]/summary`` route. The list endpoint
-    must stay cheap: one cloud call (``GET /datasets/published``) + JSON
-    parse + return.
+    This test exercises the all-fail variant: a 3-row catalog response
+    with NO per-dataset cloud mocks installed. Each row's synthesizer
+    therefore hits 404 inside ``_enrich_list_response``, the
+    swallow-and-degrade path fires (see ``catalog.summary_enrichment_failed``
+    log warning), and the response shape is preserved.
 
-    We assert this by passing a multi-row catalog response with no
-    per-dataset mocks installed and confirming:
-      - the route returns 200 (no enrichment failures bubble up),
-      - rows have NO ``summary`` key (no enricher ran), and
-      - the per-row cloud endpoints (``/datasets/DSn``,
-        ``/document-class-counts``, ``/ndiquery``, ``/bulk-fetch``)
-        were never called.
+    The per-row ``asyncio.wait_for(PER_ROW_SUMMARY_TIMEOUT_SECONDS=5.0)``
+    belt in :mod:`backend.services.dataset_service` is what bounds
+    worst-case wall clock at ``ceil(N / 3) * 5s`` and prevents the
+    90s-pin failure mode that originally drove PR #97. This test
+    indirectly validates that path — if the wait_for were removed, this
+    test would hang for far longer than the 30s respx default.
     """
     # ProxyCaches is module-level; other tests may have cached a stale
     # /datasets/published response. Clear before this test so the mock we
@@ -720,20 +725,6 @@ def test_published_datasets_does_not_fanout_per_row(app_and_cloud) -> None:  # t
             ],
         },
     )
-    # Per-dataset routes that the OLD enricher would have hit. We register
-    # them so we can assert call_count == 0 — if the old behavior leaked
-    # back in, these would fire and their counts would be > 0.
-    detail_route = router.get("/datasets/DS42").respond(200, json={"_id": "DS42"})
-    counts_route = router.get(
-        "/datasets/DS42/document-class-counts",
-    ).respond(200, json={"datasetId": "DS42", "totalDocuments": 0, "classCounts": {}})
-    ndiquery_route = router.post("/ndiquery").respond(
-        200,
-        json={"number_matches": 0, "pageSize": 1000, "page": 1, "documents": []},
-    )
-    bulk_route = router.post("/datasets/DS42/documents/bulk-fetch").respond(
-        200, json={"documents": []},
-    )
 
     r = client.get("/api/datasets/published")
     assert r.status_code == 200, r.json()
@@ -745,20 +736,22 @@ def test_published_datasets_does_not_fanout_per_row(app_and_cloud) -> None:  # t
         body["datasets"], ["DS42", "DS43", "DS44"], strict=True,
     ):
         assert row["id"] == expected_id
-        # Critical: NO `summary` key. The frontend hydrates per-card.
-        assert "summary" not in row
+        # B2 restore: every row carries a `summary` slot. With no
+        # per-dataset mocks installed, the synthesizer's 404 path fires
+        # and the slot is `null` — graceful degradation.
+        assert "summary" in row, (
+            "Regression: the embed restore (2026-04-28) requires every "
+            "row to carry a `summary` key, even when null. The frontend "
+            "DatasetCard reads it without an `in` check."
+        )
+        assert row["summary"] is None, (
+            "Per-row failures must degrade to summary: null, not raise."
+        )
 
-    # The list endpoint hit cloud once.
+    # The list endpoint hit cloud once. (Cache repopulation also pulls
+    # this once per test process; the Clear() above means we see a fresh
+    # call_count.)
     assert list_route.call_count == 1
-    # And NONE of the per-dataset enrichment endpoints fired. This is the
-    # perf-fix invariant: zero per-row cloud calls during /published.
-    assert detail_route.call_count == 0, (
-        "Regression: /published is fanning out per-dataset cloud calls again. "
-        "Expected the route to short-circuit at list_published."
-    )
-    assert counts_route.call_count == 0
-    assert ndiquery_route.call_count == 0
-    assert bulk_route.call_count == 0
 
 
 def test_dataset_summary_returns_synthesized_shape(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
