@@ -1326,3 +1326,125 @@ def test_facets_empty_catalog_returns_empty_lists(
     assert body["probeTypes"] == []
     assert body["datasetCount"] == 0
     assert body["schemaVersion"] == "facets:v1"
+
+
+# ---------------------------------------------------------------------------
+# /api/datasets/:id/documents/:docId/data/raw — PIL-bypass passthrough
+# ---------------------------------------------------------------------------
+#
+# The raw endpoint is the companion to /data/image for headerless raw-uint8
+# imageStack files. PIL's Image.open chokes on raw pixel buffers (no PNG/
+# JPEG magic), surfacing as BINARY_DECODE_FAILED. /data/raw streams the
+# bytes verbatim so the frontend can decode using sidecar metadata from
+# the partner imageStack_parameters document.
+
+# The integration tests below exercise the full router → DocumentService →
+# cloud.get_document → BinaryService.get_raw → cloud.download_file pipeline
+# with respx mocking both the cloud doc-detail call and the S3 download.
+
+# Use a 24-hex-char doc id so DocumentService.detail's _MONGO_OBJECT_ID
+# match short-circuits the ndi-id resolver — one fewer cloud call to mock.
+_RAW_DOC_ID = "0123456789abcdef01234567"
+_RAW_S3_URL = "https://ndi-data.s3.us-east-1.amazonaws.com/imagestack/sig"
+
+
+def test_raw_returns_octet_stream_with_correct_bytes(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """Happy path. A document with a single file ref → bytes stream
+    through unchanged with `application/octet-stream` + Content-Length +
+    optional X-NDI-* headers."""
+    client, router = app_and_cloud
+
+    raw_payload = bytes(range(256)) * 16  # 4096 bytes — typical raw-uint8 small frame.
+
+    router.get(f"/datasets/DS1/documents/{_RAW_DOC_ID}").respond(
+        200,
+        json={
+            "id": _RAW_DOC_ID,
+            "className": "imageStack",
+            "files": {
+                "file_info": {
+                    "name": "stack.bin",
+                    "locations": {"location": _RAW_S3_URL},
+                },
+            },
+        },
+    )
+    # Absolute-URL respx route matches whatever the cloud client sends to
+    # the signed S3 URL — same way `cloud.download_file` issues the GET.
+    router.get(_RAW_S3_URL).respond(
+        200,
+        content=raw_payload,
+        headers={"Content-Type": "application/octet-stream"},
+    )
+
+    r = client.get(f"/api/datasets/DS1/documents/{_RAW_DOC_ID}/data/raw")
+    assert r.status_code == 200, r.text
+    assert r.headers.get("content-type", "").startswith("application/octet-stream")
+    assert r.headers.get("content-length") == str(len(raw_payload))
+    assert r.headers.get("x-ndi-doc-id") == _RAW_DOC_ID
+    assert r.headers.get("x-ndi-class-name") == "imageStack"
+    assert r.content == raw_payload
+
+
+def test_raw_returns_404_when_document_has_no_file_refs(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """A document with no `files.file_info` shape raises BinaryNotFound,
+    which the typed-error handler maps to HTTP 404 with code
+    BINARY_NOT_FOUND. No S3 call should be attempted."""
+    client, router = app_and_cloud
+
+    router.get(f"/datasets/DS1/documents/{_RAW_DOC_ID}").respond(
+        200,
+        json={
+            "id": _RAW_DOC_ID,
+            "className": "imageStack",
+            # No files block — represents a partner doc or a malformed
+            # imageStack record.
+            "files": {},
+        },
+    )
+
+    r = client.get(f"/api/datasets/DS1/documents/{_RAW_DOC_ID}/data/raw")
+    assert r.status_code == 404
+    body = r.json()
+    assert body["error"]["code"] == "BINARY_NOT_FOUND"
+
+
+def test_raw_off_allowlist_url_returns_404(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """SSRF defense: if `files.file_info.locations.location` points to a
+    host outside the download allowlist (e.g. AWS metadata service or an
+    arbitrary attacker host), the cloud client raises BinaryNotFound
+    BEFORE issuing any HTTP request. The endpoint inherits this guard
+    automatically — no extra defense needed at the router layer."""
+    client, router = app_and_cloud
+
+    # NOT on the default allowlist (no s3.amazonaws.com / cloudfront.net
+    # suffix). cloud.download_file should reject this before reaching the
+    # network — so respx never sees the request, and we don't register a
+    # mock for it.
+    bad_url = "http://169.254.169.254/latest/meta-data/iam/role"
+    router.get(f"/datasets/DS1/documents/{_RAW_DOC_ID}").respond(
+        200,
+        json={
+            "id": _RAW_DOC_ID,
+            "className": "imageStack",
+            "files": {
+                "file_info": {
+                    "name": "stack.bin",
+                    "locations": {"location": bad_url},
+                },
+            },
+        },
+    )
+
+    r = client.get(f"/api/datasets/DS1/documents/{_RAW_DOC_ID}/data/raw")
+    # BinaryNotFound bubbles up from cloud.download_file → 404 with the
+    # typed code, never a 5xx leak of the SSRF rejection reason.
+    assert r.status_code == 404
+    body = r.json()
+    assert body["error"]["code"] == "BINARY_NOT_FOUND"
