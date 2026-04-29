@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock
 import numpy as np
 import pytest
 
+from backend.clients.ndi_cloud import RangeDownloadResult
 from backend.errors import BinaryNotFound, ValidationFailed
 from backend.services.binary_service import (
     MAX_FITCURVE_SAMPLES,
@@ -21,9 +22,14 @@ from backend.services.binary_service import (
     _file_refs,
     _parse_nbf,
     _parse_vhsb,
+    _range_starts_at_zero,
     _timeseries_error,
     _to_nullable_list,
     _ts_shape_single_channel,
+)
+from backend.services.file_format import (
+    DEFAULT_CONTENT_TYPE,
+    detect_content_type,
 )
 
 
@@ -328,3 +334,276 @@ class TestGetRaw:
         }
         with pytest.raises(BinaryNotFound):
             await svc.get_raw(doc, access_token=None)
+
+
+# ---------------------------------------------------------------------------
+# Magic-byte content-type detection (file_format.detect_content_type)
+# ---------------------------------------------------------------------------
+#
+# The /data/raw endpoint sniffs the first ~12 bytes of the payload against
+# this table to pick a Content-Type. Pinning the table here so any future
+# edit that drops a signature (or changes a MIME) lights up CI.
+
+class TestDetectContentType:
+    def test_mp4_ftyp_at_offset_4(self) -> None:
+        # 4-byte big-endian box size + ASCII ``ftyp`` + brand. Brand bytes
+        # are arbitrary (file-dependent) — the sniff only looks at offsets
+        # 4-7. Pick a realistic ``isom`` brand to mirror real MP4 output.
+        head = b"\x00\x00\x00\x18ftypisom"
+        assert detect_content_type(head) == "video/mp4"
+
+    def test_mp4_with_different_box_size_still_detects(self) -> None:
+        # Different size prefix — should still match because we ignore
+        # bytes 0-3.
+        head = b"\x00\x00\x00\x20ftypmp42extras"
+        assert detect_content_type(head) == "video/mp4"
+
+    def test_png_signature(self) -> None:
+        head = b"\x89PNG\r\n\x1a\nrest"
+        assert detect_content_type(head) == "image/png"
+
+    def test_jpeg_signature(self) -> None:
+        head = b"\xff\xd8\xff\xe0\x00\x10JFIF"
+        assert detect_content_type(head) == "image/jpeg"
+
+    def test_tiff_little_endian(self) -> None:
+        head = b"II*\x00\x08\x00\x00\x00rest"
+        assert detect_content_type(head) == "image/tiff"
+
+    def test_tiff_big_endian(self) -> None:
+        head = b"MM\x00*\x00\x00\x00\x08rest"
+        assert detect_content_type(head) == "image/tiff"
+
+    def test_unknown_falls_back_to_octet_stream(self) -> None:
+        # Plausible raw-uint8 imageStack head — pixel bytes, no magic. This
+        # is the SHIPPED behavior for the imageStack path that motivated
+        # /data/raw in the first place; sniff must not pretend it's
+        # video/mp4 just because random bytes happen to land at offset 4.
+        from backend.services.file_format import MAGIC_PROBE_BYTES
+        head = bytes(range(MAGIC_PROBE_BYTES))
+        assert detect_content_type(head) == DEFAULT_CONTENT_TYPE
+
+    def test_empty_bytes_falls_back(self) -> None:
+        assert detect_content_type(b"") == DEFAULT_CONTENT_TYPE
+
+    def test_short_bytes_below_mp4_threshold(self) -> None:
+        # Only 4 bytes — not enough to test ftyp at offset 4. PNG and JPEG
+        # fit, MP4 doesn't. Falls back to octet-stream.
+        assert detect_content_type(b"\x00\x00\x00\x18") == DEFAULT_CONTENT_TYPE
+
+
+# ---------------------------------------------------------------------------
+# Range header detection in BinaryService (_range_starts_at_zero)
+# ---------------------------------------------------------------------------
+#
+# Used to decide whether the bytes already returned by the upstream cover
+# the file head (so we can magic-byte sniff in place) or whether we have
+# to issue a small head-fetch first. Conservatively false on anything we
+# can't unambiguously parse as starting at byte 0.
+
+class TestRangeStartsAtZero:
+    def test_well_formed_seek_from_start(self) -> None:
+        assert _range_starts_at_zero("bytes=0-99") is True
+
+    def test_well_formed_open_ended_from_start(self) -> None:
+        assert _range_starts_at_zero("bytes=0-") is True
+
+    def test_seek_into_middle(self) -> None:
+        assert _range_starts_at_zero("bytes=100-200") is False
+
+    def test_suffix_range(self) -> None:
+        # ``bytes=-100`` means "last 100 bytes" — definitely not starting
+        # at 0.
+        assert _range_starts_at_zero("bytes=-100") is False
+
+    def test_multi_range_treated_as_not_starting_at_zero(self) -> None:
+        # We don't decode multipart/byteranges; treat as "head fetch needed"
+        # so the sniff is correct.
+        assert _range_starts_at_zero("bytes=0-9, 100-200") is False
+
+    def test_case_insensitive_unit(self) -> None:
+        assert _range_starts_at_zero("BYTES=0-9") is True
+
+    def test_malformed(self) -> None:
+        assert _range_starts_at_zero("garbage") is False
+        assert _range_starts_at_zero("bytes=") is False
+        assert _range_starts_at_zero("bytes=abc-") is False
+
+
+# ---------------------------------------------------------------------------
+# BinaryService.get_raw_response — Range pass-through + Content-Type sniff
+# ---------------------------------------------------------------------------
+#
+# Range support is the seek-enabling feature for HTML5 <video> playback of
+# MP4-encoded imageStack movies. Tests cover:
+#
+#   - happy-path full fetch (no Range) → 200 + sniffed MIME + total_size
+#   - happy-path Range fetch → 206 + Content-Range surfaced + slice content
+#   - mid-file Range with no MP4 magic in slice → head-fetch path runs
+#   - Range upstream 416 → ValidationFailed (typed 400)
+
+_S3_URL = "https://ndi-data.s3.us-east-1.amazonaws.com/imagestack/sig"
+_DOC_WITH_FILE = {
+    "data": {
+        "files": {
+            "file_info": {
+                "name": "stack.mp4",
+                "locations": {"location": _S3_URL},
+            },
+        },
+    },
+}
+
+
+class TestGetRawResponse:
+    async def test_full_fetch_returns_200_with_sniffed_content_type(self) -> None:
+        """No Range header → upstream 200 → router sees Content-Type sniffed
+        from the head (MP4 in this case) and total_size from Content-Length."""
+        cloud = AsyncMock()
+        full_payload = b"\x00\x00\x00\x18ftypisom" + (b"\x00" * 200)
+        cloud.download_file_range.return_value = RangeDownloadResult(
+            content=full_payload,
+            status_code=200,
+            content_range=None,
+            total_size=len(full_payload),
+        )
+        svc = BinaryService(cloud=cloud)
+        out = await svc.get_raw_response(_DOC_WITH_FILE, access_token=None)
+        assert out.status_code == 200
+        assert out.content == full_payload
+        assert out.content_type == "video/mp4"
+        assert out.content_range is None
+        assert out.total_size == len(full_payload)
+        # Single upstream call (the sniff piggybacks on the bytes in hand).
+        assert cloud.download_file_range.await_count == 1
+        cloud.download_file_range.assert_awaited_with(
+            _S3_URL, access_token=None, range_header=None,
+        )
+
+    async def test_range_starting_at_zero_uses_inplace_sniff(self) -> None:
+        """``bytes=0-99`` → upstream 206 with the head IN the slice → sniff
+        works without an extra round trip."""
+        cloud = AsyncMock()
+        slice_payload = b"\x00\x00\x00\x18ftypisom" + b"X" * 92  # 100 bytes total
+        cloud.download_file_range.return_value = RangeDownloadResult(
+            content=slice_payload,
+            status_code=206,
+            content_range=f"bytes 0-99/{50_000}",
+            total_size=50_000,
+        )
+        svc = BinaryService(cloud=cloud)
+        out = await svc.get_raw_response(
+            _DOC_WITH_FILE, access_token=None, range_header="bytes=0-99",
+        )
+        assert out.status_code == 206
+        assert out.content == slice_payload
+        assert out.content_type == "video/mp4"
+        assert out.content_range == "bytes 0-99/50000"
+        assert out.total_size == 50_000
+        # Still one upstream call — head was inside the slice.
+        assert cloud.download_file_range.await_count == 1
+
+    async def test_mid_file_range_triggers_head_fetch_for_sniff(self) -> None:
+        """``bytes=10000-20000`` → slice doesn't contain the file head, so
+        the service issues a small ``bytes=0-11`` fetch to sniff the magic
+        bytes. Total upstream calls: 2 (the slice + the head)."""
+        cloud = AsyncMock()
+        slice_payload = b"X" * 1024
+        head_payload = b"\x00\x00\x00\x18ftyp"  # 8 bytes — enough for MP4 sniff
+        # First call (the actual range request) returns the slice; second
+        # call (the head fetch for sniffing) returns the file head.
+        cloud.download_file_range.side_effect = [
+            RangeDownloadResult(
+                content=slice_payload,
+                status_code=206,
+                content_range=f"bytes 10000-11023/{50_000}",
+                total_size=50_000,
+            ),
+            RangeDownloadResult(
+                content=head_payload,
+                status_code=206,
+                content_range=f"bytes 0-11/{50_000}",
+                total_size=50_000,
+            ),
+        ]
+        svc = BinaryService(cloud=cloud)
+        out = await svc.get_raw_response(
+            _DOC_WITH_FILE,
+            access_token=None,
+            range_header="bytes=10000-11023",
+        )
+        assert out.status_code == 206
+        assert out.content == slice_payload
+        # Sniff used the head fetch, not the slice.
+        assert out.content_type == "video/mp4"
+        assert cloud.download_file_range.await_count == 2
+
+    async def test_416_propagates_as_validation_failed(self) -> None:
+        """Upstream 416 (Requested Range Not Satisfiable) bubbles up from
+        the cloud client as ValidationFailed → router returns typed 400."""
+        cloud = AsyncMock()
+        cloud.download_file_range.side_effect = ValidationFailed(
+            "Requested byte range is not satisfiable.",
+            details={"upstream_status": 416},
+        )
+        svc = BinaryService(cloud=cloud)
+        with pytest.raises(ValidationFailed):
+            await svc.get_raw_response(
+                _DOC_WITH_FILE,
+                access_token=None,
+                range_header="bytes=999999999-",
+            )
+
+    async def test_no_file_refs_raises_binary_not_found(self) -> None:
+        """Same contract as legacy get_raw — empty file refs raise
+        BinaryNotFound BEFORE any upstream call."""
+        cloud = AsyncMock()
+        svc = BinaryService(cloud=cloud)
+        with pytest.raises(BinaryNotFound):
+            await svc.get_raw_response(
+                {"data": {"files": {}}}, access_token=None, range_header=None,
+            )
+        cloud.download_file_range.assert_not_called()
+
+    async def test_unknown_magic_falls_back_to_octet_stream(self) -> None:
+        """Headerless raw-uint8 imageStack bytes (the original motivating use
+        case for /data/raw) MUST still surface as application/octet-stream so
+        the browser doesn't try to play it as video."""
+        cloud = AsyncMock()
+        full_payload = bytes(range(256)) * 4  # no magic — random uint8 bytes
+        cloud.download_file_range.return_value = RangeDownloadResult(
+            content=full_payload,
+            status_code=200,
+            content_range=None,
+            total_size=len(full_payload),
+        )
+        svc = BinaryService(cloud=cloud)
+        out = await svc.get_raw_response(_DOC_WITH_FILE, access_token=None)
+        assert out.content_type == "application/octet-stream"
+
+    async def test_head_fetch_failure_degrades_to_octet_stream(self) -> None:
+        """If the magic-byte head fetch fails (network blip), we don't 502
+        the whole video — fall back to application/octet-stream and let the
+        browser decide. Best-effort sniff."""
+        cloud = AsyncMock()
+        slice_payload = b"X" * 1024
+        cloud.download_file_range.side_effect = [
+            RangeDownloadResult(
+                content=slice_payload,
+                status_code=206,
+                content_range=f"bytes 10000-11023/{50_000}",
+                total_size=50_000,
+            ),
+            BinaryNotFound(),  # head fetch fails
+        ]
+        svc = BinaryService(cloud=cloud)
+        out = await svc.get_raw_response(
+            _DOC_WITH_FILE,
+            access_token=None,
+            range_header="bytes=10000-11023",
+        )
+        # The actual range request still succeeded — only the type sniff
+        # was best-effort. Content flows through, type defaults.
+        assert out.status_code == 206
+        assert out.content == slice_payload
+        assert out.content_type == "application/octet-stream"

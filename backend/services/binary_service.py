@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from ..clients.ndi_cloud import NdiCloudClient
 from ..errors import BinaryDecodeFailed, BinaryNotFound, ValidationFailed
 from ..observability.logging import get_logger
+from .file_format import MAGIC_PROBE_BYTES, detect_content_type
 
 # numpy + PIL are only needed when a request actually decodes image or
 # timeseries binary — they're imported lazily inside the relevant
@@ -58,6 +59,33 @@ class FileRef:
     url: str
     content_type: str | None
     filename: str | None
+
+
+@dataclass(slots=True)
+class RawBinaryResponse:
+    """Result of a (possibly Range-aware) raw passthrough fetch.
+
+    Returned by :meth:`BinaryService.get_raw` so the router can build the
+    correct ``Response`` (200 vs 206) without re-doing magic-byte sniffing
+    or Content-Range bookkeeping.
+
+    - ``content``: bytes to ship in the response body. The slice (for 206)
+      or the full body (for 200).
+    - ``content_type``: sniffed via :func:`file_format.detect_content_type`
+      against the head of the underlying object. Stable across 200 and 206
+      for the same URL.
+    - ``status_code``: 200 (no Range or upstream ignored Range) or 206
+      (Partial Content — Range honored).
+    - ``content_range``: the ``Content-Range`` value to echo back, or None
+      for non-Range responses.
+    - ``total_size``: total file size when known. Forwarded to the router so
+      it can set ``Content-Length`` correctly on both 200 and 206.
+    """
+    content: bytes
+    content_type: str
+    status_code: int
+    content_range: str | None
+    total_size: int | None
 
 
 class BinaryService:
@@ -173,6 +201,10 @@ class BinaryService:
         JPEG magic, just pixel bytes with sidecar metadata in a separate
         ``imageStack_parameters`` document the frontend fetches itself).
 
+        Legacy bytes-only entrypoint, retained for callers that don't need
+        Range support or Content-Type sniffing. New callers (the ``/data/raw``
+        router) should use :meth:`get_raw_response` instead.
+
         Frontend is responsible for:
           - Knowing this document is actually a raw-bytes blob (we don't
             validate the bytes look like an imageStack — a non-raw blob
@@ -185,6 +217,97 @@ class BinaryService:
         if not refs:
             raise BinaryNotFound()
         return await self.cloud.download_file(refs[0].url, access_token=access_token)
+
+    async def get_raw_response(
+        self,
+        document: dict[str, Any],
+        *,
+        access_token: str | None,
+        range_header: str | None = None,
+    ) -> RawBinaryResponse:
+        """Range-aware passthrough fetch with magic-byte Content-Type sniff.
+
+        Use this from the ``/data/raw`` router when you need to:
+
+        - Honor an inbound ``Range: bytes=START-END`` header so the browser's
+          ``<video>`` element can seek MP4-encoded imageStack movies, or
+        - Set a content-aware MIME type (``video/mp4``, ``image/png``,
+          ``image/jpeg``, ``image/tiff``) instead of always returning
+          ``application/octet-stream``.
+
+        I/O pattern: with no ``range_header``, this is ONE upstream GET
+        (200, full body). With a ``range_header``, this is also ONE upstream
+        GET — the header is forwarded to S3, which slices server-side and
+        returns 206. Magic-byte detection requires the first ~12 bytes of the
+        FILE (not the slice), so on a Range request that doesn't already
+        start at offset 0 we pay an additional small head-fetch. That fetch
+        only runs in the seek path; the normal first-load (Range absent OR
+        ``bytes=0-...``) sniffs from the bytes already in hand. On the cold
+        seek case the head-fetch is bounded to :data:`MAGIC_PROBE_BYTES`
+        (12 bytes — a single packet) and uses the same allowlist-checked
+        download method, so SSRF posture is preserved.
+
+        Why a separate method (not flags on :meth:`get_raw`)? Backward
+        compatibility — :meth:`get_raw` returns ``bytes`` and is used by
+        unit tests + frontend code paths that don't want the Range/MIME
+        complexity. New callers opt in.
+
+        Errors flow through the existing typed-error chain:
+
+        - ``BinaryNotFound`` if the document has no file refs, the URL is
+          off-allowlist, the scheme is invalid, or the upstream 404s.
+        - ``ValidationFailed`` if the upstream returns 416 (Requested Range
+          Not Satisfiable). RFC 7233-aligned and surfaced as a typed 400.
+        - ``CloudUnreachable`` / ``CloudTimeout`` on transport failures.
+        """
+        refs = _file_refs(document)
+        if not refs:
+            raise BinaryNotFound()
+        url = refs[0].url
+
+        result = await self.cloud.download_file_range(
+            url,
+            access_token=access_token,
+            range_header=range_header,
+        )
+
+        # Sniff Content-Type from the FILE head, not the slice. If this
+        # response IS the head (no Range, OR Range starts at offset 0), we
+        # can sniff in place. Otherwise pay the small head-fetch.
+        head_bytes: bytes
+        if range_header is None or _range_starts_at_zero(range_header):
+            head_bytes = result.content[:MAGIC_PROBE_BYTES]
+        else:
+            head_bytes = await self._fetch_head_bytes(url, access_token=access_token)
+
+        content_type = detect_content_type(head_bytes)
+        return RawBinaryResponse(
+            content=result.content,
+            content_type=content_type,
+            status_code=result.status_code,
+            content_range=result.content_range,
+            total_size=result.total_size,
+        )
+
+    async def _fetch_head_bytes(
+        self, url: str, *, access_token: str | None,
+    ) -> bytes:
+        """Small Range fetch for magic-byte sniffing on a seek-into-the-middle
+        request. Returns at most :data:`MAGIC_PROBE_BYTES` bytes from offset
+        zero. Failures degrade gracefully — we return ``b""`` so the caller
+        falls back to ``application/octet-stream`` rather than 502'ing the
+        whole video stream because the type sniff was best-effort.
+        """
+        try:
+            head = await self.cloud.download_file_range(
+                url,
+                access_token=access_token,
+                range_header=f"bytes=0-{MAGIC_PROBE_BYTES - 1}",
+            )
+            return head.content[:MAGIC_PROBE_BYTES]
+        except Exception as e:
+            log.info("binary.head_sniff_failed", error=str(e))
+            return b""
 
     async def get_video_url(self, document: dict[str, Any]) -> dict[str, Any]:
         refs = _file_refs(document)
@@ -239,6 +362,39 @@ _CLASS_KIND_MAP: dict[str, BinaryKind] = {
 
 def _kind_from_class_name(class_name: str) -> BinaryKind | None:
     return _CLASS_KIND_MAP.get(class_name)
+
+
+def _range_starts_at_zero(range_header: str) -> bool:
+    """Return True iff ``range_header`` is a single byte range starting at 0.
+
+    Used by :meth:`BinaryService.get_raw_response` to decide whether the
+    bytes already in hand cover the file head (so we can magic-byte sniff
+    in place) or whether we need a separate head-fetch. We're conservative:
+    anything that doesn't unambiguously begin at byte 0 returns False.
+
+    Forms recognized:
+      - ``bytes=0-N``     → True (well-formed seek-from-start)
+      - ``bytes=0-``      → True (open-ended from byte 0)
+      - ``bytes=N-M`` with N != 0 → False
+      - multi-range (``bytes=0-9, 100-200``) → False (we don't decode multipart)
+      - malformed → False (caller will pay the head fetch)
+    """
+    h = range_header.strip().lower()
+    if not h.startswith("bytes="):
+        return False
+    spec = h[len("bytes="):].strip()
+    # Multi-range responses come back as multipart/byteranges — we don't
+    # support that path; treat as "not starting at zero" so we head-fetch
+    # for the sniff and let the upstream decide what to actually return.
+    if "," in spec:
+        return False
+    dash = spec.find("-")
+    if dash <= 0:
+        # ``-N`` (suffix range) — last N bytes; doesn't start at 0.
+        # Or no dash at all — malformed.
+        return False
+    start_str = spec[:dash].strip()
+    return start_str == "0"
 
 
 def _kind_from_file_meta(filename: str | None, content_type: str | None) -> BinaryKind:
