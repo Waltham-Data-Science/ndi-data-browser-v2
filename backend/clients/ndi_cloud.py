@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import random
 import time
+from dataclasses import dataclass
 from typing import Any, cast
 
 import httpx
@@ -61,6 +62,29 @@ class CloudAuthResult(BaseModel):
     access_token: str
     expires_in_seconds: int = 3600
     user: dict[str, Any] | None = None
+
+
+@dataclass(slots=True)
+class RangeDownloadResult:
+    """Result of a Range-aware S3 download.
+
+    Returned by :meth:`NdiCloudClient.download_file_range`.
+
+    - ``content``: the bytes the upstream returned. For a 206, this is the
+      requested slice; for a 200, the full body.
+    - ``status_code``: 200 (full body, range ignored or absent) or 206
+      (Partial Content). 416 is propagated as :class:`ValidationFailed`.
+    - ``content_range``: the ``Content-Range`` header from S3, or None if
+      none. Format ``bytes START-END/TOTAL`` per RFC 7233 §4.2.
+    - ``total_size``: total file size in bytes if S3 reported it (via
+      ``Content-Range`` total or, for 200, the ``Content-Length`` header).
+      ``None`` if upstream omitted both — the router must decide whether to
+      proceed without an authoritative total or 502.
+    """
+    content: bytes
+    status_code: int
+    content_range: str | None
+    total_size: int | None
 
 
 class NdiCloudClient:
@@ -767,6 +791,107 @@ class NdiCloudClient:
             self.settings.cloud_base_url,
         )
 
+    async def download_file_range(
+        self,
+        url: str,
+        *,
+        access_token: str | None = None,
+        range_header: str | None = None,
+    ) -> RangeDownloadResult:
+        """Download a signed file URL (S3 or similar) with optional ``Range``
+        pass-through for HTTP-streaming clients.
+
+        Companion to :meth:`download_file`. Use this when you need to forward
+        a browser's ``Range: bytes=START-END`` request to S3 (e.g. for
+        ``<video>`` seek on MP4-encoded imageStack movies). S3 supports Range
+        on signed-URL GETs natively, so passing the header through avoids
+        materializing the full file in the FastAPI worker just to slice it.
+
+        Behavior:
+
+        - When ``range_header`` is None, behaves like :meth:`download_file`
+          (returns the full body, status 200, ``content_range=None``,
+          ``total_size`` from ``Content-Length`` if upstream reports it).
+        - When ``range_header`` is provided, it is forwarded verbatim to S3.
+          A successful S3 response is 206 with ``Content-Range``; we surface
+          both. If S3 returns 200 (Range ignored - full body), we surface 200
+          and the caller decides whether to slice client-side or ship the
+          whole body.
+        - ``416 Requested Range Not Satisfiable`` from S3 is mapped to
+          :class:`ValidationFailed` (HTTP 400 in our typed-error catalog) so
+          the browser learns the range was bad without leaking the SSRF /
+          allowlist details.
+
+        Same SSRF / allowlist guards as :meth:`download_file`: invalid
+        scheme or off-allowlist host raises :class:`BinaryNotFound` BEFORE
+        any network I/O.
+        """
+        self._guard_download_url(url)
+        headers = self._build_download_headers(
+            access_token=access_token, range_header=range_header,
+        )
+        try:
+            resp = await self.client.get(url, headers=headers, timeout=60.0)
+        except httpx.TimeoutException as e:
+            raise CloudTimeout("Binary download timed out.") from e
+        except httpx.NetworkError as e:
+            raise CloudUnreachable("Could not reach binary storage.") from e
+        _raise_for_download_status(resp)
+
+        content_range = resp.headers.get("content-range") or resp.headers.get("Content-Range")
+        total_size = _extract_total_size(content_range, resp)
+        return RangeDownloadResult(
+            content=resp.content,
+            status_code=resp.status_code,
+            content_range=content_range,
+            total_size=total_size,
+        )
+
+    def _guard_download_url(self, url: str) -> None:
+        """SSRF / allowlist gate. Raises :class:`BinaryNotFound` on invalid
+        scheme or off-allowlist host BEFORE any network I/O. Extracted so
+        :meth:`download_file` and :meth:`download_file_range` share one
+        codepath."""
+        scheme = ""
+        try:
+            from urllib.parse import urlparse
+            scheme = (urlparse(url).scheme or "").lower()
+        except Exception:
+            scheme = ""
+        if scheme not in {"http", "https"}:
+            log.warning(
+                "cloud.download.invalid_scheme",
+                scheme=scheme,
+                url_pattern=url_pattern_for_log(url),
+            )
+            raise BinaryNotFound()
+        host = extract_host(url)
+        allowlist = self._runtime_download_allowlist()
+        if not host or not host_matches_allowlist(host, allowlist):
+            log.warning(
+                "cloud.download.off_allowlist_host",
+                host=host,
+                url_pattern=url_pattern_for_log(url),
+            )
+            raise BinaryNotFound()
+
+    @staticmethod
+    def _build_download_headers(
+        *, access_token: str | None, range_header: str | None,
+    ) -> dict[str, str]:
+        """Outbound headers for an S3 download. Range requests force
+        ``Accept-Encoding: identity`` so the slice is byte-accurate; non-Range
+        requests can gzip (we don't slice the body)."""
+        headers: dict[str, str] = {}
+        if range_header:
+            headers["Range"] = range_header
+            headers["Accept-Encoding"] = "identity"
+        else:
+            headers["Accept-Encoding"] = "gzip"
+        if access_token:
+            headers["Authorization"] = f"Bearer {access_token}"
+        return headers
+
     async def download_file(
         self, url: str, *, access_token: str | None = None,
     ) -> bytes:
@@ -834,6 +959,45 @@ class NdiCloudClient:
         if resp.status_code >= 400:
             raise CloudInternalError(f"Binary download failed (HTTP {resp.status_code})")
         return resp.content
+
+
+def _raise_for_download_status(resp: httpx.Response) -> None:
+    """Translate an S3 download response status into typed exceptions.
+
+    Used by both :meth:`NdiCloudClient.download_file_range` and (potentially)
+    :meth:`NdiCloudClient.download_file`. Centralized so 416 → ValidationFailed
+    mapping doesn't drift between callers.
+    """
+    if resp.status_code == 404:
+        raise BinaryNotFound()
+    if resp.status_code == 416:
+        # RFC 7233 §4.4 — Requested Range Not Satisfiable.
+        raise ValidationFailed(
+            "Requested byte range is not satisfiable.",
+            details={"upstream_status": 416},
+        )
+    if resp.status_code >= 400 and resp.status_code not in (200, 206):
+        raise CloudInternalError(f"Binary download failed (HTTP {resp.status_code})")
+
+
+def _extract_total_size(content_range: str | None, resp: httpx.Response) -> int | None:
+    """Pull the authoritative total file size from an S3 download response.
+
+    Prefers ``Content-Range: bytes START-END/TOTAL`` (set on 206 responses).
+    Falls back to ``Content-Length`` on a 200 (where it IS the total size).
+    Returns ``None`` if neither header carries a usable number.
+    """
+    if content_range:
+        slash = content_range.rfind("/")
+        if slash >= 0:
+            tail = content_range[slash + 1:].strip()
+            if tail.isdigit():
+                return int(tail)
+    if resp.status_code == 200:
+        cl = resp.headers.get("content-length") or resp.headers.get("Content-Length")
+        if cl and cl.isdigit():
+            return int(cl)
+    return None
 
 
 def _auth_from_cloud(data: dict[str, Any]) -> CloudAuthResult:

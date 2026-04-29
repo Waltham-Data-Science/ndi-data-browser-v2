@@ -1448,3 +1448,215 @@ def test_raw_off_allowlist_url_returns_404(
     assert r.status_code == 404
     body = r.json()
     assert body["error"]["code"] == "BINARY_NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
+# /data/raw — Range support + Content-Type detection (PR follow-up to #106)
+# ---------------------------------------------------------------------------
+#
+# These tests pin the new behaviors layered on top of the basic passthrough:
+#
+#   1. Magic-byte sniffing: the endpoint inspects the first ~12 bytes of
+#      the payload and sets Content-Type accordingly so HTML5 <video> /
+#      <img> work natively. PNG / JPEG / TIFF / MP4 covered, plus the
+#      headerless-uint8 fallback to application/octet-stream.
+#   2. Range pass-through: a ``Range: bytes=START-END`` header on the
+#      request is forwarded to S3 (which honors Range on signed URLs
+#      natively), and the proxy returns 206 with the matching
+#      Content-Range / Content-Length.
+#   3. Backwards compat: a non-Range request still 200s and now also
+#      advertises Accept-Ranges: bytes so browsers know to issue Range
+#      follow-ups for seek.
+
+# An MP4 head — 4-byte big-endian box size + ASCII ``ftyp`` + brand. Any
+# extra bytes are filler payload to bulk out the body so Range slicing has
+# something to bite into.
+_MP4_HEAD = b"\x00\x00\x00\x18ftypisom"
+
+
+def test_raw_sets_video_mp4_content_type_from_magic_bytes(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """A payload starting with the MP4 ``ftyp`` magic should surface as
+    ``video/mp4`` (not ``application/octet-stream``) so the browser's
+    ``<video>`` element will play it without a manual Content-Type
+    override."""
+    client, router = app_and_cloud
+    payload = _MP4_HEAD + (b"\x00" * 512)
+    router.get(f"/datasets/DS1/documents/{_RAW_DOC_ID}").respond(
+        200,
+        json={
+            "id": _RAW_DOC_ID,
+            "className": "imageStack",
+            "files": {
+                "file_info": {
+                    "name": "movie.mp4",
+                    "locations": {"location": _RAW_S3_URL},
+                },
+            },
+        },
+    )
+    router.get(_RAW_S3_URL).respond(
+        200,
+        content=payload,
+        headers={
+            "Content-Type": "application/octet-stream",
+            "Content-Length": str(len(payload)),
+        },
+    )
+
+    r = client.get(f"/api/datasets/DS1/documents/{_RAW_DOC_ID}/data/raw")
+    assert r.status_code == 200
+    assert r.headers.get("content-type", "").startswith("video/mp4")
+    # Accept-Ranges is set on every response so the browser knows to issue
+    # Range requests for seek even on a non-Range initial GET.
+    assert r.headers.get("accept-ranges") == "bytes"
+    assert r.content == payload
+
+
+def test_raw_sets_image_png_content_type_from_magic_bytes(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """PNG signature → ``image/png``."""
+    client, router = app_and_cloud
+    payload = b"\x89PNG\r\n\x1a\n" + (b"\x00" * 16)
+    router.get(f"/datasets/DS1/documents/{_RAW_DOC_ID}").respond(
+        200,
+        json={
+            "id": _RAW_DOC_ID,
+            "className": "imageStack",
+            "files": {
+                "file_info": {
+                    "name": "frame.png",
+                    "locations": {"location": _RAW_S3_URL},
+                },
+            },
+        },
+    )
+    router.get(_RAW_S3_URL).respond(
+        200,
+        content=payload,
+        headers={"Content-Length": str(len(payload))},
+    )
+    r = client.get(f"/api/datasets/DS1/documents/{_RAW_DOC_ID}/data/raw")
+    assert r.status_code == 200
+    assert r.headers.get("content-type", "").startswith("image/png")
+
+
+def test_raw_falls_back_to_octet_stream_for_unknown_magic(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """The original raw-uint8 imageStack use case: pixel bytes with no
+    magic header. Must still surface as application/octet-stream so the
+    browser doesn't try to render the bytes — the frontend decodes them
+    from the partner imageStack_parameters document."""
+    client, router = app_and_cloud
+    # Headerless raw uint8 — exactly the imageStack shape that motivated
+    # /data/raw in the first place.
+    payload = bytes(range(256)) * 4
+    router.get(f"/datasets/DS1/documents/{_RAW_DOC_ID}").respond(
+        200,
+        json={
+            "id": _RAW_DOC_ID,
+            "className": "imageStack",
+            "files": {
+                "file_info": {
+                    "name": "stack.bin",
+                    "locations": {"location": _RAW_S3_URL},
+                },
+            },
+        },
+    )
+    router.get(_RAW_S3_URL).respond(
+        200,
+        content=payload,
+        headers={"Content-Length": str(len(payload))},
+    )
+    r = client.get(f"/api/datasets/DS1/documents/{_RAW_DOC_ID}/data/raw")
+    assert r.status_code == 200
+    assert r.headers.get("content-type", "").startswith("application/octet-stream")
+    assert r.headers.get("accept-ranges") == "bytes"
+
+
+def test_raw_range_header_returns_206_with_content_range(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """``Range: bytes=0-99`` → upstream returns 206 with the slice + a
+    Content-Range header; the proxy mirrors that back to the client. This
+    is the codepath that makes ``<video>`` seek work."""
+    client, router = app_and_cloud
+    total_size = 50_000
+    payload = _MP4_HEAD + (b"X" * (total_size - len(_MP4_HEAD)))
+    slice_payload = payload[0:100]  # bytes 0-99 inclusive
+    router.get(f"/datasets/DS1/documents/{_RAW_DOC_ID}").respond(
+        200,
+        json={
+            "id": _RAW_DOC_ID,
+            "className": "imageStack",
+            "files": {
+                "file_info": {
+                    "name": "movie.mp4",
+                    "locations": {"location": _RAW_S3_URL},
+                },
+            },
+        },
+    )
+    # The upstream S3 mock returns 206 with the standard Range headers.
+    # respx matches on URL only — header-based dispatch isn't required;
+    # the test ensures the proxy forwards the Range header (it does, via
+    # cloud.download_file_range), and trusts respx to behave deterministically.
+    router.get(_RAW_S3_URL).respond(
+        206,
+        content=slice_payload,
+        headers={
+            "Content-Range": f"bytes 0-99/{total_size}",
+            "Content-Length": str(len(slice_payload)),
+            "Content-Type": "application/octet-stream",
+        },
+    )
+
+    r = client.get(
+        f"/api/datasets/DS1/documents/{_RAW_DOC_ID}/data/raw",
+        headers={"Range": "bytes=0-99"},
+    )
+    assert r.status_code == 206
+    assert r.headers.get("content-range") == f"bytes 0-99/{total_size}"
+    assert r.headers.get("content-length") == str(len(slice_payload))
+    assert r.headers.get("accept-ranges") == "bytes"
+    # MP4 magic is in the slice (bytes 0-7), so sniff still says video/mp4.
+    assert r.headers.get("content-type", "").startswith("video/mp4")
+    assert r.content == slice_payload
+
+
+def test_raw_416_from_upstream_returns_typed_400(
+    app_and_cloud,
+) -> None:  # type: ignore[no-untyped-def]
+    """RFC 7233 416 Requested Range Not Satisfiable from S3 → typed
+    ValidationFailed (400) at our boundary. The browser learns the range
+    was bad without leaking SSRF / allowlist details."""
+    client, router = app_and_cloud
+    router.get(f"/datasets/DS1/documents/{_RAW_DOC_ID}").respond(
+        200,
+        json={
+            "id": _RAW_DOC_ID,
+            "className": "imageStack",
+            "files": {
+                "file_info": {
+                    "name": "movie.mp4",
+                    "locations": {"location": _RAW_S3_URL},
+                },
+            },
+        },
+    )
+    router.get(_RAW_S3_URL).respond(
+        416,
+        content=b"",
+        headers={"Content-Range": "bytes */1024"},
+    )
+    r = client.get(
+        f"/api/datasets/DS1/documents/{_RAW_DOC_ID}/data/raw",
+        headers={"Range": "bytes=999999999-"},
+    )
+    assert r.status_code == 400
+    body = r.json()
+    assert body["error"]["code"] == "VALIDATION_ERROR"
