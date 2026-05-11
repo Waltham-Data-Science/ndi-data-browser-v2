@@ -303,8 +303,21 @@ def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, i
     #
     # Outermost (first-added): MetricsMiddleware — measures
     # end-to-end latency including every other middleware.
-    # Then:  SecurityHeaders → RequestId → CORS → CacheControl → CSRF
-    # → handler.
+    # Then on the request path:
+    #   MetricsMiddleware
+    #   → SecurityHeaders
+    #   → RequestId
+    #   → CORS
+    #   → CacheControl
+    #   → OriginEnforcement   ← rejects non-allowlisted Origin first
+    #   → CsrfMiddleware       ← then double-submit CSRF token check
+    #   → handler
+    #
+    # OriginEnforcement is added BEFORE CsrfMiddleware so it wraps
+    # outer relative to CSRF (= runs FIRST in the request flow). A
+    # non-allowlisted Origin gets the typed FORBIDDEN reject before
+    # the CSRF check fires, which keeps the error codes informative
+    # (origin failure surfaces distinctly from CSRF token failure).
     #
     # CacheControl runs AFTER CSRF so the response body's ETag is
     # computed over the final payload. It runs BEFORE SecurityHeaders
