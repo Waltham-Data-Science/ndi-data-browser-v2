@@ -263,10 +263,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
                     await task
         await cloud_client.close()
         await ontology_service.close()
+        # `redis.asyncio.Redis.aclose()` is the correct async-context
+        # close. The previous fallback to `redis.close()` was broken:
+        # in `redis-py>=5.x` the sync `Redis.close()` is a no-op alias
+        # retained for backward-compat that returns a coroutine WITHOUT
+        # awaiting it, leaking the underlying connection pool at
+        # shutdown. Log + move on if aclose raises; do NOT call the
+        # sync `.close()` as a fallback.
         try:
             await redis.aclose()
-        except Exception:
-            await redis.close()
+        except Exception as exc:
+            log.warning("app.shutdown.redis_close_failed", error=str(exc))
         log.info("app.shutdown")
 
 
@@ -296,8 +303,21 @@ def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, i
     #
     # Outermost (first-added): MetricsMiddleware — measures
     # end-to-end latency including every other middleware.
-    # Then:  SecurityHeaders → RequestId → CORS → CacheControl → CSRF
-    # → handler.
+    # Then on the request path:
+    #   MetricsMiddleware
+    #   → SecurityHeaders
+    #   → RequestId
+    #   → CORS
+    #   → CacheControl
+    #   → OriginEnforcement   ← rejects non-allowlisted Origin first
+    #   → CsrfMiddleware       ← then double-submit CSRF token check
+    #   → handler
+    #
+    # OriginEnforcement is added BEFORE CsrfMiddleware so it wraps
+    # outer relative to CSRF (= runs FIRST in the request flow). A
+    # non-allowlisted Origin gets the typed FORBIDDEN reject before
+    # the CSRF check fires, which keeps the error codes informative
+    # (origin failure surfaces distinctly from CSRF token failure).
     #
     # CacheControl runs AFTER CSRF so the response body's ETag is
     # computed over the final payload. It runs BEFORE SecurityHeaders
