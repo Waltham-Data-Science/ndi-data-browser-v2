@@ -96,7 +96,13 @@ async def do_login(
         is_admin=is_admin,
     )
     login_attempts_total.labels(outcome="success").inc()
-    log.info("auth.login.success", session_id=session.session_id)
+    # Log only the first 8 chars of the session id. Anyone with read
+    # access to Railway logs (the whole team) could otherwise replay
+    # a live session by setting the `session` cookie to a full id
+    # observed in a log line — the session id IS the secret. Other
+    # callsites (`session.py:202`, `session.py:214`) already
+    # truncate; this success path was the holdout.
+    log.info("auth.login.success", session_id=session.session_id[:8])
 
     # Session cookie — HttpOnly; Secure + Domain derived from environment.
     attrs = cookie_attrs(settings)
