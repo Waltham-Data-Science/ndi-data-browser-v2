@@ -263,10 +263,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
                     await task
         await cloud_client.close()
         await ontology_service.close()
+        # `redis.asyncio.Redis.aclose()` is the correct async-context
+        # close. The previous fallback to `redis.close()` was broken:
+        # in `redis-py>=5.x` the sync `Redis.close()` is a no-op alias
+        # retained for backward-compat that returns a coroutine WITHOUT
+        # awaiting it, leaking the underlying connection pool at
+        # shutdown. Log + move on if aclose raises; do NOT call the
+        # sync `.close()` as a fallback.
         try:
             await redis.aclose()
-        except Exception:
-            await redis.close()
+        except Exception as exc:
+            log.warning("app.shutdown.redis_close_failed", error=str(exc))
         log.info("app.shutdown")
 
 
