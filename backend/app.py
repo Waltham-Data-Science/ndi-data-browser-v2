@@ -4,7 +4,7 @@ Wires:
 - lifespan: start/stop cloud client, Redis pool, ontology cache
 - middleware: request-id → security-headers → metrics → CORS → CSRF
 - exception handler: BrowserError → stable JSON shape
-- routers: health, auth, datasets, documents, tables, query, binary, ontology, visualize
+- routers: health, auth, datasets, documents, tables, query, binary, signal, ontology, visualize
 - static: serves frontend build from ./frontend_dist if present
 """
 from __future__ import annotations
@@ -35,7 +35,18 @@ from .middleware.request_id import RequestIdMiddleware
 from .middleware.security_headers import SecurityHeadersMiddleware
 from .observability.logging import configure_logging, get_logger, request_id_ctx
 from .observability.tracing import init_tracing
-from .routers import auth, binary, datasets, documents, health, ontology, query, tables, visualize
+from .routers import (
+    auth,
+    binary,
+    datasets,
+    documents,
+    health,
+    ontology,
+    query,
+    signal,
+    tables,
+    visualize,
+)
 from .services.ontology_cache import OntologyCache
 from .services.ontology_service import OntologyService
 from .static_files import safe_static_path
@@ -412,6 +423,7 @@ def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, i
     app.include_router(query.router)
     app.include_router(query.facets_router)
     app.include_router(binary.router)
+    app.include_router(signal.router)
     app.include_router(ontology.router)
     app.include_router(visualize.router)
 
