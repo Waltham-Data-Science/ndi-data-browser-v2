@@ -16,6 +16,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg62-turbo libtiff6 curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -26,6 +27,25 @@ RUN mkdir -p /tmp/ndb && chown -R ndb:ndb /tmp/ndb /app
 
 COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install -r backend/requirements.txt
+
+# --- NDI-python integration (Phase A) ---------------------------------------
+# NDI-python and its git-sourced kin (did, ndr, vhlab-toolbox-python,
+# ndi-compress) are installed with `--no-deps` to skip matplotlib (~50-70 MB)
+# and opencv-python-headless (~80 MB) which they declare but our backend never
+# imports. The runtime deps we DO need are listed in backend/requirements.txt
+# above (pandas, networkx, jsonschema, openMINDS, portalocker, h5py, requests).
+#
+# These pip installs are split into individual layers so a change to one of the
+# four git pins re-runs only that single layer (each is small + cached).
+RUN pip install --no-deps "vhlab-toolbox-python @ git+https://github.com/VH-Lab/vhlab-toolbox-python.git@main"
+RUN pip install --no-deps "did @ git+https://github.com/VH-Lab/DID-python.git@main"
+RUN pip install --no-deps "ndr @ git+https://github.com/VH-lab/NDR-python.git@main"
+RUN pip install --no-deps "ndi-compress @ git+https://github.com/Waltham-Data-Science/NDI-compress-python.git@main"
+RUN pip install --no-deps "ndi @ git+https://github.com/Waltham-Data-Science/NDI-python.git@main"
+# Sanity: import every entry point we use in production so a missing
+# transitive dep fails the build, not the first request.
+RUN python -c "from vlt.file.custom_file_formats import vhsb_read, vhsb_readheader; \
+import ndicompress; from ndi.ontology import lookup; print('ndi-python stack importable')"
 
 COPY backend/ ./backend/
 COPY --from=frontend-build /app/frontend/dist ./frontend_dist

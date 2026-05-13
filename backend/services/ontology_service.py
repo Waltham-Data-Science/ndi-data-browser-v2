@@ -44,13 +44,59 @@ class OntologyService:
         cached = self.cache.get(provider, term_id)
         if cached is not None:
             return cached
+        fetched: OntologyTerm | None = None
         try:
             fetched = await self._fetch_from_provider(provider, term_id)
         except Exception as e:
             log.warning("ontology.fetch_failed", provider=provider, term_id=term_id, error=str(e))
-            raise OntologyLookupFailed(f"Could not look up {term}") from e
+            # Don't raise yet — fall through to the NDI-python fallback, which
+            # knows lab-specific terms (NDIC, WBStrain, internal Cre lines)
+            # the existing providers may miss.
+
+        # NDI-python fallback: only fire when existing path didn't yield a
+        # usable record (stub with no label/definition, OR raised above).
+        # This is a Phase A addition (2026-05-13) — see plan doc. Wrapped in
+        # to_thread because ndi.ontology.lookup is sync and uses `requests`
+        # internally, which would block the event loop if called directly.
+        if fetched is None or (not fetched.label and not fetched.definition):
+            ndi_term = await self._try_ndi_fallback(term, provider, term_id)
+            if ndi_term is not None:
+                self.cache.set(ndi_term)
+                return ndi_term
+
+        if fetched is None:
+            raise OntologyLookupFailed(f"Could not look up {term}")
         self.cache.set(fetched)
         return fetched
+
+    async def _try_ndi_fallback(
+        self, term: str, provider: str, term_id: str,
+    ) -> OntologyTerm | None:
+        """Probe NDI-python's bundled ontology lookup. Returns None on miss
+        (incl. NDI stack not installed, malformed input, unknown prefix).
+
+        NDI's lookup hits the same OLS4 endpoints we do for many ontologies,
+        but it ALSO ships a local CSV for NDIC and has hand-curated providers
+        for WBStrain and a few others — that's where the additional hits
+        come from. Net: this fallback rarely fires but catches the long tail."""
+        try:
+            from .ndi_python_service import lookup_ontology
+            result = await asyncio.to_thread(lookup_ontology, term)
+        except Exception as e:
+            log.warning("ontology.ndi_fallback_failed", term=term, error=str(e))
+            return None
+        if result is None:
+            return None
+        # NDI's `.to_dict()` shape: {id, name, prefix, definition, synonyms, short_name}.
+        # Map onto our OntologyTerm. We preserve the original PROVIDER (case
+        # as it was passed in) so the cache key matches what the caller asked for.
+        return OntologyTerm(
+            provider=provider,
+            term_id=term_id,
+            label=result.get("name") or None,
+            definition=result.get("definition") or None,
+            url=None,
+        )
 
     async def batch_lookup(self, terms: list[str]) -> list[OntologyTerm]:
         unique = list(dict.fromkeys(t for t in terms if t))
