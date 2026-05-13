@@ -80,7 +80,7 @@ def lttb_downsample(values: list[float | None], threshold: int) -> tuple[list[fl
         max_area = -1.0
         best_idx = bucket_start
         for j in range(bucket_start, bucket_end):
-            # 2 × triangle area
+            # 2x triangle area
             area = abs((a_x - avg_x) * (_v(j) - a_y) - (a_x - j) * (avg_y - a_y))
             if area > max_area:
                 max_area = area
