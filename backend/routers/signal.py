@@ -65,6 +65,20 @@ async def get_signal(
         float | None,
         Query(description="Trim end time in seconds; defaults to last sample."),
     ] = None,
+    file: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Optional file-name selector for multi-file documents. "
+                "Substring-matched against the document's file_list. "
+                "Useful for daqreader_mfdaq_epochdata_ingested docs "
+                "where the alphabetically first file is metadata "
+                "(channel_list.bin) — pass e.g. 'ai_group1_seg.nbf_1' "
+                "to grab the analog-input voltage trace. When omitted, "
+                "the first file in the list is used."
+            ),
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Return a downsampled timeseries with provenance.
 
@@ -102,6 +116,7 @@ async def get_signal(
     timeseries = await bs.get_timeseries(
         document,
         access_token=session.access_token if session else None,
+        filename=file,
     )
     result = downsample_timeseries(timeseries, downsample, t0, t1)
 

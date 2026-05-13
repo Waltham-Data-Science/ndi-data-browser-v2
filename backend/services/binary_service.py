@@ -111,6 +111,7 @@ class BinaryService:
 
     async def get_timeseries(  # noqa: PLR0911
         self, document: dict[str, Any], *, access_token: str | None,
+        filename: str | None = None,
     ) -> dict[str, Any]:
         """Return v1-compatible TimeseriesData.
 
@@ -120,12 +121,31 @@ class BinaryService:
         (partial decode with irrecoverable data) still raise BinaryDecodeFailed.
         The multi-return shape follows the error/success branches; collapsing
         via a single accumulator would fight the code's narrative.
+
+        Optional ``filename`` argument selects a specific file ref by name
+        (case-sensitive substring match) — useful for multi-file documents
+        like ``daqreader_mfdaq_epochdata_ingested`` where the first file
+        alphabetically is metadata (``channel_list.bin``) rather than the
+        actual signal. When None, the legacy behavior (``refs[0]``) is
+        preserved so existing callers (Document Explorer chart view) are
+        unchanged.
         """
         refs = _file_refs(document)
         if not refs:
             return _timeseries_error("no_file", "No timeseries file associated with this document.")
 
-        ref = refs[0]
+        if filename:
+            filtered = [r for r in refs if filename in (r.filename or "")]
+            if not filtered:
+                return _timeseries_error(
+                    "no_file",
+                    f"No file matching '{filename}' in this document. "
+                    f"Available: {', '.join((r.filename or '?') for r in refs[:8])}"
+                    + (' …' if len(refs) > 8 else ''),
+                )
+            ref = filtered[0]
+        else:
+            ref = refs[0]
         if not ref.url:
             return _timeseries_error("no_download_url", "No download URL available for this file.")
 
