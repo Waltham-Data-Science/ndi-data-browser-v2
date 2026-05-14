@@ -129,6 +129,20 @@ class DatasetBindingService:
         self._cache_dir = Path(
             cache_dir or os.environ.get("NDI_CACHE_DIR", "/tmp/ndi-cache")
         )
+        # Most-recent cold-load failure: ``(code, message)`` tuple or
+        # None. Captured by :meth:`_cold_load` so the router's 503
+        # envelope can surface a specific reason (rather than the
+        # generic "not configured" string the chat tool used to see).
+        # Codes are stable identifiers; the message is human-readable.
+        self._last_failure: tuple[str, str] | None = None
+
+    def last_failure(self) -> tuple[str, str] | None:
+        """Return the most-recent cold-load failure tuple ``(code,
+        message)``, or None if no cold load has failed since boot.
+        Used by the ``/ndi_overview`` router to enrich its 503 envelope
+        — the chat tool surfaces ``message`` in its fallback hint.
+        """
+        return self._last_failure
 
     # ------------------------------------------------------------------
     # Public API
@@ -246,12 +260,47 @@ class DatasetBindingService:
     # ------------------------------------------------------------------
 
     async def _cold_load(self, dataset_id: str) -> Any | None:
-        """Run ``downloadDataset`` in a worker thread with a wall-clock cap."""
+        """Run ``downloadDataset`` in a worker thread with a wall-clock cap.
+
+        Stashes the most-recent failure reason on ``self._last_failure``
+        so the router can surface a specific cause in its 503 envelope
+        (instead of a generic "not configured" string). Reasons:
+
+        - ``"phase_a_unavailable"`` — the Phase A NDI-python stack
+          (``ndi.ontology`` / ``ndicompress`` / ``vlt.file``) didn't
+          import on boot. Hits the bulk of the experimental Railway
+          surface; the chat tool's hint already says "use ndi_query".
+        - ``"binding_unavailable"`` — Phase A imported but the Sprint
+          1.5 binding (``ndi.dataset`` / ``ndi.cloud.orchestration``)
+          didn't.
+        - ``"cache_dir_unwritable"`` — Railway's ``/tmp`` not mountable
+          (rare; would also break other tempfile users).
+        - ``"cold_load_timeout"`` — ``downloadDataset`` exceeded
+          ``COLD_LOAD_TIMEOUT_SECONDS``.
+        - ``"cold_load_failed"`` — ``downloadDataset`` raised. Most
+          common live cause: cloud-node auth (the Sprint 1.5 binding
+          needs creds the request handler doesn't have).
+        """
         from . import ndi_python_service
 
         if not ndi_python_service.is_ndi_available():
+            self._last_failure = (
+                "phase_a_unavailable",
+                "NDI-python Phase A stack not importable on this server",
+            )
             log.warning(
                 "dataset_binding.ndi_unavailable",
+                dataset_id=dataset_id,
+            )
+            return None
+
+        if not ndi_python_service.is_dataset_binding_available():
+            self._last_failure = (
+                "binding_unavailable",
+                "ndi.dataset / ndi.cloud.orchestration not importable",
+            )
+            log.warning(
+                "dataset_binding.binding_module_unavailable",
                 dataset_id=dataset_id,
             )
             return None
@@ -262,6 +311,10 @@ class DatasetBindingService:
         try:
             self._cache_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
+            self._last_failure = (
+                "cache_dir_unwritable",
+                f"cache dir {self._cache_dir} is not writable",
+            )
             log.warning(
                 "dataset_binding.cache_dir_unwritable",
                 cache_dir=str(self._cache_dir),
@@ -281,6 +334,10 @@ class DatasetBindingService:
                 timeout=COLD_LOAD_TIMEOUT_SECONDS,
             )
         except TimeoutError:
+            self._last_failure = (
+                "cold_load_timeout",
+                f"downloadDataset exceeded {COLD_LOAD_TIMEOUT_SECONDS:.0f}s",
+            )
             log.warning(
                 "dataset_binding.cold_load_timeout",
                 dataset_id=dataset_id,
@@ -288,6 +345,15 @@ class DatasetBindingService:
             )
             return None
         except Exception as exc:  # blind — cold load must never raise
+            self._last_failure = (
+                "cold_load_failed",
+                # Truncate long stack-trace-like messages to a single
+                # line so the 503 envelope stays readable. Most useful
+                # info (the exception type + first line of message) is
+                # in the first ~120 chars.
+                f"{type(exc).__name__}: {str(exc).splitlines()[0][:200]}"
+                if str(exc) else type(exc).__name__,
+            )
             log.warning(
                 "dataset_binding.cold_load_failed",
                 dataset_id=dataset_id,

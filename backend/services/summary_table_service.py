@@ -68,6 +68,28 @@ DISTINCT_SUMMARY_MAX_ROWS = 10_000
 # tight summary the prompt is tuned against.
 DISTINCT_SUMMARY_TOP_K = 5
 
+# Aliases for the canonical NDI class names. The cloud's `isa` operator
+# walks ``classLineage`` so a query for the BASE class returns docs of
+# any subclass — but the cloud (as deployed) does NOT walk the LINEAGE
+# in the OTHER direction. Datasets ingested under the modern schema
+# emit ``element`` rather than the legacy ``probe`` class name; an `isa
+# probe` query against those datasets returns 0 IDs even though the
+# user-facing concept ("the probes") is fully represented.
+#
+# When the caller requests one of the entries in this map and the
+# literal query returns 0 IDs, ``_build_single_class`` retries with the
+# fallback. Logged so the alias hit shows up in observability.
+#
+# Smoke-tested 2026-05-14 against Dabrowska BNST (id 67f723d574f5f79c
+# 6062389d, 0 probes / 606 elements): ``query_documents(className=probe)``
+# returned 0 rows pre-fix; with the fallback it returns the 606
+# element rows (which IS what summary.probeTypes computes its values
+# from).
+_CLASS_ALIASES: dict[str, list[str]] = {
+    "probe": ["element"],
+    "epoch": ["element_epoch"],
+}
+
 # Enrichment plan per primary class. Each listed class is fetched dataset-
 # wide in parallel and its docs indexed by the `depends_on` edge the
 # projection needs. `subject` and `openminds_subject` are always pulled when
@@ -142,12 +164,37 @@ class SummaryTableService:
         access_token: str | None,
     ) -> dict[str, Any]:
         t0 = time.perf_counter()
+        # Try the literal class first; if it returns 0 IDs and we have a
+        # canonical alias (probe→element, epoch→element_epoch), retry on
+        # the alias. The projection key stays the literal so PROBE_COLUMNS
+        # are emitted regardless — the LLM and the document-explorer
+        # client both render rows under the user-requested class label.
         body = await self.cloud.ndiquery(
             searchstructure=[{"operation": "isa", "param1": class_name}],
             scope=dataset_id,
             access_token=access_token,
         )
         ids = _extract_ids(body)
+        resolved_class = class_name
+        if not ids:
+            for alias in _CLASS_ALIASES.get(class_name, []):
+                alt_body = await self.cloud.ndiquery(
+                    searchstructure=[{"operation": "isa", "param1": alias}],
+                    scope=dataset_id,
+                    access_token=access_token,
+                )
+                alt_ids = _extract_ids(alt_body)
+                if alt_ids:
+                    log.info(
+                        "table.single.alias_hit",
+                        dataset_id=dataset_id,
+                        requested_class=class_name,
+                        resolved_class=alias,
+                        ids=len(alt_ids),
+                    )
+                    ids = alt_ids
+                    resolved_class = alias
+                    break
         docs = await self._bulk_fetch_all(dataset_id, ids, access_token=access_token)
 
         # Fetch all enrichment classes in parallel. If any REQUIRED enrichment
@@ -155,7 +202,11 @@ class SummaryTableService:
         # transient cloud failure doesn't pin a broken empty-enrichment table
         # into Redis for the full TTL window. Plan §M4a step 3: "Skip cache
         # if cloud call fails."
-        enrich_classes = _ENRICHMENTS_FOR.get(class_name, [])
+        # Enrichment plan keys off the RESOLVED class (so an aliased
+        # probe→element fetch still pulls subject + openminds_subject +
+        # probe_location, which `_row_probe` needs to populate location +
+        # cell-type columns).
+        enrich_classes = _ENRICHMENTS_FOR.get(resolved_class, [])
         enriched: dict[str, list[dict[str, Any]]] = {}
         if enrich_classes and docs:
             results = await asyncio.gather(
@@ -169,23 +220,27 @@ class SummaryTableService:
                 if isinstance(r, BaseException):
                     log.warning(
                         "table.enrichment_failed",
-                        primary=class_name,
+                        primary=resolved_class,
                         enrichment=ec,
                         error=str(r),
                     )
                     # Required enrichment failed — propagate so the cache
                     # doesn't pin a broken build. The caller re-tries on the
                     # next request, which may succeed against a healthy cloud.
-                    if ec in _REQUIRED_ENRICHMENTS.get(class_name, set()):
+                    if ec in _REQUIRED_ENRICHMENTS.get(resolved_class, set()):
                         raise RuntimeError(
                             f"Required enrichment {ec!r} failed while building "
-                            f"{class_name} table: {r}",
+                            f"{resolved_class} table: {r}",
                         )
                     enriched[ec] = []
                 else:
                     enriched[ec] = r
 
-        columns, rows = _project_for_class(class_name, docs, enriched)
+        # Project under the RESOLVED class so the probe→element alias
+        # picks PROBE_COLUMNS (the projection table treats probe and
+        # element identically). The user-requested class_name is
+        # preserved in the log line for cache-hit forensics.
+        columns, rows = _project_for_class(resolved_class, docs, enriched)
         # distinct_summary is computed over ALL projected rows (not the
         # client-side paged slice), so consumers (notably the /ask chat's
         # query_documents tool, which limits to 10-30 rows) can still see
@@ -200,6 +255,7 @@ class SummaryTableService:
             "table.build.single",
             dataset_id=dataset_id,
             class_name=class_name,
+            resolved_class=resolved_class,
             ids=len(ids),
             rows=len(rows),
             ms=int((time.perf_counter() - t0) * 1000),

@@ -99,15 +99,25 @@ def svc(tmp_path) -> DatasetBindingService:
 def ndi_available():
     """Patch is_ndi_available -> True for the duration of the test.
 
+    Also patches ``is_dataset_binding_available`` -> True so the
+    Sprint 1.5 binding probe (added 2026-05-14) doesn't short-circuit
+    the cold-load path before the patched ``_download_blocking`` fires.
+
     The service calls ``from . import ndi_python_service`` lazily inside
     _cold_load(), so we must patch the attribute on the source module
     (``backend.services.ndi_python_service.is_ndi_available``) rather
     than on the binding module.
     """
-    with patch(
-        "backend.services.ndi_python_service.is_ndi_available",
-        return_value=True,
-    ) as p:
+    with (
+        patch(
+            "backend.services.ndi_python_service.is_ndi_available",
+            return_value=True,
+        ) as p,
+        patch(
+            "backend.services.ndi_python_service.is_dataset_binding_available",
+            return_value=True,
+        ),
+    ):
         yield p
 
 
@@ -353,6 +363,82 @@ class TestOverview:
         assert out["epoch_count"] == 2
         # Subject search failed; subject_count fell back to 0.
         assert out["subject_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# last_failure surfacing — added 2026-05-14 so /ndi_overview's 503
+# envelope can carry a specific code/reason instead of the generic
+# "not configured" string. The chat tool already routes 503 to a
+# graceful fallback hint; the richer reason helps operators diagnose
+# in the dashboard without tailing logs.
+# ---------------------------------------------------------------------------
+
+
+class TestLastFailure:
+    """Pins the (code, message) surface contract for each known
+    failure mode. Each test forces the corresponding cold-path
+    exit and asserts ``last_failure()`` returns the right code.
+    """
+
+    async def test_initial_state_is_none(self, svc: DatasetBindingService):
+        assert svc.last_failure() is None
+
+    async def test_phase_a_unavailable_sets_code(
+        self, svc: DatasetBindingService,
+    ):
+        """is_ndi_available=False → phase_a_unavailable."""
+        with patch(
+            "backend.services.ndi_python_service.is_ndi_available",
+            return_value=False,
+        ):
+            result = await svc.get_dataset("DS1")
+        assert result is None
+        failure = svc.last_failure()
+        assert failure is not None
+        assert failure[0] == "phase_a_unavailable"
+        assert "Phase A" in failure[1] or "not importable" in failure[1]
+
+    async def test_binding_unavailable_sets_code(
+        self, svc: DatasetBindingService,
+    ):
+        """is_ndi_available=True but is_dataset_binding_available=False →
+        binding_unavailable. Most common cause: Phase A imports fine but
+        ``ndi.cloud.orchestration`` isn't installed in the deploy image.
+        """
+        with (
+            patch(
+                "backend.services.ndi_python_service.is_ndi_available",
+                return_value=True,
+            ),
+            patch(
+                "backend.services.ndi_python_service.is_dataset_binding_available",
+                return_value=False,
+            ),
+        ):
+            result = await svc.get_dataset("DS1")
+        assert result is None
+        failure = svc.last_failure()
+        assert failure is not None
+        assert failure[0] == "binding_unavailable"
+
+    @pytest.mark.usefixtures("ndi_available")
+    async def test_cold_load_failed_sets_code_with_exception_class(
+        self, svc: DatasetBindingService,
+    ):
+        """downloadDataset raises → cold_load_failed, with the
+        exception's class name in the message so operators can grep
+        for it in dashboards (CloudAuthError vs HTTPError etc).
+        """
+        def boom(_dataset_id: Any) -> Any:
+            raise RuntimeError("simulated cloud-auth 401")
+
+        with patch.object(svc, "_download_blocking", side_effect=boom):
+            result = await svc.get_dataset("DS-broken")
+        assert result is None
+        failure = svc.last_failure()
+        assert failure is not None
+        assert failure[0] == "cold_load_failed"
+        assert "RuntimeError" in failure[1]
 
 
 # ---------------------------------------------------------------------------

@@ -112,14 +112,27 @@ async def ndi_overview(
         )
 
     if result is None:
+        # Surface the specific failure code + message captured by the
+        # service's most-recent cold load. Chat tool falls back to
+        # ndi_query on any 503; richer diagnostics here help operators
+        # tell "Phase A missing" from "cloud auth failed" from "/tmp
+        # full" in the dashboard without tailing logs.
+        last = svc.last_failure() if hasattr(svc, "last_failure") else None
+        code = last[0] if last else "binding_unavailable"
+        reason = (
+            last[1]
+            if last
+            else (
+                "NDI-python dataset materialization failed or is not "
+                "configured on this server"
+            )
+        )
         return JSONResponse(
             status_code=503,
             content={
                 "error": "dataset binding unavailable",
-                "reason": (
-                    "NDI-python dataset materialization failed or is not "
-                    "configured on this server"
-                ),
+                "code": code,
+                "reason": reason,
             },
         )
     return result
