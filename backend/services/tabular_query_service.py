@@ -51,6 +51,14 @@ MAX_GROUPS = 20
 # on the FULL value list before sampling, so they remain accurate.
 MAX_VALUES_PER_GROUP = 500
 
+# Sample-row docId cap per group. The frontend builds one
+# click-through citation chip per docId (e.g. "Sample Saline row"),
+# so 3 per group keeps the chip count manageable on charts with many
+# groups while still letting the user verify each group's data. The
+# full set of contributing rows is reachable from the table-view
+# citation (the primary chip).
+MAX_DOC_IDS_PER_GROUP = 3
+
 
 class TabularQueryService:
     """Aggregate ontologyTableRow docs into per-group stats."""
@@ -125,7 +133,12 @@ class TabularQueryService:
                 ][:20]},
             )
 
-        buckets, order_seen = _bucket_rows(rows, value_col, resolved_group_col)
+        # docIds is parallel to rows (same index) per
+        # SummaryTableService.ontology_tables contract.
+        parallel_doc_ids = group.get("docIds") or []
+        buckets, bucket_doc_ids, order_seen = _bucket_rows(
+            rows, parallel_doc_ids, value_col, resolved_group_col,
+        )
         if not buckets:
             return _empty_response(
                 group_by,
@@ -134,18 +147,24 @@ class TabularQueryService:
             )
 
         ordered_keys = _ordered_group_keys(buckets, order_seen, group_order)
-        out_groups = _build_group_payloads(buckets, ordered_keys)
+        out_groups = _build_group_payloads(
+            buckets, bucket_doc_ids, ordered_keys,
+        )
 
         result: dict[str, Any] = {
             "groups": out_groups,
             "yLabel": value_label,
             "xLabel": group_by or "group",
         }
-        doc_ids = group.get("docIds") or []
-        if doc_ids:
+        # `source` is preserved for backwards compat — the per-group
+        # `docIds` arrays on each entry of `groups` are the granular
+        # truth. A consumer that only wants a single representative doc
+        # still has `source.document_id`; consumers that want per-group
+        # sample-row drill-downs read `groups[i].docIds`.
+        if parallel_doc_ids:
             result["source"] = {
                 "dataset_id": dataset_id,
-                "document_id": doc_ids[0],
+                "document_id": parallel_doc_ids[0],
                 "variable_name": value_label,
             }
         return result
@@ -249,16 +268,27 @@ def _is_finite_numeric(v: Any) -> bool:
 
 def _bucket_rows(
     rows: list[dict[str, Any]],
+    parallel_doc_ids: list[str],
     value_col: str,
     group_by: str | None,
-) -> tuple[dict[str, list[float]], list[str]]:
-    """Walk rows, extract numeric value + grouping label.
+) -> tuple[dict[str, list[float]], dict[str, list[str]], list[str]]:
+    """Walk rows, extract numeric value + grouping label + per-row docId.
 
-    Returns (buckets_by_group_name, order_seen).
+    `parallel_doc_ids` is the ontologyTables-projection's docIds list,
+    same index order as `rows`. When the lists desynchronize (rows
+    longer than docIds — possible if the projection ever drops a doc
+    without dropping its row), we silently skip the missing-docId case
+    rather than spinning up bogus IDs.
+
+    Returns (buckets_by_group_name, doc_ids_by_group_name, order_seen).
+    The per-bucket docIds list is parallel to the per-bucket values
+    list — `doc_ids_by_group_name[g][i]` is the document that
+    contributed `buckets[g][i]`.
     """
     buckets: dict[str, list[float]] = {}
+    bucket_doc_ids: dict[str, list[str]] = {}
     order_seen: list[str] = []
-    for row in rows:
+    for i, row in enumerate(rows):
         v_raw = row.get(value_col)
         if v_raw is None:
             continue
@@ -277,9 +307,17 @@ def _bucket_rows(
             g = "all"
         if g not in buckets:
             buckets[g] = []
+            bucket_doc_ids[g] = []
             order_seen.append(g)
         buckets[g].append(v)
-    return buckets, order_seen
+        # Track the contributing docId when the projection surfaced one
+        # at this index. Missing docIds are tolerated (skip-only) so a
+        # partial projection doesn't poison the citations.
+        if i < len(parallel_doc_ids):
+            doc_id = parallel_doc_ids[i]
+            if isinstance(doc_id, str) and doc_id:
+                bucket_doc_ids[g].append(doc_id)
+    return buckets, bucket_doc_ids, order_seen
 
 
 def _ordered_group_keys(
@@ -302,6 +340,7 @@ def _ordered_group_keys(
 
 def _build_group_payloads(
     buckets: dict[str, list[float]],
+    bucket_doc_ids: dict[str, list[str]],
     ordered_keys: list[str],
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -313,9 +352,19 @@ def _build_group_payloads(
         # Cap raw values for the response payload — stats above were
         # computed on the FULL list so they remain accurate.
         sampled = _stride_sample(vals, MAX_VALUES_PER_GROUP)
+        # Per-group sample of contributing docIds. The chat consumes
+        # these to build per-group sample-row references so the user
+        # can drill into specific examples (e.g. "one Saline row" /
+        # "one CNO row") while the primary citation still points to
+        # the aggregated table view. Capped to avoid blowing the chip
+        # count on charts with many groups — 3 examples per group is
+        # plenty for verification.
+        group_doc_ids = bucket_doc_ids.get(name) or []
         out.append({
             "name": name,
             "values": sampled,
+            "docIds": group_doc_ids[:MAX_DOC_IDS_PER_GROUP],
+            "totalRows": len(vals),
             **stats,
         })
     return out

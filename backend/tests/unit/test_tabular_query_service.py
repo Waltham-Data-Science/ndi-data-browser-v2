@@ -139,7 +139,19 @@ async def test_violin_groups_basic():
         {"treatment_group": "CNO", "EPM_OpenArm_Entries": 3.0},
         {"treatment_group": "CNO", "EPM_OpenArm_Entries": 1.0},
     ]
-    response = _make_ontology_response(columns, rows, doc_ids=["doc_abc"])
+    # One docId per row, parallel to `rows` per the ontology_tables
+    # projection contract. This lets the service route each row's
+    # docId to its bucket so the frontend can build per-group
+    # sample-row references.
+    doc_ids = [
+        "doc_saline_1",
+        "doc_saline_2",
+        "doc_saline_3",
+        "doc_cno_1",
+        "doc_cno_2",
+        "doc_cno_3",
+    ]
+    response = _make_ontology_response(columns, rows, doc_ids=doc_ids)
     svc = TabularQueryService(_FakeSummaryService(response))  # type: ignore[arg-type]
     result = await svc.violin_groups(
         "dataset_xyz",
@@ -153,10 +165,97 @@ async def test_violin_groups_basic():
     assert by_name["Saline"]["mean"] == 6.0
     assert by_name["CNO"]["mean"] == 2.0
     assert by_name["Saline"]["count"] == 3
-    assert result["source"]["document_id"] == "doc_abc"
+    # Per-group docIds are surfaced so the frontend can build
+    # per-bucket sample-row references — capped at 3 per group.
+    assert by_name["Saline"]["docIds"] == [
+        "doc_saline_1",
+        "doc_saline_2",
+        "doc_saline_3",
+    ]
+    assert by_name["CNO"]["docIds"] == [
+        "doc_cno_1",
+        "doc_cno_2",
+        "doc_cno_3",
+    ]
+    assert by_name["Saline"]["totalRows"] == 3
+    assert by_name["CNO"]["totalRows"] == 3
+    # `source` is preserved for backwards-compat but is no longer the
+    # primary citation path.
+    assert result["source"]["document_id"] == "doc_saline_1"
     assert result["xLabel"] == "treatment_group"
     # Label comes from the human-readable column label, not the raw key.
     assert "Open Arm Entries" in result["yLabel"]
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_per_group_doc_id_cap():
+    """Per-group docId list capped at MAX_DOC_IDS_PER_GROUP (3) even
+    when the underlying group has dozens of contributing rows."""
+    columns = [
+        {"key": "treatment_group", "label": "treatment_group"},
+        {"key": "EPM_OpenArm_Entries", "label": "EPM Open Arm Entries"},
+    ]
+    # 10 Saline rows, 2 CNO rows — the cap should clip Saline to 3 docs
+    # while CNO is left as-is.
+    rows = (
+        [{"treatment_group": "Saline", "EPM_OpenArm_Entries": float(i)} for i in range(10)]
+        + [{"treatment_group": "CNO", "EPM_OpenArm_Entries": float(i)} for i in range(2)]
+    )
+    doc_ids = [f"doc_saline_{i}" for i in range(10)] + ["doc_cno_0", "doc_cno_1"]
+    response = _make_ontology_response(columns, rows, doc_ids=doc_ids)
+    svc = TabularQueryService(_FakeSummaryService(response))  # type: ignore[arg-type]
+    result = await svc.violin_groups(
+        "dataset_xyz",
+        "OpenArm",
+        group_by="treatment_group",
+        group_order=None,
+        session=None,
+    )
+    by_name = {g["name"]: g for g in result["groups"]}
+    # Saline contributes 10 rows but only 3 docIds surface — the
+    # frontend doesn't need all 10 as chips; the table-view citation
+    # already covers the full set.
+    assert by_name["Saline"]["docIds"] == [
+        "doc_saline_0",
+        "doc_saline_1",
+        "doc_saline_2",
+    ]
+    assert by_name["Saline"]["totalRows"] == 10
+    # CNO has only 2 — no cap kicks in.
+    assert by_name["CNO"]["docIds"] == ["doc_cno_0", "doc_cno_1"]
+    assert by_name["CNO"]["totalRows"] == 2
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_missing_doc_ids_tolerated():
+    """When the projection desynchronizes (rows longer than docIds),
+    surface what's available without faking ids."""
+    columns = [
+        {"key": "treatment_group", "label": "treatment_group"},
+        {"key": "EPM_OpenArm_Entries", "label": "EPM Open Arm Entries"},
+    ]
+    rows = [
+        {"treatment_group": "Saline", "EPM_OpenArm_Entries": 5.0},
+        {"treatment_group": "Saline", "EPM_OpenArm_Entries": 7.0},
+        {"treatment_group": "CNO", "EPM_OpenArm_Entries": 2.0},
+    ]
+    # Only one docId for three rows. The service must NOT crash or
+    # invent IDs — Saline gets its one real id, CNO gets nothing.
+    response = _make_ontology_response(columns, rows, doc_ids=["doc_only_one"])
+    svc = TabularQueryService(_FakeSummaryService(response))  # type: ignore[arg-type]
+    result = await svc.violin_groups(
+        "dataset_xyz",
+        "OpenArm",
+        group_by="treatment_group",
+        group_order=None,
+        session=None,
+    )
+    by_name = {g["name"]: g for g in result["groups"]}
+    assert by_name["Saline"]["docIds"] == ["doc_only_one"]
+    assert by_name["CNO"]["docIds"] == []
+    # Values + stats still computed correctly on the full row set.
+    assert by_name["Saline"]["totalRows"] == 2
+    assert by_name["CNO"]["totalRows"] == 1
 
 
 @pytest.mark.asyncio
