@@ -13,15 +13,19 @@ from pathlib import Path
 import pytest
 
 from backend.services.summary_table_service import (
+    DISTINCT_SUMMARY_MAX_ROWS,
+    DISTINCT_SUMMARY_TOP_K,
     SUBJECT_COLUMNS,
     _attach_openminds_enrichment,
     _background_strain_from_strain,
+    _build_distinct_summary,
     _clean,
     _clock_indices,
     _depends_on_value_by_name,
     _depends_on_values,
     _element_subject_ndi,
     _epoch_element_ndi,
+    _hashable,
     _index_by_ndi_id,
     _ndi_id,
     _normalize_t0_t1,
@@ -728,3 +732,164 @@ class TestAgeFromOpenminds:
 ])
 def test_clean_table(v: object, expected: object) -> None:
     assert _clean(v) == expected
+
+
+# ---------------------------------------------------------------------------
+# distinct_summary — per-column cardinality + top values
+# ---------------------------------------------------------------------------
+
+class TestHashable:
+    """`_hashable` makes any cell value usable as a dict key for counting."""
+
+    def test_scalars_pass_through(self) -> None:
+        assert _hashable("x") == "x"
+        assert _hashable(1) == 1
+        assert _hashable(1.5) == 1.5
+        assert _hashable(True) is True
+        assert _hashable(None) is None
+
+    def test_dict_stringifies_deterministically(self) -> None:
+        # Same dict, different insertion order → same key.
+        a = _hashable({"devTime": 0, "globalTime": None})
+        b = _hashable({"globalTime": None, "devTime": 0})
+        assert a == b
+        assert isinstance(a, str)
+
+    def test_list_is_hashable(self) -> None:
+        # Lists aren't hashable in Python; we stringify.
+        h = _hashable([1, 2, 3])
+        assert isinstance(h, str)
+
+
+class TestBuildDistinctSummary:
+    """Per-column cardinality + top-K values across ALL rows."""
+
+    def test_dabrowska_optogenetic_treatment_collapse(self) -> None:
+        """Smoke-tested 2026-05-13 case that motivated this feature.
+
+        Dabrowska BNST has 49 treatment rows all named
+        "Optogenetic Tetanus Stimulation Target Location". The LLM
+        assumed only optogenetic treatments existed because all rows
+        looked identical; distinct_summary surfaces the collapse so
+        the model knows to pivot to ontologyTableRow for Saline/CNO.
+        """
+        columns = [
+            {"key": "treatmentName",     "label": "Treatment"},
+            {"key": "treatmentOntology", "label": "Treatment Ontology"},
+        ]
+        rows = [
+            {"treatmentName": "Optogenetic Tetanus Stimulation Target Location",
+             "treatmentOntology": "UBERON:0001234"}
+            for _ in range(49)
+        ]
+        summary = _build_distinct_summary(columns, rows)
+        assert summary["treatmentName"]["distinct_count"] == 1
+        assert summary["treatmentName"]["top_values"] == [
+            {"value": "Optogenetic Tetanus Stimulation Target Location",
+             "count": 49},
+        ]
+        assert summary["treatmentOntology"]["distinct_count"] == 1
+
+    def test_multi_value_top_k(self) -> None:
+        columns = [{"key": "speciesName", "label": "Species"}]
+        rows = (
+            [{"speciesName": "Mus musculus"}] * 10
+            + [{"speciesName": "Rattus norvegicus"}] * 5
+            + [{"speciesName": "Macaca mulatta"}] * 3
+            + [{"speciesName": "Drosophila"}] * 2
+            + [{"speciesName": "Danio rerio"}] * 1
+            + [{"speciesName": "Mustela putorius furo"}] * 1
+        )
+        summary = _build_distinct_summary(columns, rows)
+        assert summary["speciesName"]["distinct_count"] == 6
+        # top-K cap at DISTINCT_SUMMARY_TOP_K (default 5).
+        top = summary["speciesName"]["top_values"]
+        assert len(top) == DISTINCT_SUMMARY_TOP_K
+        # Descending by count.
+        assert top[0] == {"value": "Mus musculus", "count": 10}
+        assert top[1] == {"value": "Rattus norvegicus", "count": 5}
+        assert top[2] == {"value": "Macaca mulatta", "count": 3}
+
+    def test_none_cells_are_counted(self) -> None:
+        """Missing/None values are tallied so the LLM sees row-count gaps."""
+        columns = [{"key": "ageAtRecording", "label": "Age"}]
+        rows = [
+            {"ageAtRecording": "P30"},
+            {"ageAtRecording": None},
+            {"ageAtRecording": None},
+        ]
+        summary = _build_distinct_summary(columns, rows)
+        assert summary["ageAtRecording"]["distinct_count"] == 2
+        # None counts as a value so the LLM can see "2/3 had no age".
+        none_entry = next(
+            e for e in summary["ageAtRecording"]["top_values"]
+            if e["value"] is None
+        )
+        assert none_entry["count"] == 2
+
+    def test_empty_rows_returns_empty_per_column_entries(self) -> None:
+        columns = [{"key": "a", "label": "A"}, {"key": "b", "label": "B"}]
+        summary = _build_distinct_summary(columns, [])
+        assert summary == {
+            "a": {"distinct_count": 0, "top_values": []},
+            "b": {"distinct_count": 0, "top_values": []},
+        }
+
+    def test_skipped_when_too_many_rows(self) -> None:
+        columns = [{"key": "x", "label": "X"}]
+        rows = [{"x": i} for i in range(DISTINCT_SUMMARY_MAX_ROWS + 1)]
+        summary = _build_distinct_summary(columns, rows)
+        assert summary == {"_meta": "skipped due to large row count"}
+
+    def test_handles_dict_cell_values(self) -> None:
+        """epochStart projects as {devTime, globalTime} — must still tally."""
+        columns = [{"key": "epochStart", "label": "Start"}]
+        rows = [
+            {"epochStart": {"devTime": 0, "globalTime": None}},
+            {"epochStart": {"devTime": 0, "globalTime": None}},
+            {"epochStart": {"devTime": 100, "globalTime": None}},
+        ]
+        summary = _build_distinct_summary(columns, rows)
+        assert summary["epochStart"]["distinct_count"] == 2
+        # Top value count==2.
+        assert summary["epochStart"]["top_values"][0]["count"] == 2
+
+    def test_ignores_columns_with_non_string_keys(self) -> None:
+        """Defensive: a malformed columns entry shouldn't crash the build."""
+        columns = [
+            {"key": "good", "label": "Good"},
+            {"label": "no key here"},  # type: ignore[typeddict-item]
+        ]
+        rows = [{"good": "v"}]
+        summary = _build_distinct_summary(columns, rows)
+        assert "good" in summary
+        # The malformed column is silently skipped — no extra key surfaced.
+        assert len(summary) == 1
+
+
+class TestBuildSingleClassResponseShape:
+    """Smoke-level: _build_distinct_summary is folded into the response."""
+
+    def test_response_includes_distinct_summary_key(self) -> None:
+        from backend.services.summary_table_service import _project_for_class
+
+        # Project a tiny subject set and verify _project_for_class +
+        # _build_distinct_summary compose into the expected response shape.
+        subject = {
+            "data": {
+                "base": {"id": "S1", "session_id": "sess"},
+                "subject": {"local_identifier": "A1"},
+            },
+        }
+        columns, rows = _project_for_class(
+            "subject", [subject],
+            {"openminds_subject": [], "subject": [subject], "treatment": []},
+        )
+        summary = _build_distinct_summary(columns, rows)
+        # Every projected column appears in the summary.
+        for col in columns:
+            assert col["key"] in summary
+            entry = summary[col["key"]]
+            assert "distinct_count" in entry
+            assert "top_values" in entry
+            assert isinstance(entry["top_values"], list)

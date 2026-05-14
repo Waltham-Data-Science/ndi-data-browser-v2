@@ -39,11 +39,27 @@ log = get_logger(__name__)
 # `False` = import failed (NDI stack not available; callers fall back).
 _NDI_AVAILABLE: bool | None = None
 
+# Separate, optional flag for the Sprint 1.5 dataset binding (Dataset
+# materialization via `ndi.cloud.orchestration.downloadDataset`). Even
+# when the Phase A stack is happy, the dataset binding can fail
+# independently (e.g. missing `ndi.dataset`, missing cloud helpers,
+# the auto-client decorator can't find creds at module-import time).
+# We probe it separately so callers of `is_ndi_available()` don't see
+# a flap caused by the optional Sprint 1.5 surface.
+_DATASET_BINDING_AVAILABLE: bool | None = None
+
 
 def is_ndi_available() -> bool:
     """Best-effort check that the NDI-python stack is importable. Caches
     the result so health checks + first-request paths don't pay the import
-    cost more than once."""
+    cost more than once.
+
+    Side-effect: also runs the Sprint 1.5 dataset-binding probe (see
+    :func:`is_dataset_binding_available`) so the boot log shows ONE entry
+    summarising both. The dataset binding is treated as a separate,
+    OPTIONAL capability — its failure must NOT mark the Phase A stack
+    unavailable.
+    """
     global _NDI_AVAILABLE  # noqa: PLW0603 — module-level cache flag
     if _NDI_AVAILABLE is not None:
         return _NDI_AVAILABLE
@@ -59,7 +75,41 @@ def is_ndi_available() -> bool:
     except ImportError as e:
         log.warning("ndi_python_service.import_failed", error=str(e))
         _NDI_AVAILABLE = False
+
+    # Probe the optional dataset binding even on Phase-A success — log
+    # both findings together for clarity in the boot log.
+    binding_ok = is_dataset_binding_available()
+    log.info(
+        "ndi_python_service.boot_probe",
+        phase_a=_NDI_AVAILABLE,
+        dataset_binding=binding_ok,
+    )
     return _NDI_AVAILABLE
+
+
+def is_dataset_binding_available() -> bool:
+    """Best-effort check for the Sprint 1.5 cloud-backed dataset binding.
+
+    Probes ``ndi.dataset`` and ``ndi.cloud.orchestration`` — the two
+    modules :mod:`backend.services.dataset_binding_service` reaches into.
+    A True result does NOT mean the binding will succeed at runtime
+    (cloud-node auth + network are required for that); it only means the
+    imports are wired and the service is safe to wire into the router.
+    """
+    global _DATASET_BINDING_AVAILABLE  # noqa: PLW0603
+    if _DATASET_BINDING_AVAILABLE is not None:
+        return _DATASET_BINDING_AVAILABLE
+    try:
+        import ndi.cloud.orchestration
+        import ndi.dataset  # noqa: F401
+        _DATASET_BINDING_AVAILABLE = True
+    except ImportError as e:
+        log.warning(
+            "ndi_python_service.dataset_binding_import_failed",
+            error=str(e),
+        )
+        _DATASET_BINDING_AVAILABLE = False
+    return _DATASET_BINDING_AVAILABLE
 
 
 # ---------------------------------------------------------------------------

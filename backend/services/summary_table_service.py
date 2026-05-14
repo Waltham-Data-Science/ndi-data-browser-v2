@@ -53,6 +53,21 @@ log = get_logger(__name__)
 # 6 comfortably — confirm with Steve before raising further.
 MAX_CONCURRENT_BULK_FETCH = 6
 
+# distinct_summary caps — keep work bounded for very large tables.
+# Smoke-tested 2026-05-13 (Dabrowska BNST): `query_documents(class=treatment)`
+# returned 49 rows, all named "Optogenetic Tetanus Stimulation Target Location"
+# — the LLM didn't realize all rows were duplicates and assumed the dataset had
+# only optogenetic treatments. distinct_summary surfaces that collapse so the
+# model can say "9 distinct strains across 215 subjects" without sampling.
+#
+# Skip the computation entirely above this row count — the table is too big to
+# scan in-memory affordably (>10K rows × ~15 columns = 150K cell reads).
+DISTINCT_SUMMARY_MAX_ROWS = 10_000
+# How many top values per column to surface. Beyond ~5 the LLM's context
+# bloats without adding signal; "top-5 + counts + distinct_count" is the
+# tight summary the prompt is tuned against.
+DISTINCT_SUMMARY_TOP_K = 5
+
 # Enrichment plan per primary class. Each listed class is fetched dataset-
 # wide in parallel and its docs indexed by the `depends_on` edge the
 # projection needs. `subject` and `openminds_subject` are always pulled when
@@ -171,6 +186,13 @@ class SummaryTableService:
                     enriched[ec] = r
 
         columns, rows = _project_for_class(class_name, docs, enriched)
+        # distinct_summary is computed over ALL projected rows (not the
+        # client-side paged slice), so consumers (notably the /ask chat's
+        # query_documents tool, which limits to 10-30 rows) can still see
+        # "9 distinct strains across 215 subjects" without sampling. The
+        # work is bounded by DISTINCT_SUMMARY_MAX_ROWS; cached alongside
+        # rows so a Redis hit returns it for free.
+        distinct_summary = _build_distinct_summary(columns, rows)
         table_build_duration_seconds.labels(class_name=class_name).observe(
             time.perf_counter() - t0,
         )
@@ -182,7 +204,11 @@ class SummaryTableService:
             rows=len(rows),
             ms=int((time.perf_counter() - t0) * 1000),
         )
-        return {"columns": columns, "rows": rows}
+        return {
+            "columns": columns,
+            "rows": rows,
+            "distinct_summary": distinct_summary,
+        }
 
     async def combined(
         self,
@@ -314,6 +340,27 @@ class SummaryTableService:
                 "epochId": _ndi_id(epoch),
             })
 
+        combined_columns = [
+            {"key": "subject", "label": "Subject"},
+            {"key": "species", "label": "Species"},
+            {"key": "speciesOntology", "label": "Species Ontology"},
+            {"key": "strain", "label": "Strain"},
+            {"key": "strainOntology", "label": "Strain Ontology"},
+            {"key": "sex", "label": "Sex"},
+            {"key": "probe", "label": "Probe"},
+            {"key": "probeLocationName", "label": "Probe Location"},
+            {"key": "probeLocationOntology", "label": "Probe Location Ontology"},
+            {"key": "type", "label": "Probe type"},
+            {"key": "epoch", "label": "Epoch"},
+            {"key": "approachName", "label": "Approach"},
+            {"key": "approachOntology", "label": "Approach Ontology"},
+            {"key": "start", "label": "Start"},
+            {"key": "stop", "label": "Stop"},
+        ]
+        # Same distinct_summary rationale as single_class: surfaces per-column
+        # cardinality so the LLM can answer "how many distinct strains" without
+        # paging the full table.
+        distinct_summary = _build_distinct_summary(combined_columns, rows)
         elapsed = time.perf_counter() - build_start
         table_build_duration_seconds.labels(class_name="combined").observe(elapsed)
         log.info(
@@ -325,24 +372,9 @@ class SummaryTableService:
             ms=int(elapsed * 1000),
         )
         return {
-            "columns": [
-                {"key": "subject", "label": "Subject"},
-                {"key": "species", "label": "Species"},
-                {"key": "speciesOntology", "label": "Species Ontology"},
-                {"key": "strain", "label": "Strain"},
-                {"key": "strainOntology", "label": "Strain Ontology"},
-                {"key": "sex", "label": "Sex"},
-                {"key": "probe", "label": "Probe"},
-                {"key": "probeLocationName", "label": "Probe Location"},
-                {"key": "probeLocationOntology", "label": "Probe Location Ontology"},
-                {"key": "type", "label": "Probe type"},
-                {"key": "epoch", "label": "Epoch"},
-                {"key": "approachName", "label": "Approach"},
-                {"key": "approachOntology", "label": "Approach Ontology"},
-                {"key": "start", "label": "Start"},
-                {"key": "stop", "label": "Stop"},
-            ],
+            "columns": combined_columns,
             "rows": rows,
+            "distinct_summary": distinct_summary,
         }
 
     async def ontology_tables(
@@ -1211,3 +1243,68 @@ def _row_treatment(d: dict[str, Any]) -> dict[str, Any]:
         "stringValue":               _clean(tdata.get("string_value")),
         "subjectDocumentIdentifier": _depends_on_value_by_name(d, "subject_id"),
     }
+
+
+# ---------------------------------------------------------------------------
+# distinct_summary — per-column cardinality + top values
+# ---------------------------------------------------------------------------
+
+def _hashable(value: Any) -> Any:
+    """Convert a cell value into something usable as a dict key.
+
+    Most projected cells are scalars (str, int, float, bool, None). A few
+    columns (e.g. element_epoch.epochStart) project as small dicts like
+    `{"devTime": 0, "globalTime": None}`. Those still need to be countable,
+    so we JSON-serialize the unhashables into stable string keys.
+    """
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    # dict / list / tuple — stringify deterministically.
+    try:
+        import json as _json
+        return _json.dumps(value, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        return repr(value)
+
+
+def _build_distinct_summary(
+    columns: list[dict[str, str]],
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """For each column compute {distinct_count, top_values} across ALL rows.
+
+    `top_values` is a list of `{value, count}` ordered by descending count,
+    capped at `DISTINCT_SUMMARY_TOP_K`. Empty/None cells are tallied as
+    `None` so the LLM can still see "5/49 rows had a null treatmentName".
+
+    Returns `{"_meta": "skipped due to large row count"}` shape when there
+    are more than `DISTINCT_SUMMARY_MAX_ROWS` rows — the table is too big
+    to scan affordably and the LLM doesn't need per-cell stats at that
+    point (it should pivot to ndi_query or get_facets).
+
+    The function is pure: no I/O, no mutation. Folded into the cached
+    table response so a Redis hit returns it for free.
+    """
+    if len(rows) > DISTINCT_SUMMARY_MAX_ROWS:
+        return {"_meta": "skipped due to large row count"}
+
+    out: dict[str, Any] = {}
+    for col in columns:
+        key = col.get("key")
+        if not isinstance(key, str):
+            continue
+        counts: dict[Any, int] = {}
+        for row in rows:
+            cell = row.get(key)
+            counts[_hashable(cell)] = counts.get(_hashable(cell), 0) + 1
+        # Sort by count desc, then by string-form of the value for deterministic
+        # tie-break (matters for test snapshots and cache key stability).
+        ordered = sorted(
+            counts.items(), key=lambda kv: (-kv[1], str(kv[0])),
+        )
+        top = [{"value": v, "count": c} for v, c in ordered[:DISTINCT_SUMMARY_TOP_K]]
+        out[key] = {
+            "distinct_count": len(counts),
+            "top_values": top,
+        }
+    return out

@@ -10,6 +10,7 @@ from ..cache.redis_table import RedisTableCache
 from ..clients.ndi_cloud import NdiCloudClient
 from ..middleware.rate_limit import Limit, RateLimiter
 from ..services.binary_service import BinaryService
+from ..services.dataset_binding_service import DatasetBindingService
 from ..services.dataset_provenance_service import DatasetProvenanceService
 from ..services.dataset_service import DatasetService
 from ..services.dataset_summary_service import (
@@ -19,6 +20,7 @@ from ..services.dataset_summary_service import (
 from ..services.dependency_graph_service import DependencyGraphService
 from ..services.document_service import DocumentService
 from ..services.facet_service import FacetService
+from ..services.image_service import ImageService
 from ..services.ontology_service import OntologyService
 from ..services.pivot_service import PivotService
 from ..services.query_service import QueryService
@@ -122,12 +124,28 @@ def binary_service(request: Request) -> BinaryService:
     return BinaryService(cloud(request))
 
 
+def image_service(request: Request) -> ImageService:
+    return ImageService(cloud(request))
+
+
 def visualize_service(request: Request) -> VisualizeService:
     return VisualizeService(cloud(request))
 
 
 def ontology_service(request: Request) -> OntologyService:
     return request.app.state.ontology_service  # type: ignore[no-any-return]
+
+
+def dataset_binding_service(request: Request) -> DatasetBindingService:
+    """Return the singleton DatasetBindingService held on app.state.
+
+    The service owns an in-memory LRU of materialized ndi.dataset.Dataset
+    objects + per-id locks for download coalescing — both must persist
+    across requests, so this MUST resolve to the shared instance, not a
+    new one per call. Lifespan wires
+    ``app.state.dataset_binding_service`` at startup.
+    """
+    return request.app.state.dataset_binding_service  # type: ignore[no-any-return]
 
 
 # --- Rate-limit helpers ---
