@@ -315,6 +315,54 @@ async def test_violin_groups_prefers_numeric_column_over_identifier():
 
 
 @pytest.mark.asyncio
+async def test_violin_groups_substring_groupby_resolves_to_column():
+    """LLM rarely knows the exact column key. A `groupBy='Treatment'`
+    should resolve to `Treatment_CNOOrSalineAdministration` via
+    substring match.
+    """
+    columns = [
+        {"key": "value", "label": "Measurement"},
+        {"key": "Treatment_CNOOrSalineAdministration", "label": "treatment: CNO or saline"},
+    ]
+    rows = [
+        {"value": 1.0, "Treatment_CNOOrSalineAdministration": "Saline"},
+        {"value": 2.0, "Treatment_CNOOrSalineAdministration": "Saline"},
+        {"value": 3.0, "Treatment_CNOOrSalineAdministration": "CNO"},
+        {"value": 4.0, "Treatment_CNOOrSalineAdministration": "CNO"},
+    ]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    result = await svc.violin_groups(
+        "ds", "Measurement", group_by="Treatment", group_order=None, session=None,
+    )
+    assert len(result["groups"]) == 2
+    by_name = {g["name"]: g for g in result["groups"]}
+    assert by_name["Saline"]["mean"] == 1.5
+    assert by_name["CNO"]["mean"] == 3.5
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_unresolvable_groupby_returns_empty_with_available():
+    """When groupBy doesn't match any column, return empty + the list
+    of available columns so the caller can retry."""
+    columns = [
+        {"key": "value", "label": "Measurement"},
+        {"key": "strain", "label": "strain"},
+    ]
+    rows = [{"value": 1.0, "strain": "N2"}]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    result = await svc.violin_groups(
+        "ds", "Measurement", group_by="NotAColumn", group_order=None, session=None,
+    )
+    assert result["groups"] == []
+    assert "no column matched groupBy" in result["_meta"]["reason"]
+    assert "strain" in result["_meta"]["columns"]
+
+
+@pytest.mark.asyncio
 async def test_violin_groups_no_ontology_docs_returns_empty():
     svc = TabularQueryService(
         _FakeSummaryService({"groups": []}),  # type: ignore[arg-type]

@@ -58,7 +58,7 @@ class TabularQueryService:
     def __init__(self, summary: SummaryTableService) -> None:
         self.summary = summary
 
-    async def violin_groups(
+    async def violin_groups(  # noqa: PLR0911 (linear-control-flow with early-return per failure mode is clearer than a state machine)
         self,
         dataset_id: str,
         variable_name_contains: str,
@@ -104,7 +104,28 @@ class TabularQueryService:
                 yLabel=value_label,
             )
 
-        buckets, order_seen = _bucket_rows(rows, value_col, group_by)
+        # Resolve the groupBy column. Like the value column, callers
+        # rarely know the exact column key — substring-match against the
+        # group's columns (key OR label, case-insensitive). When the user
+        # leaves group_by unset, this returns None and the bucketing
+        # produces a single 'all' group.
+        resolved_group_col = (
+            _resolve_group_column(group, group_by) if group_by else None
+        )
+        if group_by and resolved_group_col is None:
+            return _empty_response(
+                group_by,
+                reason=f"no column matched groupBy '{group_by}' in the "
+                       f"selected table",
+                yLabel=value_label,
+                available={"columns": [
+                    c.get("key")
+                    for c in (group.get("table") or {}).get("columns") or []
+                    if c.get("key") != value_col
+                ][:20]},
+            )
+
+        buckets, order_seen = _bucket_rows(rows, value_col, resolved_group_col)
         if not buckets:
             return _empty_response(
                 group_by,
@@ -190,6 +211,30 @@ def _find_matching_group(
     if best is None:
         return None
     return best[0], best[1], best[2]
+
+
+def _resolve_group_column(group: dict[str, Any], group_by: str) -> str | None:
+    """Resolve a possibly-imprecise group_by argument to an actual
+    column key in the matched group.
+
+    Substring-match against `key` first (exact key wins immediately),
+    then against `label`. Returns None when nothing matches so the
+    caller can surface an explicit error.
+    """
+    needle_lower = group_by.lower()
+    cols = (group.get("table") or {}).get("columns") or []
+    # Exact key match wins immediately.
+    for col in cols:
+        if str(col.get("key", "")) == group_by:
+            return group_by
+    # Substring fallback — key first (more stable than labels).
+    for col in cols:
+        if needle_lower in str(col.get("key", "")).lower():
+            return str(col["key"])
+    for col in cols:
+        if needle_lower in str(col.get("label", "")).lower():
+            return str(col["key"])
+    return None
 
 
 def _is_finite_numeric(v: Any) -> bool:
