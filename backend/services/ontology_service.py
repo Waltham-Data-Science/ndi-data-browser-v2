@@ -140,7 +140,21 @@ class OntologyService:
         except OntologyLookupFailed:
             return None
 
-    _OLS_PROVIDERS = {"CL": "cl", "NCBITaxon": "ncbitaxon", "CHEBI": "chebi", "PATO": "pato", "EFO": "efo"}
+    # OLS-resolvable providers. UBERON was previously omitted (live
+    # check showed UBERON:0001870 returning label=null even though
+    # OLS has it as "frontal cortex"). GO and OBI added for similar
+    # completeness — these are all OBO ontologies hosted at the same
+    # EBI OLS4 endpoint with identical query semantics.
+    _OLS_PROVIDERS = {
+        "CL": "cl",
+        "NCBITaxon": "ncbitaxon",
+        "CHEBI": "chebi",
+        "PATO": "pato",
+        "EFO": "efo",
+        "UBERON": "uberon",
+        "GO": "go",
+        "OBI": "obi",
+    }
 
     async def _fetch_from_provider(self, provider: str, term_id: str) -> OntologyTerm:
         ols = self._OLS_PROVIDERS.get(provider)
@@ -198,8 +212,20 @@ class OntologyService:
         return OntologyTerm(provider="RRID", term_id=rrid, label=None, definition=None, url=url)
 
     async def _fetch_wormbase(self, strain_id: str) -> OntologyTerm:
+        # NOTE: this provider doesn't actually scrape the WormBase strain
+        # page for the human-readable strain name — it just returns a
+        # link. PRE-FIX we set `label=strain_id` (echo the ID back),
+        # which made the entire pipeline think the lookup succeeded
+        # and short-circuited the NDI-python fallback that DOES know
+        # WBStrain labels (e.g. WBStrain:00000001 → "N2 wild-type").
+        # Returning `label=None` here triggers the
+        # `if not fetched.label and not fetched.definition` branch in
+        # `lookup` so NDI-python's fallback resolves the strain.
         url = f"https://wormbase.org/species/c_elegans/strain/{strain_id}"
-        return OntologyTerm(provider="WBStrain", term_id=strain_id, label=strain_id, definition=None, url=url)
+        return OntologyTerm(
+            provider="WBStrain", term_id=strain_id,
+            label=None, definition=None, url=url,
+        )
 
     async def _fetch_pubchem(self, cid: str) -> OntologyTerm:
         url = f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid}"

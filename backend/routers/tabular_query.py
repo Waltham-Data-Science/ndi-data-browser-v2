@@ -22,9 +22,13 @@ from fastapi import APIRouter, Depends, Query
 
 from ..auth.dependencies import get_current_session
 from ..auth.session import SessionData
+from ..errors import CloudInternalError, CloudTimeout, CloudUnreachable
+from ..observability.logging import get_logger
 from ..services.tabular_query_service import TabularQueryService
 from ._deps import limit_reads, tabular_query_service
 from ._validators import DatasetId
+
+log = get_logger(__name__)
 
 router = APIRouter(
     prefix="/api/datasets/{dataset_id}",
@@ -79,11 +83,34 @@ async def tabular_query(
         if groupOrder
         else None
     )
-    result = await svc.violin_groups(
-        dataset_id,
-        variableNameContains,
-        group_by=groupBy,
-        group_order=group_order_list,
-        session=session,
-    )
+    try:
+        result = await svc.violin_groups(
+            dataset_id,
+            variableNameContains,
+            group_by=groupBy,
+            group_order=group_order_list,
+            session=session,
+        )
+    except (CloudInternalError, CloudUnreachable, CloudTimeout) as exc:
+        # Translate cloud-layer failures to a typed 503 envelope —
+        # without this, the global FastAPI handler returns an opaque
+        # 500 JSON and the chat tool layer can't surface a useful
+        # error to the LLM. The frontend `fetchJson` helper maps 503
+        # to a clean "Upstream returned 503" message that the LLM
+        # then paraphrases. Matches the discipline of /ndi_overview.
+        from fastapi.responses import JSONResponse
+        log.warning(
+            "tabular_query.cloud_error",
+            dataset_id=dataset_id,
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "tabular_query unavailable",
+                "errorKind": "cloud_unavailable",
+                "reason": str(exc) or type(exc).__name__,
+            },
+        )
     return result
