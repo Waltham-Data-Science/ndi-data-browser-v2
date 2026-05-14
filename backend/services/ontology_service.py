@@ -42,7 +42,28 @@ class OntologyService:
         if provider is None:
             raise OntologyLookupFailed("Term must be PROVIDER:ID, e.g. CL:0000540")
         cached = self.cache.get(provider, term_id)
-        if cached is not None:
+        # IMPORTANT — only return cached entries that are REAL hits.
+        # A "stub" cache entry (label=None AND definition=None) is what
+        # ``OntologyCache.get`` returns for terms that were previously
+        # looked up but came back empty. We DO NOT want to return such
+        # stubs here, because:
+        #
+        #   1. Phase A (2026-05-13) wired ``ndi.ontology.lookup`` as a
+        #      fallback for lab-specific prefixes (WBStrain, NDIC, etc.)
+        #      that the legacy providers couldn't resolve. Terms looked
+        #      up BEFORE Phase A were cached as stubs.
+        #
+        #   2. ``ONTOLOGY_CACHE_TTL_DAYS`` defaults to 30, so those
+        #      pre-Phase-A stubs live for ~a month — and short-circuit
+        #      the NDI-python fallback every time the term resurfaces.
+        #
+        # By treating stubs as cache MISSES we let the lookup pipeline
+        # retry: existing providers (cheap; the OLS/SciCrunch/etc.
+        # calls have their own outbound throttling) AND the NDI-python
+        # fallback. On a successful resolution the new ``self.cache.set``
+        # below OVERWRITES the stub — so each stuck stub heals on first
+        # use rather than waiting for the 30-day TTL to expire.
+        if cached is not None and (cached.label or cached.definition):
             return cached
         fetched: OntologyTerm | None = None
         try:
@@ -65,7 +86,17 @@ class OntologyService:
                 return ndi_term
 
         if fetched is None:
-            raise OntologyLookupFailed(f"Could not look up {term}")
+            # Both legacy AND NDI-python failed. Cache a stub so we don't
+            # hammer the upstream providers, but if we had a prior stub
+            # in cache just return it (avoid a redundant set).
+            if cached is None:
+                stub = OntologyTerm(
+                    provider=provider, term_id=term_id,
+                    label=None, definition=None, url=None,
+                )
+                self.cache.set(stub)
+                return stub
+            return cached
         self.cache.set(fetched)
         return fetched
 
