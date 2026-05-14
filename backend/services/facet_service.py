@@ -538,16 +538,27 @@ class _DedupedTermBucket:
     be mutated in-place when a higher-count casing wins) and a counter
     per cased-label-string. The most-frequently-seen casing is the
     surviving displayed label; ties are broken by first-seen.
+
+    ``ontology_id`` is the merged bucket's authoritative ontologyId
+    (may be ``None`` until promoted by an incoming labeled term). It
+    governs label-alias merge eligibility: a label-keyed alias only
+    matches an incoming term when at most one side has an ontologyId.
+    Distinct ontologyIds with the same label intentionally stay
+    distinct (different upstream providers can legitimately catalog
+    the same name as different concepts).
     """
 
-    __slots__ = ("counts", "index", "winning_label")
+    __slots__ = ("counts", "index", "ontology_id", "winning_label")
 
-    def __init__(self, *, index: int, label: str) -> None:
+    def __init__(
+        self, *, index: int, label: str, ontology_id: str | None,
+    ) -> None:
         self.index = index
         # cased label → seen count. First-seen entry inserted with count
         # 1; subsequent matches bump.
         self.counts: dict[str, int] = {label: 1}
         self.winning_label = label
+        self.ontology_id = ontology_id
 
     def record(self, label: str) -> str | None:
         """Bump the seen counter for ``label`` and, if the new count
@@ -566,6 +577,61 @@ class _DedupedTermBucket:
         return None
 
 
+def _term_keys(
+    label: str,
+    ontology_id: str | None,
+    *,
+    use_paren_abbrev: bool,
+) -> tuple[str | None, str | None, str]:
+    """Compute the (oid, abbrev, norm) dedupe keys for one term.
+
+    All three are returned together so the caller can both look up an
+    existing bucket and register the term's aliases without recomputing.
+    ``oid`` and ``abbrev`` may be ``None`` when not applicable; ``norm``
+    is always populated (every term has a normalizable label).
+    """
+    oid_key = f"oid::{ontology_id}" if ontology_id else None
+    abbrev_key: str | None = None
+    if use_paren_abbrev:
+        abbrev = _extract_parenthesized_abbrev(label)
+        if abbrev:
+            abbrev_key = f"abbrev::{abbrev}"
+    norm_key = f"norm::{_normalize_label_key(label)}"
+    return oid_key, abbrev_key, norm_key
+
+
+def _find_bucket(
+    seen: dict[str, _DedupedTermBucket],
+    oid_key: str | None,
+    abbrev_key: str | None,
+    norm_key: str,
+    ontology_id: str | None,
+) -> _DedupedTermBucket | None:
+    """Locate an existing bucket for the incoming term, if any.
+
+    Lookup priority: ``oid::`` > ``abbrev::`` > ``norm::``. A direct
+    ontologyId match always wins (same provider id == same concept).
+    Label-keyed matches honour the asymmetric merge guard: distinct
+    ontologyIds with the same label stay distinct, so a bucket carrying
+    its own ontologyId is skipped when the incoming term carries a
+    different one.
+    """
+    if oid_key is not None and oid_key in seen:
+        return seen[oid_key]
+    for k in (abbrev_key, norm_key):
+        if k is None or k not in seen:
+            continue
+        candidate = seen[k]
+        if (
+            candidate.ontology_id is not None
+            and ontology_id is not None
+            and candidate.ontology_id != ontology_id
+        ):
+            continue
+        return candidate
+    return None
+
+
 def _add_ontology_term(
     term: Any,
     seen: dict[str, _DedupedTermBucket],
@@ -573,20 +639,33 @@ def _add_ontology_term(
     *,
     use_paren_abbrev: bool = False,
 ) -> bool:
-    """Append ``term`` to ``out`` if its dedupe key (ontologyId, then
-    parenthesized abbreviation when ``use_paren_abbrev`` is set, then
-    normalized label) has not been seen yet. Returns True iff something
-    new was added.
+    """Append ``term`` to ``out`` if no existing entry matches it under
+    any of its dedupe keys (ontologyId, parenthesized abbreviation for
+    brain regions, normalized label). Returns True iff something new
+    was added.
 
-    On a collision: bump the bucket's per-cased-label counter and, if the
-    new casing now has the highest count, swap the displayed label of the
-    already-emitted :class:`OntologyTerm` in-place. Pre-fix: collisions
-    were silently ignored; the first-seen casing was the only one ever
-    surfaced.
+    Bucket lookup walks the incoming term's candidate keys in priority
+    order — ``oid::`` first (most authoritative), then ``abbrev::`` for
+    brain regions, then ``norm::``. A label-keyed match is only accepted
+    when at most one of (existing bucket, incoming term) carries an
+    ontologyId: two distinct ontologyIds with the same label stay
+    distinct because different upstream providers can legitimately
+    catalog the same name as different concepts (see
+    ``test_ontology_id_still_takes_priority_over_label_normalization``).
+
+    Each emitted entry registers all its candidate keys as aliases
+    pointing to the same bucket. Pre-fix the keyspace was disjoint:
+    an ontologyId-keyed entry and a label-keyed entry for the same
+    species — ``Caenorhabditis elegans`` with ``NCBITaxon:6239`` from
+    one dataset, label-only from another — would surface as two
+    distinct chips. Post-fix: the asymmetric label-alias merge
+    collapses them. ``ontologyId`` is preserved across merges; a
+    later-arriving labeled term promotes a label-only entry by
+    contributing its ontologyId.
 
     Tolerates both :class:`OntologyTerm` instances and serialized dicts
-    (facet builder has both on hand since full summaries come through as
-    ``model_dump``).
+    (facet builder has both on hand since full summaries come through
+    as ``model_dump``).
     """
     if isinstance(term, OntologyTerm):
         raw_label: Any = term.label
@@ -603,37 +682,42 @@ def _add_ontology_term(
         raw_ontology_id if isinstance(raw_ontology_id, str) and raw_ontology_id else None
     )
 
-    # Dedupe key resolution, in priority order:
-    # 1. ontologyId (most authoritative — same provider id wins).
-    # 2. Parenthesized abbreviation (brain-region only) — collapses
-    #    "Bed nucleus of the stria terminalis (BNST)" with
-    #    "Bed nucleus of stria terminalis (BNST)".
-    # 3. Normalized label (lowercase + collapse-whitespace + strip) —
-    #    collapses case-identical and trivial-whitespace duplicates.
-    key: str
-    if ontology_id:
-        key = f"oid::{ontology_id}"
-    else:
-        abbrev = (
-            _extract_parenthesized_abbrev(label) if use_paren_abbrev else None
-        )
-        key = (
-            f"abbrev::{abbrev}" if abbrev else f"norm::{_normalize_label_key(label)}"
-        )
+    oid_key, abbrev_key, norm_key = _term_keys(
+        label, ontology_id, use_paren_abbrev=use_paren_abbrev,
+    )
+    bucket = _find_bucket(seen, oid_key, abbrev_key, norm_key, ontology_id)
 
-    bucket = seen.get(key)
     if bucket is not None:
+        # Register any candidate keys this term carries that the bucket
+        # didn't already have. Promotion below may also extend
+        # ``ontology_id``, which we then register as a new alias so a
+        # later same-ontologyId visit can match directly.
+        for k in (oid_key, abbrev_key, norm_key):
+            if k is not None:
+                seen.setdefault(k, bucket)
         new_winner = bucket.record(label)
-        if new_winner is not None:
-            # In-place label swap on the already-emitted term so the
-            # output list reflects the most-frequently-seen casing
-            # without us having to re-emit or sort.
-            existing = out[bucket.index]
+        existing = out[bucket.index]
+        # Promotion: if the incoming term carries an ontologyId and the
+        # bucket doesn't, adopt it. The label stays the winning-casing
+        # decision from ``bucket.record``.
+        promoted_ontology_id = existing.ontologyId or ontology_id
+        if bucket.ontology_id is None and ontology_id is not None:
+            bucket.ontology_id = ontology_id
+            # Register the newly-adopted oid as an alias so future
+            # same-oid arrivals find this bucket directly.
+            seen.setdefault(f"oid::{ontology_id}", bucket)
+        if new_winner is not None or promoted_ontology_id != existing.ontologyId:
             out[bucket.index] = OntologyTerm(
-                label=new_winner, ontologyId=existing.ontologyId,
+                label=new_winner or existing.label,
+                ontologyId=promoted_ontology_id,
             )
         return False
-    seen[key] = _DedupedTermBucket(index=len(out), label=label)
+    new_bucket = _DedupedTermBucket(
+        index=len(out), label=label, ontology_id=ontology_id,
+    )
+    for k in (oid_key, abbrev_key, norm_key):
+        if k is not None:
+            seen[k] = new_bucket
     out.append(OntologyTerm(label=label, ontologyId=ontology_id))
     return True
 

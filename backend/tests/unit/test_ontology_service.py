@@ -23,11 +23,11 @@ boundary tests.
 """
 from __future__ import annotations
 
-import asyncio
-from typing import Any
 from unittest.mock import patch
 
+import httpx
 import pytest
+import respx
 
 from backend.services.ontology_cache import OntologyCache, OntologyTerm
 from backend.services.ontology_service import OntologyService
@@ -180,3 +180,140 @@ async def test_batch_lookup_unblocks_stale_stubs(service, cache):
     label_by_id = {f"{r.provider}:{r.term_id}": r.label for r in results}
     assert label_by_id["WBStrain:00000001"] == "N2 wild-type"
     assert label_by_id["NDIC:1"] == "Purpose: Assessing spatial frequency tuning"
+
+
+# ---------------------------------------------------------------------------
+# WBStrain scrape — `_fetch_wormbase` now resolves strain names from the
+# canonical wormbase.org strain page so the lookup pipeline no longer has
+# to depend on NDI-python's WBStrain provider (which only returns a URL).
+# ---------------------------------------------------------------------------
+
+
+# Minimal HTML fixture mirroring the real WormBase strain page. Captures
+# the two parse targets (``<title>`` + page-title breadcrumb) and enough
+# surrounding chrome that a future regex refactor can verify it still
+# anchors on the right boundaries.
+_WORMBASE_N2_HTML = """<!DOCTYPE html>
+<html lang="en-US">
+<head>
+  <meta charset="utf-8">
+  <title>  N2 (strain) -  WormBase : Nematode Information Resource</title>
+</head>
+<body>
+  <div id="page-title-wrapper">
+    <div id="page-title">
+      <span id="breadcrumbs">
+        <a href="/species/all">Species</a> &raquo;
+        <span class="species"><a href="/species/c_elegans">C. elegans</a></span>
+      </span>
+      <h2> <a href="/species/c_elegans/strain">Strain</a> &raquo; <span>N2</span> </h2>
+    </div>
+  </div>
+  <div id="widgets"></div>
+</body>
+</html>
+"""
+
+# Cloudflare-interstitial response — the most common failure mode in
+# practice when the backend's egress IP is on a datacenter range.
+_CLOUDFLARE_JUST_A_MOMENT = (
+    "<!DOCTYPE html><html><head>"
+    "<title>Just a moment...</title>"
+    "</head><body></body></html>"
+)
+
+
+@pytest.mark.asyncio
+async def test_wormbase_scrape_resolves_strain_name(service):
+    """Happy path: the WBStrain page returns 200 with the canonical
+    title, and ``_fetch_wormbase`` extracts the strain name from
+    ``<title>``."""
+    url = "https://wormbase.org/species/c_elegans/strain/00000001"
+    with respx.mock(assert_all_called=False) as router:
+        router.get(url).mock(
+            return_value=httpx.Response(200, text=_WORMBASE_N2_HTML),
+        )
+        term = await service._fetch_wormbase("00000001")
+    assert term.provider == "WBStrain"
+    assert term.term_id == "00000001"
+    assert term.label == "N2"
+    assert term.url == url
+
+
+@pytest.mark.asyncio
+async def test_wormbase_scrape_falls_back_to_breadcrumb(service):
+    """If the ``<title>`` element is missing or mangled (older snapshot,
+    partial response), the page-title breadcrumb still resolves the
+    name."""
+    body_no_title = _WORMBASE_N2_HTML.replace(
+        "<title>  N2 (strain) -  WormBase : Nematode Information Resource</title>",
+        "",
+    )
+    url = "https://wormbase.org/species/c_elegans/strain/00000001"
+    with respx.mock(assert_all_called=False) as router:
+        router.get(url).mock(
+            return_value=httpx.Response(200, text=body_no_title),
+        )
+        term = await service._fetch_wormbase("00000001")
+    assert term.label == "N2"
+
+
+@pytest.mark.asyncio
+async def test_wormbase_scrape_returns_none_label_on_cloudflare_block(service):
+    """Cloudflare interstitials still return 200, but the ``(strain)``
+    anchor in the title regex won't match. We must NOT leak the
+    interstitial body as a strain name."""
+    url = "https://wormbase.org/species/c_elegans/strain/00000001"
+    with respx.mock(assert_all_called=False) as router:
+        router.get(url).mock(
+            return_value=httpx.Response(200, text=_CLOUDFLARE_JUST_A_MOMENT),
+        )
+        term = await service._fetch_wormbase("00000001")
+    assert term.label is None
+    assert term.url == url
+
+
+@pytest.mark.asyncio
+async def test_wormbase_scrape_returns_none_label_on_404(service):
+    """Strain IDs that don't exist on WormBase return 404. The scrape
+    must NOT raise and must return ``label=None`` so the upstream
+    pipeline falls through to the NDI-python fallback."""
+    url = "https://wormbase.org/species/c_elegans/strain/99999999"
+    with respx.mock(assert_all_called=False) as router:
+        router.get(url).mock(return_value=httpx.Response(404, text=""))
+        term = await service._fetch_wormbase("99999999")
+    assert term.label is None
+
+
+@pytest.mark.asyncio
+async def test_wormbase_scrape_returns_none_label_on_network_error(service):
+    """Network errors (timeouts, DNS, RST) must be swallowed; the
+    lookup pipeline degrades cleanly to ``label=None``."""
+    url = "https://wormbase.org/species/c_elegans/strain/00000001"
+    with respx.mock(assert_all_called=False) as router:
+        router.get(url).mock(side_effect=httpx.ConnectTimeout("boom"))
+        term = await service._fetch_wormbase("00000001")
+    assert term.label is None
+    assert term.url == url
+
+
+@pytest.mark.asyncio
+async def test_wormbase_scrape_end_to_end_caches_result(service, cache):
+    """End-to-end: lookup of a WBStrain CURIE invokes the scrape, gets
+    the strain name, and the result is cached as a REAL hit (not a
+    stub). Second lookup must short-circuit without re-fetching."""
+    url = "https://wormbase.org/species/c_elegans/strain/00000001"
+    with respx.mock(assert_all_called=False) as router:
+        route = router.get(url).mock(
+            return_value=httpx.Response(200, text=_WORMBASE_N2_HTML),
+        )
+        # First call hits WormBase via the scrape.
+        first = await service.lookup("WBStrain:00000001")
+        # Second call must come from cache.
+        second = await service.lookup("WBStrain:00000001")
+    assert first.label == "N2"
+    assert second.label == "N2"
+    assert route.call_count == 1
+    cached = cache.get("WBStrain", "00000001")
+    assert cached is not None
+    assert cached.label == "N2"

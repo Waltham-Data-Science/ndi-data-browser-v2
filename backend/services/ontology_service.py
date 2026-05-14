@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import html as _html
+import re
 from typing import Any
 
 import httpx
@@ -11,6 +13,26 @@ from ..observability.logging import get_logger
 from .ontology_cache import OntologyCache, OntologyTerm
 
 log = get_logger(__name__)
+
+# WormBase page-title pattern. The canonical strain page returns a title
+# like ``<title>  N2 (strain) - WormBase : Nematode Information Resource</title>``
+# regardless of release (verified on WS294 via a Wayback snapshot; the
+# template hasn't changed in years). We anchor on ``(strain)`` rather than
+# just stripping the suffix so we don't accidentally pick up the
+# "Just a moment..." Cloudflare interstitial as a strain name.
+_WB_TITLE_RE = re.compile(
+    r"<title[^>]*>\s*([^<(]+?)\s*\(strain\)\s*-\s*WormBase",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Secondary parse target: the page-title breadcrumb
+# ``<h2> <a ...>Strain</a> &raquo; <span>N2</span> </h2>``. Used when the
+# ``<title>`` element is missing or mangled (older snapshots, partial
+# loads), so the scrape still resolves on a degraded page.
+_WB_BREADCRUMB_RE = re.compile(
+    r"<a[^>]*>\s*Strain\s*</a>\s*&raquo;\s*<span[^>]*>\s*([^<]+?)\s*</span>",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 class OntologyService:
@@ -212,20 +234,51 @@ class OntologyService:
         return OntologyTerm(provider="RRID", term_id=rrid, label=None, definition=None, url=url)
 
     async def _fetch_wormbase(self, strain_id: str) -> OntologyTerm:
-        # NOTE: this provider doesn't actually scrape the WormBase strain
-        # page for the human-readable strain name — it just returns a
-        # link. PRE-FIX we set `label=strain_id` (echo the ID back),
-        # which made the entire pipeline think the lookup succeeded
-        # and short-circuited the NDI-python fallback that DOES know
-        # WBStrain labels (e.g. WBStrain:00000001 → "N2 wild-type").
-        # Returning `label=None` here triggers the
-        # `if not fetched.label and not fetched.definition` branch in
-        # `lookup` so NDI-python's fallback resolves the strain.
+        """Resolve a WBStrain CURIE to its human-readable strain name.
+
+        NDI-python's WBStrain provider only returns a URL, not a label, so
+        we GET the canonical strain page and parse the strain name from
+        ``<title>`` (primary) or the page-title breadcrumb (secondary).
+        Any failure — Cloudflare interstitial, timeout, 404, parse miss —
+        falls through to ``label=None`` so the lookup pipeline degrades
+        cleanly rather than crashing. Cache layering upstream means each
+        strain page is hit at most once per TTL.
+        """
         url = f"https://wormbase.org/species/c_elegans/strain/{strain_id}"
+        label = await self._scrape_wormbase_label(url)
         return OntologyTerm(
             provider="WBStrain", term_id=strain_id,
-            label=None, definition=None, url=url,
+            label=label, definition=None, url=url,
         )
+
+    async def _scrape_wormbase_label(self, url: str) -> str | None:
+        """Fetch ``url`` and extract the strain name from the HTML.
+
+        Total budget is 5 seconds — WormBase pages are small (~70 KB) but
+        Cloudflare can interpose. Returns ``None`` on any failure so the
+        caller can fall through; never raises.
+        """
+        try:
+            r = await self._http.get(url, timeout=5.0)
+        except Exception as e:
+            log.warning("ontology.wormbase.fetch_failed", url=url, error=str(e))
+            return None
+        if r.status_code != 200:
+            log.warning(
+                "ontology.wormbase.bad_status",
+                url=url, status=r.status_code,
+            )
+            return None
+        body = r.text
+        m = _WB_TITLE_RE.search(body) or _WB_BREADCRUMB_RE.search(body)
+        if m is None:
+            return None
+        label = _html.unescape(m.group(1)).strip()
+        # Guard against empty captures and the Cloudflare "Just a moment"
+        # text leaking through despite the ``(strain)`` anchor.
+        if not label or label.lower().startswith("just a moment"):
+            return None
+        return label
 
     async def _fetch_pubchem(self, cid: str) -> OntologyTerm:
         url = f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid}"
