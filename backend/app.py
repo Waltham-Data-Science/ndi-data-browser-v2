@@ -45,6 +45,7 @@ from .routers import (
     query,
     signal,
     tables,
+    tabular_query,
     visualize,
 )
 from .services.ontology_cache import OntologyCache
@@ -255,6 +256,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
         log.info("keepwarm.started", interval_seconds=240)
         log.info("facets_warm.started", interval_seconds=240)
 
+    # NDI-python strict-boot check.
+    #
+    # The Phase A integration adds vlt (VHSB), ndicompress, and
+    # ndi.ontology. When `NDI_PYTHON_REQUIRED=1` (set by the Railway
+    # Dockerfile), the stack MUST be importable or we hard-fail.
+    # Unset (dev/test/CI), we log a warning if NDI is missing but
+    # keep going — every NDI-python call gracefully returns None and
+    # callers fall through to their legacy paths.
+    #
+    # Why an explicit env var rather than guessing from
+    # `settings.ENVIRONMENT`: the test/CI/local matrix is fuzzy, and
+    # the only thing that actually matters here is "is this image
+    # supposed to have NDI-python installed?" The Dockerfile knows;
+    # nothing else needs to.
+    import os as _os
+    if _os.environ.get("NDI_PYTHON_REQUIRED", "").strip() in ("1", "true", "yes"):
+        from .services import ndi_python_service as _ndi
+        if not _ndi.is_ndi_available():
+            raise RuntimeError(
+                "ndi_python_service.is_ndi_available() returned False at "
+                "startup but NDI_PYTHON_REQUIRED=1. The NDI-python stack "
+                "(vlt, ndicompress, ndi.ontology) failed to import. Check "
+                "the Dockerfile's pinned git SHAs and the install layer logs."
+            )
+        log.info("ndi_python.boot_ok")
+
     log.info("app.startup", environment=settings.ENVIRONMENT)
     try:
         yield
@@ -424,6 +451,7 @@ def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, i
     app.include_router(query.facets_router)
     app.include_router(binary.router)
     app.include_router(signal.router)
+    app.include_router(tabular_query.router)
     app.include_router(ontology.router)
     app.include_router(visualize.router)
 

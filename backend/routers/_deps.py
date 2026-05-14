@@ -23,6 +23,7 @@ from ..services.ontology_service import OntologyService
 from ..services.pivot_service import PivotService
 from ..services.query_service import QueryService
 from ..services.summary_table_service import SummaryTableService
+from ..services.tabular_query_service import TabularQueryService
 from ..services.visualize_service import VisualizeService
 
 
@@ -60,6 +61,10 @@ def dep_graph_cache(request: Request) -> RedisTableCache | None:
 
 def summary_table_service(request: Request) -> SummaryTableService:
     return SummaryTableService(cloud(request), cache=table_cache(request))
+
+
+def tabular_query_service(request: Request) -> TabularQueryService:
+    return TabularQueryService(summary_table_service(request))
 
 
 def dataset_summary_cache(request: Request) -> RedisTableCache | None:
