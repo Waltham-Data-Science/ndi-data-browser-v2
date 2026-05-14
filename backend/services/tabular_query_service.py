@@ -157,20 +157,49 @@ def _find_matching_group(
     groups: list[dict[str, Any]],
     needle: str,
 ) -> tuple[dict[str, Any], str, str] | None:
-    """Locate the first ontologyTableRow group containing a column
-    whose `key` OR `label` contains the search substring.
+    """Locate the best ontologyTableRow column matching the search
+    substring, preferring columns whose values are numeric.
 
-    Returns (group, value_column_key, value_column_label) or None.
+    Real ontologyTableRow tables typically have multiple columns whose
+    names share the same topic prefix (e.g. ``ElevatedPlusMaze: Test
+    Identifier`` + ``ElevatedPlusMaze: Open Arm Entries`` + …). A naive
+    first-match would pick the identifier column → no numeric values →
+    empty violin. We instead score each matching column by how many
+    rows have finite-numeric values in it, and return the highest-
+    scoring column across all groups.
+
+    Ties broken by first-seen order (group order is already sorted by
+    row count desc in SummaryTableService).
     """
     needle_lower = needle.lower()
+    best: tuple[dict[str, Any], str, str, int] | None = None
     for g in groups:
-        cols = (g.get("table") or {}).get("columns") or []
+        table = g.get("table") or {}
+        cols = table.get("columns") or []
+        rows = table.get("rows") or []
         for col in cols:
             key = str(col.get("key", ""))
             label = str(col.get("label", ""))
-            if needle_lower in key.lower() or needle_lower in label.lower():
-                return g, key, label or key
-    return None
+            if needle_lower not in key.lower() and needle_lower not in label.lower():
+                continue
+            numeric_count = sum(1 for row in rows if _is_finite_numeric(row.get(key)))
+            if numeric_count == 0:
+                continue
+            if best is None or numeric_count > best[3]:
+                best = (g, key, label or key, numeric_count)
+    if best is None:
+        return None
+    return best[0], best[1], best[2]
+
+
+def _is_finite_numeric(v: Any) -> bool:
+    """Defensive coerce — `True` only when `v` parses to a finite float."""
+    if v is None:
+        return False
+    try:
+        return math.isfinite(float(v))
+    except (TypeError, ValueError):
+        return False
 
 
 def _bucket_rows(

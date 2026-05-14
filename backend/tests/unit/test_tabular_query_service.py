@@ -281,6 +281,40 @@ async def test_violin_groups_empty_substring_returns_empty():
 
 
 @pytest.mark.asyncio
+async def test_violin_groups_prefers_numeric_column_over_identifier():
+    """Real ontologyTableRow tables often have multiple columns sharing
+    a topic prefix (e.g. an identifier column + measurement columns).
+    The matcher must skip the non-numeric identifier and pick the
+    numeric measurement.
+    """
+    columns = [
+        {"key": "EPM_TestIdentifier", "label": "EPM: Test Identifier"},
+        {"key": "EPM_OpenArmEntries", "label": "EPM: Open Arm Entries"},
+        {"key": "treatment", "label": "treatment"},
+    ]
+    rows = [
+        {"EPM_TestIdentifier": "EPM-001", "EPM_OpenArmEntries": 5.0, "treatment": "Saline"},
+        {"EPM_TestIdentifier": "EPM-002", "EPM_OpenArmEntries": 7.0, "treatment": "Saline"},
+        {"EPM_TestIdentifier": "EPM-003", "EPM_OpenArmEntries": 3.0, "treatment": "CNO"},
+        {"EPM_TestIdentifier": "EPM-004", "EPM_OpenArmEntries": 2.0, "treatment": "CNO"},
+    ]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    # Search "EPM" matches BOTH identifier and entries; should pick
+    # the numeric one.
+    result = await svc.violin_groups(
+        "ds", "EPM", group_by="treatment", group_order=None, session=None,
+    )
+    assert len(result["groups"]) == 2  # Saline + CNO
+    by_name = {g["name"]: g for g in result["groups"]}
+    assert by_name["Saline"]["mean"] == 6.0  # (5+7)/2
+    assert by_name["CNO"]["mean"] == 2.5  # (3+2)/2
+    # And the label should be the numeric column's label.
+    assert "Open Arm Entries" in result["yLabel"]
+
+
+@pytest.mark.asyncio
 async def test_violin_groups_no_ontology_docs_returns_empty():
     svc = TabularQueryService(
         _FakeSummaryService({"groups": []}),  # type: ignore[arg-type]
