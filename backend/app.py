@@ -44,8 +44,10 @@ from .routers import (
     image,
     ndi_dataset,
     ontology,
+    psth,
     query,
     signal,
+    spike_summary,
     tables,
     tabular_query,
     treatment_timeline,
@@ -534,6 +536,8 @@ def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, i
     app.include_router(image.router)
     app.include_router(tabular_query.router)
     app.include_router(treatment_timeline.router)
+    app.include_router(psth.router)
+    app.include_router(spike_summary.router)
     app.include_router(ndi_dataset.router)
     app.include_router(ontology.router)
     app.include_router(visualize.router)
