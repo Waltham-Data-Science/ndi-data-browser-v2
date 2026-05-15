@@ -757,15 +757,39 @@ def _counts_from_raw(raw: dict[str, Any]) -> DatasetSummaryCounts:
             epochs = n
             break
 
+    sessions = int(
+        class_counts.get("session")
+        or class_counts.get("session_in_a_dataset")
+        or 0,
+    )
+    subject_count = int(class_counts.get("subject") or 0)
+    element_count = int(class_counts.get("element") or 0)
+    # Stream 5.5 diagnostic (2026-05-15): some datasets land with
+    # elements + subjects but zero session-class documents (Mukherjee
+    # `6546c509…` on 2026-05-15: 1 subject + 7 elements + sessions=0).
+    # Per NDI's data model you can't have elements without a recording
+    # session — so a true zero here usually means either (a) ingest is
+    # mid-pipeline and the session docs haven't landed yet, or (b) the
+    # dataset uses a session-class spelling we don't yet recognize.
+    # Emit a structured log so operators can grep Railway logs to find
+    # the offending datasets + see what session-shaped class names
+    # they actually emit. NOT a user-visible change.
+    if sessions == 0 and (element_count > 0 or subject_count > 0):
+        session_shaped_keys = sorted(
+            k for k in class_counts.keys() if "session" in k.lower()
+        )
+        log.info(
+            "summary.sessions_zero_with_elements",
+            element_count=element_count,
+            subject_count=subject_count,
+            total_documents=int(raw.get("totalDocuments") or 0),
+            session_shaped_class_keys=session_shaped_keys,
+        )
     return DatasetSummaryCounts(
-        sessions=int(
-            class_counts.get("session")
-            or class_counts.get("session_in_a_dataset")
-            or 0,
-        ),
-        subjects=int(class_counts.get("subject") or 0),
+        sessions=sessions,
+        subjects=subject_count,
         probes=int(class_counts.get("probe") or 0),
-        elements=int(class_counts.get("element") or 0),
+        elements=element_count,
         epochs=epochs,
         totalDocuments=int(raw.get("totalDocuments") or 0),
     )

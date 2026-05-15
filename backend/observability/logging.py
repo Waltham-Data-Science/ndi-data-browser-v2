@@ -66,12 +66,25 @@ def configure_logging() -> None:
         # failure). Leave it out for console mode.
         renderer = structlog.dev.ConsoleRenderer(colors=True)
 
+    # cache_logger_on_first_use=False (was True before Stream 6.6):
+    # caching binds each ``get_logger(__name__)`` lazy-proxy to its
+    # first-seen processor chain. In production that's a tiny win,
+    # but it breaks pytest's structlog.testing.capture_logs() inside
+    # unit tests that run AFTER an integration test has called
+    # configure_logging() — the cached proxies stay pinned to the
+    # integration chain even when the unit test re-configures. The
+    # symptom: capture_logs returns an empty list while pytest's
+    # "captured log call" panel shows the WARNING was emitted (caught
+    # 2026-05-15 against three test_cloud_client + test_dependencies
+    # flakes). Disabling the cache costs ~1-2 µs per log call in prod
+    # (negligible vs the network round-trip these logs accompany) and
+    # makes the test harness behave deterministically.
     structlog.configure(
         processors=[*shared, renderer],
         wrapper_class=structlog.make_filtering_bound_logger(level),
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),
-        cache_logger_on_first_use=True,
+        cache_logger_on_first_use=False,
     )
 
 
