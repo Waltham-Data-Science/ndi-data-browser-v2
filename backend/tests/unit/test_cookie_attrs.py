@@ -58,7 +58,7 @@ def _request(origin: str | None = None, referer: str | None = None) -> Request:
     )
 
 
-# ─── Production × apex origin → Domain attached ─────────────────────────
+# ─── Production xapex origin → Domain attached ─────────────────────────
 
 def test_production_with_apex_origin_attaches_domain() -> None:
     """The original cross-repo unification (Phase 4) contract."""
@@ -87,7 +87,7 @@ def test_production_with_referer_only_attaches_domain() -> None:
     assert attrs == {"secure": True, "domain": ".ndi-cloud.com"}
 
 
-# ─── Production × preview / unknown origin → host-only ──────────────────
+# ─── Production xpreview / unknown origin → host-only ──────────────────
 
 def test_production_with_vercel_preview_origin_is_host_only() -> None:
     """The 2026-05-14 preview-login fix: no Domain attribute when
