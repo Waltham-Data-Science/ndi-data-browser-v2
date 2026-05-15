@@ -890,6 +890,68 @@ async def test_cache_uses_differential_ttl_on_compute() -> None:
     assert kwargs["ex"] == 24 * 60 * 60
 
 
+def test_counts_from_raw_uses_element_epoch_when_present() -> None:
+    """`element_epoch` is the primary epoch class for newer NDI datasets."""
+    from backend.services.dataset_summary_service import _counts_from_raw
+    counts = _counts_from_raw(_counts_raw(subject=2, element_epoch=42))
+    assert counts.epochs == 42
+
+
+def test_counts_from_raw_falls_back_to_plain_epoch() -> None:
+    """Legacy `epoch` class is the second choice."""
+    from backend.services.dataset_summary_service import _counts_from_raw
+    counts = _counts_from_raw(_counts_raw(subject=2, epoch=7))
+    assert counts.epochs == 7
+
+
+def test_counts_from_raw_falls_back_to_epochfiles_ingested() -> None:
+    """Francesconi pattern: Phase-A ingest emits `epochfiles_ingested`
+    per epoch file, neither `element_epoch` nor `epoch`. Without this
+    fallback the EPOCHS chip read 0 on the workspace even though
+    the dataset has thousands of epochs (the 2026-05-14 parity bug)."""
+    from backend.services.dataset_summary_service import _counts_from_raw
+    counts = _counts_from_raw(_counts_raw(subject=215, epochfiles_ingested=1604))
+    assert counts.epochs == 1604
+
+
+def test_counts_from_raw_falls_back_to_daqreader_mfdaq_epochdata() -> None:
+    """Some Van Hooser lab datasets emit `daqreader_mfdaq_epochdata_ingested`
+    instead. Should also resolve."""
+    from backend.services.dataset_summary_service import _counts_from_raw
+    counts = _counts_from_raw(
+        _counts_raw(subject=10, daqreader_mfdaq_epochdata_ingested=33),
+    )
+    assert counts.epochs == 33
+
+
+def test_counts_from_raw_picks_first_non_zero_no_double_count() -> None:
+    """When both `epochfiles_ingested` and `daqreader_mfdaq_epochdata_ingested`
+    are present (1:1 with the same set of epochs in some datasets), the
+    fallback chain picks the first hit only — summing them would
+    double-count. Priority: element_epoch > epoch > epochfiles_ingested
+    > daqreader_mfdaq_epochdata_ingested."""
+    from backend.services.dataset_summary_service import _counts_from_raw
+    counts = _counts_from_raw(
+        _counts_raw(
+            subject=10,
+            epochfiles_ingested=1604,
+            daqreader_mfdaq_epochdata_ingested=1605,
+        ),
+    )
+    # First in chain wins, not the sum.
+    assert counts.epochs == 1604
+
+
+def test_counts_from_raw_returns_zero_when_no_epoch_class_present() -> None:
+    """Bhar (C. elegans behavior) has no epoch documents at all —
+    EPOCHS=0 is the correct chip value for that dataset."""
+    from backend.services.dataset_summary_service import _counts_from_raw
+    counts = _counts_from_raw(
+        _counts_raw(subject=5314, subject_group=235, treatment_drug=24466),
+    )
+    assert counts.epochs == 0
+
+
 def test_summary_schema_version_literal() -> None:
     with pytest.raises(Exception):  # noqa: B017 — any pydantic ValidationError variant
         DatasetSummary.model_validate({

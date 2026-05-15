@@ -722,6 +722,41 @@ def _counts_from_raw(raw: dict[str, Any]) -> DatasetSummaryCounts:
     # Sessions and probes: the cloud reports whichever class name the
     # dataset used. Fall back across `probe` / `element` and `session` /
     # `session_in_a_dataset` so older and newer datasets both reconcile.
+    #
+    # Epoch counting: NDI has at least four canonical epoch-bearing
+    # document classes depending on ingestion path and dataset vintage.
+    # The fallback chain (tried in priority order, first hit wins) is:
+    #
+    #   1. ``element_epoch`` — explicit per-element epoch documents
+    #      (newer NDI datasets, native MATLAB ingest)
+    #   2. ``epoch`` — legacy plain epoch documents
+    #   3. ``epochfiles_ingested`` — Phase-A ingest path emits one of
+    #      these per epoch file. Francesconi (BNST patch-clamp) uses
+    #      this exclusively — without this fallback the EPOCHS chip
+    #      reads 0 on the workspace even though the dataset has
+    #      thousands of recorded epochs (caught live during the
+    #      2026-05-14 tutorial-parity smoke).
+    #   4. ``daqreader_mfdaq_epochdata_ingested`` — alternate Phase-A
+    #      class for multi-function-DAQ ingest (covers some Van Hooser
+    #      lab datasets); 1:1 with epochs in datasets where it appears.
+    #
+    # First-non-zero-wins (not summed). When multiple classes are
+    # present (e.g. ``epochfiles_ingested`` and the mfdaq variant for
+    # the same epochs) the chain picks the most authoritative class
+    # and avoids double-counting.
+    epoch_classes = (
+        "element_epoch",
+        "epoch",
+        "epochfiles_ingested",
+        "daqreader_mfdaq_epochdata_ingested",
+    )
+    epochs = 0
+    for cls in epoch_classes:
+        n = int(class_counts.get(cls) or 0)
+        if n > 0:
+            epochs = n
+            break
+
     return DatasetSummaryCounts(
         sessions=int(
             class_counts.get("session")
@@ -731,9 +766,7 @@ def _counts_from_raw(raw: dict[str, Any]) -> DatasetSummaryCounts:
         subjects=int(class_counts.get("subject") or 0),
         probes=int(class_counts.get("probe") or 0),
         elements=int(class_counts.get("element") or 0),
-        epochs=int(
-            class_counts.get("element_epoch") or class_counts.get("epoch") or 0,
-        ),
+        epochs=epochs,
         totalDocuments=int(raw.get("totalDocuments") or 0),
     )
 
