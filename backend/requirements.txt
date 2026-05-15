@@ -8,7 +8,11 @@ cachetools>=5.4.0
 cryptography>=43.0.0
 structlog>=24.4.0
 prometheus-client>=0.20.0
-python-multipart>=0.0.9
+# python-multipart bumped to >=0.0.27 (was >=0.0.9) to close CVE-2026-42561.
+# Surfaced 2026-05-15 via `pip-audit`. The 0.0.9 floor still resolved to a
+# vulnerable version when Docker rebuilt because the resolver picks the
+# latest compatible — but 0.0.9 itself is vulnerable.
+python-multipart>=0.0.27
 Pillow>=10.4.0
 numpy>=2.0.0
 scipy>=1.14.0

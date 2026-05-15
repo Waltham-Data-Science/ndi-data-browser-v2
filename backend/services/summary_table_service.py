@@ -61,7 +61,7 @@ MAX_CONCURRENT_BULK_FETCH = 6
 # model can say "9 distinct strains across 215 subjects" without sampling.
 #
 # Skip the computation entirely above this row count — the table is too big to
-# scan in-memory affordably (>10K rows × ~15 columns = 150K cell reads).
+# scan in-memory affordably (>10K rows x ~15 columns = 150K cell reads).
 DISTINCT_SUMMARY_MAX_ROWS = 10_000
 # How many top values per column to surface. Beyond ~5 the LLM's context
 # bloats without adding signal; "top-5 + counts + distinct_count" is the

@@ -197,13 +197,19 @@ async def test_ip_change_logs_warning_allows_request(fake_redis: Any) -> None:
     ip_events = [e for e in logs if e.get("event") == "session.ip_changed"]
     assert len(ip_events) == 1
     e = ip_events[0]
-    assert e["session_id"] == session.session_id
+    # session_id is truncated to 8 chars (the full id is the session
+    # secret — see dependencies.py for the rationale). The prefix is
+    # still enough to correlate log lines for one session.
+    assert e["session_id"] == session.session_id[:8]
     assert e["stored_ip_hash"] == session.ip_addr_hash
     assert e["current_ip_hash"] != session.ip_addr_hash
     # No raw IPs in the log line.
     payload = str(e)
     assert "192.168.1.10" not in payload
     assert "10.0.0.5" not in payload
+    # And the full session id MUST NOT appear anywhere in the
+    # captured event payload — otherwise log-readers could replay it.
+    assert session.session_id not in payload
 
 
 @pytest.mark.asyncio

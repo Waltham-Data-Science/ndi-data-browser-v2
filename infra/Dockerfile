@@ -26,6 +26,11 @@ RUN useradd -u 10001 -m ndb
 RUN mkdir -p /tmp/ndb && chown -R ndb:ndb /tmp/ndb /app
 
 COPY backend/requirements.txt ./backend/requirements.txt
+# Upgrade pip to >=26.1 before resolving deps — the python:3.12-slim base
+# image's bundled pip (26.0.x as of 2026-05-15) carries CVE-2026-6357. The
+# upgrade closes the CVE during image build without changing the runtime
+# Python interpreter. Surfaced 2026-05-15 by pip-audit against the dev venv.
+RUN pip install --upgrade 'pip>=26.1'
 RUN pip install -r backend/requirements.txt
 
 # --- NDI-python integration (Phase A) ---------------------------------------

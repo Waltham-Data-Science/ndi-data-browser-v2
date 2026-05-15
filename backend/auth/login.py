@@ -164,10 +164,13 @@ async def do_logout(
                 await cloud.logout(session.access_token)
             except Exception as e:
                 # Best-effort upstream logout — local teardown continues.
+                # Truncate session id to 8 chars: the full id IS the
+                # session secret (anyone with Railway log access could
+                # otherwise replay it by setting the `session` cookie).
                 log.info(
                     "auth.logout.cloud_failed",
                     reason=type(e).__name__,
-                    session_id=session.session_id,
+                    session_id=session.session_id[:8],
                 )
             # Local session teardown must run even if cloud logout raised.
             await store.delete(session.session_id)
