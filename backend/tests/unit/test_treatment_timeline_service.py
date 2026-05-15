@@ -54,6 +54,26 @@ class TestPickTreatmentLabel:
     def test_returns_none_when_empty(self):
         assert _pick_treatment_label({}) is None
 
+    def test_picks_treatment_drug_field(self):
+        # Stream 5.2 (2026-05-15): treatment_drug class emits its own
+        # label fields. Recognize them after the canonical treatmentName.
+        assert _pick_treatment_label({"treatment_drug": "isoamylol"}) == "isoamylol"
+
+    def test_picks_drug_name_field(self):
+        assert _pick_treatment_label({"drugName": "CNO"}) == "CNO"
+
+    def test_picks_compound_field(self):
+        assert _pick_treatment_label({"compound": "Saline"}) == "Saline"
+
+    def test_treatment_name_wins_over_drug_field(self):
+        # Priority: treatmentName > treatment_drug > drugName > compound > stringValue.
+        assert (
+            _pick_treatment_label(
+                {"treatmentName": "Saline", "treatment_drug": "ignored"},
+            )
+            == "Saline"
+        )
+
 
 class TestExtractExplicitTiming:
     def test_numeric_value_pair(self):
@@ -70,6 +90,36 @@ class TestExtractExplicitTiming:
 
     def test_start_date_pair(self):
         row = {"startDate": "2026-01-01", "endDate": "2026-01-05"}
+        assert _extract_explicit_timing(row) == ("2026-01-01", "2026-01-05")
+
+    def test_start_time_end_time_pair(self):
+        row = {"startTime": 100.0, "endTime": 200.0}
+        assert _extract_explicit_timing(row) == (100.0, 200.0)
+
+    def test_administration_start_end_time_pair(self):
+        # Stream 5.2 (2026-05-15): treatment_drug class emits
+        # administration_start_time / administration_end_time as the
+        # canonical timing pair. Without this, Bhar's TreatmentTimeline
+        # panel rendered an empty chart despite 24466 treatment_drug
+        # docs with explicit timing.
+        row = {
+            "administration_start_time": "2026-01-01T08:00:00Z",
+            "administration_end_time": "2026-01-01T08:02:00Z",
+        }
+        out = _extract_explicit_timing(row)
+        assert out == (
+            "2026-01-01T08:00:00Z",
+            "2026-01-01T08:02:00Z",
+        )
+
+    def test_startDate_wins_over_administration_pair(self):
+        # Priority: startDate > startTime > administration_*_time.
+        row = {
+            "startDate": "2026-01-01",
+            "endDate": "2026-01-05",
+            "administration_start_time": "2026-02-01",
+            "administration_end_time": "2026-02-05",
+        }
         assert _extract_explicit_timing(row) == ("2026-01-01", "2026-01-05")
 
     def test_numeric_value_empty_array_returns_none(self):

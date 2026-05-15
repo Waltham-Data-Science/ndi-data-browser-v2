@@ -134,41 +134,68 @@ class TreatmentTimelineService:
             result["empty_hint"] = empty_hint
         return result
 
+    # Class-fallback chain for primary treatment rows. Datasets emit
+    # one of:
+    #   - ``treatment`` (canonical legacy)
+    #   - ``treatment_drug`` (newer NDI ingest path; Bhar etc.)
+    # Try them in order; the FIRST class that yields a non-empty row
+    # set wins. The Stream 5.2 audit (2026-05-15) added
+    # ``treatment_drug`` after Bhar's TreatmentTimeline panel surfaced
+    # an empty chart despite the dataset carrying 24466 treatment_drug
+    # docs (catalog Bhar `69bc5ca1…`, per the 2026-05-14 tutorial
+    # ground-truth).
+    _TREATMENT_CLASS_CHAIN: tuple[str, ...] = ("treatment", "treatment_drug")
+
     async def _fetch_primary_rows(
         self,
         dataset_id: str,
         *,
         session: SessionData | None,
     ) -> tuple[list[dict[str, Any]], list[str]]:
-        """Pull treatment rows from the canonical
-        ``/tables/treatment`` projection. Returns
-        ``(rows, available_column_keys)``. The column-keys list is
-        surfaced into ``empty_hint`` when we end up with no plottable
-        items so the caller can tell users what fields the table
-        DID carry.
+        """Pull treatment rows from one of the canonical class projections.
+        Returns ``(rows, available_column_keys)`` from the first class in
+        ``_TREATMENT_CLASS_CHAIN`` that yields a non-empty result. The
+        column-keys list is surfaced into ``empty_hint`` when we end up
+        with no plottable items so the caller can tell users what
+        fields the table DID carry. The columns from the LATEST
+        attempted class are preferred — most actionable for the empty-
+        hint surface.
         """
-        try:
-            table = await self.summary.single_class(
-                dataset_id, "treatment", session=session,
-            )
-        except Exception as exc:
-            # Service-internal failures (cloud unreachable, required
-            # enrichment failed, etc.) should not abort the whole
-            # endpoint — the fallback may still succeed, and even if
-            # not, we want to return an empty_hint rather than a 500.
-            log.warning(
-                "treatment_timeline.primary_failed",
-                dataset_id=dataset_id,
-                error_type=type(exc).__name__,
-                error=str(exc),
-            )
-            return [], []
-        rows = table.get("rows") or []
-        columns = [
-            c.get("key") for c in (table.get("columns") or [])
-            if isinstance(c.get("key"), str) and c.get("key")
-        ]
-        return list(rows), columns
+        last_columns: list[str] = []
+        for class_name in self._TREATMENT_CLASS_CHAIN:
+            try:
+                table = await self.summary.single_class(
+                    dataset_id, class_name, session=session,
+                )
+            except Exception as exc:
+                # Service-internal failures (cloud unreachable, required
+                # enrichment failed, etc.) should not abort the whole
+                # endpoint — the next class probe and/or the fallback
+                # may still succeed.
+                log.warning(
+                    "treatment_timeline.primary_failed",
+                    dataset_id=dataset_id,
+                    class_name=class_name,
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                )
+                continue
+            rows = table.get("rows") or []
+            columns = [
+                c.get("key") for c in (table.get("columns") or [])
+                if isinstance(c.get("key"), str) and c.get("key")
+            ]
+            if columns:
+                last_columns = columns
+            if rows:
+                log.info(
+                    "treatment_timeline.primary_resolved",
+                    dataset_id=dataset_id,
+                    class_name=class_name,
+                    row_count=len(rows),
+                )
+                return list(rows), columns
+        return [], last_columns
 
     async def _fetch_fallback_rows(
         self,
@@ -317,12 +344,21 @@ def _pick_subject_label(row: dict[str, Any]) -> str | None:
 
 
 def _pick_treatment_label(row: dict[str, Any]) -> str | None:
-    """Prefer ``treatmentName``; fall back to ``stringValue`` when the
-    value column carries a categorical label and the name is missing.
+    """Prefer ``treatmentName``; fall back to ``treatment_drug`` /
+    ``drugName`` / ``compound`` (Stream 5.2: treatment_drug class
+    typically emits one of these as the human-readable label) and
+    finally ``stringValue`` when the value column carries a
+    categorical label and the name is missing.
     """
-    t = row.get("treatmentName")
-    if isinstance(t, str) and t:
-        return t
+    for key in (
+        "treatmentName",
+        "treatment_drug",
+        "drugName",
+        "compound",
+    ):
+        t = row.get(key)
+        if isinstance(t, str) and t:
+            return t
     sv = row.get("stringValue")
     if isinstance(sv, str) and sv:
         return sv
@@ -335,26 +371,35 @@ def _extract_explicit_timing(
     """Best-effort extract ``(start, end)`` from a treatment row, or
     None when no usable timing is present.
 
-    Lookup order matches the TS handler:
-      1. ``startDate`` + ``endDate`` (or ``startTime`` + ``endTime``)
-         when both are non-empty strings/numbers.
-      2. ``numericValue`` as ``[start, end]`` (length-2) or
+    Lookup order (Stream 5.2 expanded the field set 2026-05-15 to
+    cover the ``treatment_drug`` class's ``administration_start_time``
+    / ``administration_end_time`` pair):
+      1. ``startDate`` + ``endDate``
+      2. ``startTime`` + ``endTime``
+      3. ``administration_start_time`` + ``administration_end_time``
+         (treatment_drug native)
+      4. ``numericValue`` as ``[start, end]`` (length-2) or
          ``[start]`` (length-1 → ``[start, start+1]``) or raw scalar
          (treated the same as length-1).
-      3. ``stringValue`` parseable as ISO date → ``[date, date + 1 day]``.
+      5. ``stringValue`` parseable as ISO date → ``[date, date + 1 day]``.
     """
-    # Explicit field pair.
-    start_field = row.get("startDate")
-    if start_field is None:
-        start_field = row.get("startTime")
-    end_field = row.get("endDate")
-    if end_field is None:
-        end_field = row.get("endTime")
-    if _is_usable_temporal_field(start_field) and _is_usable_temporal_field(end_field):
-        # mypy: we already narrowed to str|number in the helper. The
-        # return type Union retains the original literal value so
-        # date strings flow through verbatim.
-        return start_field, end_field  # type: ignore[return-value]
+    # Explicit field pair — try each (start, end) pair in priority
+    # order. Stops at the first pair where BOTH fields are usable
+    # (non-empty string or finite number).
+    pairs: tuple[tuple[str, str], ...] = (
+        ("startDate", "endDate"),
+        ("startTime", "endTime"),
+        # Treatment_drug native — Stream 5.2 expanded fallback.
+        ("administration_start_time", "administration_end_time"),
+    )
+    for start_key, end_key in pairs:
+        start_field = row.get(start_key)
+        end_field = row.get(end_key)
+        if _is_usable_temporal_field(start_field) and _is_usable_temporal_field(end_field):
+            # mypy: we already narrowed to str|number in the helper.
+            # The return type Union retains the original literal value
+            # so date strings flow through verbatim.
+            return start_field, end_field  # type: ignore[return-value]
 
     # numericValue array OR scalar.
     nv = row.get("numericValue")
