@@ -104,8 +104,11 @@ async def do_login(
     # truncate; this success path was the holdout.
     log.info("auth.login.success", session_id=session.session_id[:8])
 
-    # Session cookie — HttpOnly; Secure + Domain derived from environment.
-    attrs = cookie_attrs(settings)
+    # Session cookie — HttpOnly; Secure + Domain derived from
+    # environment AND the request's Origin (so previews at
+    # `*.vercel.app` get host-only cookies rather than a Domain the
+    # browser would reject).
+    attrs = cookie_attrs(settings, request=request)
     response.set_cookie(
         key=SESSION_COOKIE,
         value=session.session_id,
@@ -134,6 +137,7 @@ async def do_login(
 
 async def do_logout(
     *,
+    request: Request,
     response: Response,
     session: SessionData | None,
     store: SessionStore,
@@ -151,7 +155,9 @@ async def do_logout(
     swallowed so the local teardown completes.
     """
     settings = get_settings()
-    attrs = cookie_attrs(settings)
+    # Mirror do_login: per-request Origin decides whether Domain is
+    # attached, so the delete-cookie attrs match what was set.
+    attrs = cookie_attrs(settings, request=request)
     try:
         if session is not None:
             try:

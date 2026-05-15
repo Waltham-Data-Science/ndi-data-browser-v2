@@ -92,7 +92,7 @@ class CsrfResponse(BaseModel):
 
 
 @router.get("/csrf", response_model=CsrfResponse)
-async def csrf(response: Response) -> CsrfResponse:
+async def csrf(request: Request, response: Response) -> CsrfResponse:
     raw = generate_token()
     token = sign(raw)
     response.set_cookie(
@@ -102,7 +102,11 @@ async def csrf(response: Response) -> CsrfResponse:
         samesite="lax",
         path="/",
         max_age=86400,
-        **cookie_attrs(get_settings()),
+        # `request` lets cookie_attrs read the Origin header so the
+        # Domain attribute is only attached when the caller is on
+        # `*.ndi-cloud.com`. Preview hosts get host-only cookies that
+        # the browser will actually accept.
+        **cookie_attrs(get_settings(), request=request),
     )
     return CsrfResponse(csrfToken=token)
 
@@ -134,12 +138,18 @@ async def login(
 
 @router.post("/logout")
 async def logout(
+    request: Request,
     response: Response,
     session: Annotated[SessionData | None, Depends(get_current_session)],
     store: Annotated[SessionStore, Depends(session_store)],
     cl: Annotated[NdiCloudClient, Depends(cloud)],
 ) -> dict[str, bool]:
-    await do_logout(response=response, session=session, store=store, cloud=cl)
+    # `request` is threaded through to do_logout so the delete-cookie
+    # attributes match the set-cookie ones (Domain attribute must agree
+    # or the browser ignores the clear).
+    await do_logout(
+        request=request, response=response, session=session, store=store, cloud=cl,
+    )
     return {"ok": True}
 
 
