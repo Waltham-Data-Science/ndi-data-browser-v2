@@ -114,6 +114,22 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Stream 3.4 (2026-05-15): per-org access control for the `/ask`
+    # experimental chat. Comma-separated list of organization IDs
+    # that have `enable_ask` true. Empty (the default) means EVERY
+    # authenticated user can use chat — i.e. the experimental
+    # anonymous-public phase. Once Stream 3.1 moves /ask to
+    # /my/ask (auth-gated), populate this to gate per-org. Admin
+    # users (`is_admin=true`) bypass the gate.
+    ENABLE_ASK_ORG_IDS: str = Field(
+        default="",
+        description=(
+            "Comma-separated list of organization IDs whose users may "
+            "use the /ask chat. Empty = open to every authenticated "
+            "user. Admin users always allowed."
+        ),
+    )
+
     # --- Observability ---
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: Literal["json", "console"] = "json"
@@ -145,6 +161,27 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def enable_ask_org_ids_list(self) -> list[str]:
+        """Parsed allowlist of org IDs that may use /ask. Empty list
+        means "every authenticated user" (the experimental default)."""
+        return [
+            o.strip() for o in self.ENABLE_ASK_ORG_IDS.split(",") if o.strip()
+        ]
+
+    def user_can_use_ask(self, *, organization_ids: list[str], is_admin: bool) -> bool:
+        """Stream 3.4 — verdict gate consumed by `/api/auth/me` and
+        the `/api/ask` route. Admin always wins; an empty allowlist
+        means "no gate"; otherwise the user's org set must intersect
+        the allowlist."""
+        if is_admin:
+            return True
+        allowlist = self.enable_ask_org_ids_list
+        if not allowlist:
+            return True
+        allowed = set(allowlist)
+        return any(oid in allowed for oid in organization_ids)
 
     @property
     def download_host_allowlist_list(self) -> list[str]:

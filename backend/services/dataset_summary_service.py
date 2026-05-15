@@ -497,6 +497,15 @@ class DatasetSummaryService:
         ) if probe_present else None
         probe_types = _extract_probe_types(element_docs) if probe_present else None
 
+        # Stream 5.6 diagnostic (2026-05-15) — see helper docstring.
+        _maybe_log_species_empty(
+            dataset_id=dataset_id,
+            subjects_present=subjects_present,
+            species=species,
+            subject_count=counts.subjects,
+            openminds_docs=openminds_docs,
+        )
+
         # Ontology resolution — delegate label enrichment. Dedupe by
         # ontologyId so we don't look up the same term twice.
         await self._enrich_ontology_labels(
@@ -776,7 +785,7 @@ def _counts_from_raw(raw: dict[str, Any]) -> DatasetSummaryCounts:
     # they actually emit. NOT a user-visible change.
     if sessions == 0 and (element_count > 0 or subject_count > 0):
         session_shaped_keys = sorted(
-            k for k in class_counts.keys() if "session" in k.lower()
+            k for k in class_counts if "session" in k.lower()
         )
         log.info(
             "summary.sessions_zero_with_elements",
@@ -792,6 +801,48 @@ def _counts_from_raw(raw: dict[str, Any]) -> DatasetSummaryCounts:
         elements=element_count,
         epochs=epochs,
         totalDocuments=int(raw.get("totalDocuments") or 0),
+    )
+
+
+def _maybe_log_species_empty(
+    *,
+    dataset_id: str,
+    subjects_present: bool,
+    species: list[OntologyTerm] | None,
+    subject_count: int,
+    openminds_docs: list[dict[str, Any]],
+) -> None:
+    """Stream 5.6 (2026-05-15) — diagnostic for the species-empty
+    anomaly: some published datasets (Reikersdorfer carbon-fiber, Van
+    Hooser tree-shrew, Mukherjee gustatory per the 2026-05-15
+    cross-dataset smoke) land subjects-present + zero species. The
+    openminds_subject path requires each subject to have a Species
+    enrichment doc whose ``openminds_type`` URI ends in ``/Species``.
+    Datasets ingested under an older NDI version or via a non-canonical
+    pipeline may emit openminds_subject docs without the species
+    companion, OR with a ``openminds_type`` URI that doesn't follow
+    the canonical terminator convention.
+
+    Emit a structured log when subjects exist but species came back
+    empty, including the set of ``openminds_type`` suffixes actually
+    present in the dataset's openminds_subject docs. This lets an
+    operator grep Railway logs to find affected datasets and SEE
+    what type suffix names the dataset uses — which then drives the
+    future ``_openminds_type_suffix`` alias map without guessing.
+    """
+    if not subjects_present or species is None or len(species) > 0:
+        return
+    observed_suffixes: set[str] = set()
+    for om_doc in openminds_docs:
+        suffix = _openminds_type_suffix(om_doc)
+        if suffix:
+            observed_suffixes.add(suffix)
+    log.info(
+        "dataset_summary.species_empty_with_subjects",
+        dataset_id=dataset_id,
+        subjects=subject_count,
+        openminds_subject_doc_count=len(openminds_docs),
+        openminds_type_suffixes=sorted(observed_suffixes),
     )
 
 

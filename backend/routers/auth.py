@@ -85,6 +85,13 @@ class MeResponse(BaseModel):
     # frontend can render an admin affordance when relevant.
     organizationIds: list[str] = []
     isAdmin: bool = False
+    # Stream 3.4 (2026-05-15): true when this user is allowed to use
+    # the /ask chat, given `ENABLE_ASK_ORG_IDS` config + the user's
+    # org memberships. Admin users always get true. The frontend
+    # hides /ask nav / surfaces a "request access" affordance when
+    # this is false. The /api/ask route re-checks server-side so the
+    # gate isn't bypassable via DOM tampering.
+    canUseAsk: bool = True
 
 
 class CsrfResponse(BaseModel):
@@ -157,6 +164,7 @@ async def logout(
 async def me(
     session: Annotated[SessionData, Depends(require_session)],
 ) -> MeResponse:
+    settings = get_settings()
     return MeResponse(
         userId=session.user_id,
         email_hash=session.user_email_hash[:16],
@@ -165,6 +173,10 @@ async def me(
         expiresAt=session.access_token_expires_at,
         organizationIds=list(session.organization_ids),
         isAdmin=session.is_admin,
+        canUseAsk=settings.user_can_use_ask(
+            organization_ids=list(session.organization_ids),
+            is_admin=session.is_admin,
+        ),
     )
 
 

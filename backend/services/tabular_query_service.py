@@ -193,6 +193,21 @@ def _empty_response(
     }
 
 
+def _alphanumeric_lower(s: str) -> str:
+    """Lowercase + strip non-alphanumerics for fuzzy substring matching.
+
+    Stream 5.1 (2026-05-15): real column keys in ontologyTableRow tables
+    use underscores and CamelCase intermixed
+    (``ElevatedPlusMaze_OpenArmNorth_Entries``), while users / the chat
+    sometimes type contiguous CamelCase (``OpenArmNorthEntries``). A
+    direct case-insensitive substring match misses these because the
+    underscore breaks contiguity. Normalizing BOTH sides to
+    alphanumeric-only lowercase makes the comparison whitespace- and
+    punctuation-insensitive without changing the contiguity check.
+    """
+    return "".join(ch for ch in s.lower() if ch.isalnum())
+
+
 def _find_matching_group(
     groups: list[dict[str, Any]],
     needle: str,
@@ -208,11 +223,23 @@ def _find_matching_group(
     rows have finite-numeric values in it, and return the highest-
     scoring column across all groups.
 
+    Match strategy is two-pass (Stream 5.1, 2026-05-15):
+      1. Direct case-insensitive substring match on key OR label
+         (precise; preserves existing semantics).
+      2. Alphanumeric-stripped fallback when pass 1 returns no
+         numeric-column hit. Catches the `OpenArmNorthEntries` ↔
+         `ElevatedPlusMaze_OpenArmNorth_Entries` mismatch.
+
     Ties broken by first-seen order (group order is already sorted by
     row count desc in SummaryTableService).
     """
     needle_lower = needle.lower()
-    best: tuple[dict[str, Any], str, str, int] | None = None
+    needle_alnum = _alphanumeric_lower(needle)
+    # Pass 1 + Pass 2 share the loop; we capture the best precise hit
+    # first, then the best fuzzy hit. Precise wins on equal numeric
+    # counts.
+    best_precise: tuple[dict[str, Any], str, str, int] | None = None
+    best_fuzzy: tuple[dict[str, Any], str, str, int] | None = None
     for g in groups:
         table = g.get("table") or {}
         cols = table.get("columns") or []
@@ -220,38 +247,78 @@ def _find_matching_group(
         for col in cols:
             key = str(col.get("key", ""))
             label = str(col.get("label", ""))
-            if needle_lower not in key.lower() and needle_lower not in label.lower():
+            key_lower = key.lower()
+            label_lower = label.lower()
+            is_precise = (
+                needle_lower in key_lower or needle_lower in label_lower
+            )
+            # Skip fuzzy work when precise already matches (saves the
+            # alnum compute on huge tables).
+            is_fuzzy = is_precise or (
+                needle_alnum
+                and (
+                    needle_alnum in _alphanumeric_lower(key)
+                    or needle_alnum in _alphanumeric_lower(label)
+                )
+            )
+            if not is_fuzzy:
                 continue
             numeric_count = sum(1 for row in rows if _is_finite_numeric(row.get(key)))
             if numeric_count == 0:
                 continue
-            if best is None or numeric_count > best[3]:
-                best = (g, key, label or key, numeric_count)
+            tuple_ = (g, key, label or key, numeric_count)
+            if is_precise:
+                if best_precise is None or numeric_count > best_precise[3]:
+                    best_precise = tuple_
+            elif best_fuzzy is None or numeric_count > best_fuzzy[3]:
+                best_fuzzy = tuple_
+    best = best_precise if best_precise is not None else best_fuzzy
     if best is None:
         return None
     return best[0], best[1], best[2]
 
 
-def _resolve_group_column(group: dict[str, Any], group_by: str) -> str | None:
+def _resolve_group_column(  # noqa: PLR0911 — linear three-pass match is clearer than one collapsed branch
+    group: dict[str, Any],
+    group_by: str,
+) -> str | None:
     """Resolve a possibly-imprecise group_by argument to an actual
     column key in the matched group.
 
-    Substring-match against `key` first (exact key wins immediately),
-    then against `label`. Returns None when nothing matches so the
-    caller can surface an explicit error.
+    Three-pass resolution (Stream 5.1 expanded 2026-05-15):
+      1. Exact key match (literal column-key argument from the user).
+      2. Case-insensitive substring match on key, then on label
+         (preserves precision for column-name fragments).
+      3. Alphanumeric-stripped substring match on key, then label —
+         catches the `Treatment_CNOOrSaline` ↔ `CNOorSaline` shape
+         where users mix underscore + CamelCase variants.
+
+    Returns None when nothing matches so the caller can surface an
+    explicit error with the available column list.
     """
     needle_lower = group_by.lower()
+    needle_alnum = _alphanumeric_lower(group_by)
     cols = (group.get("table") or {}).get("columns") or []
-    # Exact key match wins immediately.
+    # Pass 1: exact key match wins immediately.
     for col in cols:
         if str(col.get("key", "")) == group_by:
             return group_by
-    # Substring fallback — key first (more stable than labels).
+    # Pass 2: case-insensitive substring — key first (more stable
+    # than labels).
     for col in cols:
         if needle_lower in str(col.get("key", "")).lower():
             return str(col["key"])
     for col in cols:
         if needle_lower in str(col.get("label", "")).lower():
+            return str(col["key"])
+    # Pass 3: alphanumeric-stripped substring fallback.
+    if not needle_alnum:
+        return None
+    for col in cols:
+        if needle_alnum in _alphanumeric_lower(str(col.get("key", ""))):
+            return str(col["key"])
+    for col in cols:
+        if needle_alnum in _alphanumeric_lower(str(col.get("label", ""))):
             return str(col["key"])
     return None
 

@@ -442,6 +442,122 @@ async def test_violin_groups_substring_groupby_resolves_to_column():
 
 
 @pytest.mark.asyncio
+async def test_violin_groups_fuzzy_substring_matches_across_underscores():
+    """Stream 5.1 (2026-05-15): the column-key matcher should ignore
+    underscores so a query for ``OpenArmNorthEntries`` resolves the real
+    column ``ElevatedPlusMaze_OpenArmNorth_Entries``. Pre-fix this
+    returned an empty result because the contiguous-substring match
+    didn't bridge the underscore between "North" and "Entries".
+    """
+    columns = [
+        {
+            "key": "ElevatedPlusMaze_OpenArmNorth_Entries",
+            "label": "Elevated Plus Maze: Open Arm (North) Entries",
+        },
+        {"key": "Treatment_CNOOrSalineAdministration", "label": "treatment"},
+    ]
+    rows = [
+        {
+            "ElevatedPlusMaze_OpenArmNorth_Entries": 5.0,
+            "Treatment_CNOOrSalineAdministration": "Saline",
+        },
+        {
+            "ElevatedPlusMaze_OpenArmNorth_Entries": 7.0,
+            "Treatment_CNOOrSalineAdministration": "Saline",
+        },
+        {
+            "ElevatedPlusMaze_OpenArmNorth_Entries": 3.0,
+            "Treatment_CNOOrSalineAdministration": "CNO",
+        },
+        {
+            "ElevatedPlusMaze_OpenArmNorth_Entries": 2.0,
+            "Treatment_CNOOrSalineAdministration": "CNO",
+        },
+    ]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    # The needle uses no underscores; the column has underscores
+    # between every word. Direct case-insensitive substring fails;
+    # alphanumeric-stripped fallback must catch it.
+    result = await svc.violin_groups(
+        "ds",
+        "OpenArmNorthEntries",
+        group_by="Treatment",
+        group_order=None,
+        session=None,
+    )
+    assert len(result["groups"]) == 2
+    by_name = {g["name"]: g for g in result["groups"]}
+    assert by_name["Saline"]["mean"] == 6.0  # (5+7)/2
+    assert by_name["CNO"]["mean"] == 2.5  # (3+2)/2
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_groupby_fuzzy_matches_across_underscores():
+    """Stream 5.1 (2026-05-15) — groupBy resolution also uses the
+    alphanumeric-stripped fallback. ``CNOorSaline`` (no underscore)
+    resolves to ``Treatment_CNOOrSalineAdministration``.
+    """
+    columns = [
+        {"key": "ElevatedPlusMaze_OpenArmEntries", "label": "EPM entries"},
+        {"key": "Treatment_CNOOrSalineAdministration", "label": "treatment"},
+    ]
+    rows = [
+        {"ElevatedPlusMaze_OpenArmEntries": 1.0, "Treatment_CNOOrSalineAdministration": "Saline"},
+        {"ElevatedPlusMaze_OpenArmEntries": 2.0, "Treatment_CNOOrSalineAdministration": "Saline"},
+        {"ElevatedPlusMaze_OpenArmEntries": 3.0, "Treatment_CNOOrSalineAdministration": "CNO"},
+    ]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    result = await svc.violin_groups(
+        "ds",
+        "OpenArmEntries",
+        group_by="CNOorSaline",
+        group_order=None,
+        session=None,
+    )
+    # Did we resolve to the right grouping column? Two groups land.
+    assert len(result["groups"]) == 2
+    names = {g["name"] for g in result["groups"]}
+    assert names == {"Saline", "CNO"}
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_precise_match_wins_over_fuzzy_when_both_present():
+    """Stream 5.1 (2026-05-15) — when one column matches case-
+    insensitively AND another matches only via alphanumeric strip, the
+    precise match wins. Preserves existing semantics for direct hits.
+    """
+    columns = [
+        # Precise match for "EPM_Entries".
+        {"key": "EPM_Entries", "label": "EPM Entries"},
+        # Fuzzy-only match — `EPMEntries` is a substring after stripping.
+        {"key": "EPM_Other_Entries", "label": "EPM Other Entries"},
+    ]
+    rows = [
+        {"EPM_Entries": 100.0, "EPM_Other_Entries": 999.0},
+        {"EPM_Entries": 200.0, "EPM_Other_Entries": 999.0},
+    ]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    # Query is the precise key — must resolve to it, not the fuzzy
+    # sibling. yLabel should be "EPM Entries" (precise label).
+    result = await svc.violin_groups(
+        "ds",
+        "EPM_Entries",
+        group_by=None,
+        group_order=None,
+        session=None,
+    )
+    assert result["yLabel"] == "EPM Entries"
+    # Single 'all' group with the precise column's values.
+    assert result["groups"][0]["mean"] == 150.0
+
+
+@pytest.mark.asyncio
 async def test_violin_groups_unresolvable_groupby_returns_empty_with_available():
     """When groupBy doesn't match any column, return empty + the list
     of available columns so the caller can retry."""
