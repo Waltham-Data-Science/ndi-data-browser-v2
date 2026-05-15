@@ -51,6 +51,15 @@ EXEMPT_PATHS = {
     "/api/health",
     "/api/health/ready",
     "/metrics",
+    # Idempotent read-only lookups that happen to be POST-shaped because
+    # the request body is a small array of CURIEs (request body keeps the
+    # URL clean and avoids ?term=A&term=B&… repetition for batches up to
+    # 200 terms). Anonymous visitors hit these every time a /datasets/*
+    # page renders, before they've had a chance to GET /api/auth/csrf —
+    # the resulting 403 was falling back to "label-only" display in the
+    # ontology popovers and surfacing a "1 warning" banner on every
+    # SummaryTableView (visual-UX audit a395 P0 #3, 2026-05-14).
+    "/api/ontology/batch-lookup",
 }
 # Previously `/api/auth/login` was also exempted on the premise that a
 # pre-session user couldn't have a CSRF token. That's wrong: the frontend's

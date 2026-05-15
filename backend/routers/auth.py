@@ -85,6 +85,13 @@ class MeResponse(BaseModel):
     # frontend can render an admin affordance when relevant.
     organizationIds: list[str] = []
     isAdmin: bool = False
+    # Stream 3.4 (2026-05-15): true when this user is allowed to use
+    # the /ask chat, given `ENABLE_ASK_ORG_IDS` config + the user's
+    # org memberships. Admin users always get true. The frontend
+    # hides /ask nav / surfaces a "request access" affordance when
+    # this is false. The /api/ask route re-checks server-side so the
+    # gate isn't bypassable via DOM tampering.
+    canUseAsk: bool = True
 
 
 class CsrfResponse(BaseModel):
@@ -92,7 +99,7 @@ class CsrfResponse(BaseModel):
 
 
 @router.get("/csrf", response_model=CsrfResponse)
-async def csrf(response: Response) -> CsrfResponse:
+async def csrf(request: Request, response: Response) -> CsrfResponse:
     raw = generate_token()
     token = sign(raw)
     response.set_cookie(
@@ -102,7 +109,11 @@ async def csrf(response: Response) -> CsrfResponse:
         samesite="lax",
         path="/",
         max_age=86400,
-        **cookie_attrs(get_settings()),
+        # `request` lets cookie_attrs read the Origin header so the
+        # Domain attribute is only attached when the caller is on
+        # `*.ndi-cloud.com`. Preview hosts get host-only cookies that
+        # the browser will actually accept.
+        **cookie_attrs(get_settings(), request=request),
     )
     return CsrfResponse(csrfToken=token)
 
@@ -134,12 +145,18 @@ async def login(
 
 @router.post("/logout")
 async def logout(
+    request: Request,
     response: Response,
     session: Annotated[SessionData | None, Depends(get_current_session)],
     store: Annotated[SessionStore, Depends(session_store)],
     cl: Annotated[NdiCloudClient, Depends(cloud)],
 ) -> dict[str, bool]:
-    await do_logout(response=response, session=session, store=store, cloud=cl)
+    # `request` is threaded through to do_logout so the delete-cookie
+    # attributes match the set-cookie ones (Domain attribute must agree
+    # or the browser ignores the clear).
+    await do_logout(
+        request=request, response=response, session=session, store=store, cloud=cl,
+    )
     return {"ok": True}
 
 
@@ -147,6 +164,7 @@ async def logout(
 async def me(
     session: Annotated[SessionData, Depends(require_session)],
 ) -> MeResponse:
+    settings = get_settings()
     return MeResponse(
         userId=session.user_id,
         email_hash=session.user_email_hash[:16],
@@ -155,6 +173,10 @@ async def me(
         expiresAt=session.access_token_expires_at,
         organizationIds=list(session.organization_ids),
         isAdmin=session.is_admin,
+        canUseAsk=settings.user_can_use_ask(
+            organization_ids=list(session.organization_ids),
+            is_admin=session.is_admin,
+        ),
     )
 
 

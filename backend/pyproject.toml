@@ -19,10 +19,19 @@ dependencies = [
     "Pillow>=10.4.0",
     "numpy>=2.0.0",
     "scipy>=1.14.0",
-    # pandas was declared but never imported anywhere in backend/. Removed
-    # in audit 2026-04-23 (#58) — it was a ~30 MB wheel for no runtime
-    # use. If a future feature needs it, re-add with a comment pointing
-    # at the specific caller.
+    # pandas restored in Phase A of the NDI-python integration
+    # (2026-05-13) — required because vlt.file and ndi/__init__ both
+    # eagerly pull pandas via their submodule chains. Without it, the
+    # NDI stack imports fail at backend startup.
+    "pandas>=2.0.0",
+    # Direct runtime deps of the NDI-python stack (installed via
+    # --no-deps in infra/Dockerfile to skip matplotlib + opencv).
+    "networkx>=2.6",
+    "jsonschema>=4.0.0",
+    "requests>=2.28.0",
+    "openMINDS>=0.2.0",
+    "portalocker>=2.0.0",
+    "h5py>=3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -123,6 +132,17 @@ module = [
     "scipy.*",
     "opentelemetry",
     "opentelemetry.*",
+    # NDI-python stack — installed via git+https in the Docker image. Locally
+    # (and in CI before pip install) the modules aren't on PYTHONPATH so mypy
+    # can't find their stubs. The wrappers in services/ndi_python_service.py
+    # lazy-import these and surface a typed None on import failure, so the
+    # "missing-imports" diagnostic is a false positive in our usage shape.
+    "ndi",
+    "ndi.*",
+    "ndicompress",
+    "ndicompress.*",
+    "vlt",
+    "vlt.*",
 ]
 ignore_missing_imports = true
 

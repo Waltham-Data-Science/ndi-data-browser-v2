@@ -36,17 +36,25 @@ from .middleware.security_headers import SecurityHeadersMiddleware
 from .observability.logging import configure_logging, get_logger, request_id_ctx
 from .observability.tracing import init_tracing
 from .routers import (
+    aggregate_documents,
     auth,
     binary,
     datasets,
     documents,
     health,
+    image,
+    ndi_dataset,
     ontology,
+    psth,
     query,
     signal,
+    spike_summary,
     tables,
+    tabular_query,
+    treatment_timeline,
     visualize,
 )
+from .services.dataset_binding_service import DatasetBindingService
 from .services.ontology_cache import OntologyCache
 from .services.ontology_service import OntologyService
 from .static_files import safe_static_path
@@ -255,6 +263,98 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
         log.info("keepwarm.started", interval_seconds=240)
         log.info("facets_warm.started", interval_seconds=240)
 
+    # NDI-python strict-boot check.
+    #
+    # The Phase A integration adds vlt (VHSB), ndicompress, and
+    # ndi.ontology. When `NDI_PYTHON_REQUIRED=1` (set by the Railway
+    # Dockerfile), the stack MUST be importable or we hard-fail.
+    # Unset (dev/test/CI), we log a warning if NDI is missing but
+    # keep going — every NDI-python call gracefully returns None and
+    # callers fall through to their legacy paths.
+    #
+    # Why an explicit env var rather than guessing from
+    # `settings.ENVIRONMENT`: the test/CI/local matrix is fuzzy, and
+    # the only thing that actually matters here is "is this image
+    # supposed to have NDI-python installed?" The Dockerfile knows;
+    # nothing else needs to.
+    import os as _os
+    if _os.environ.get("NDI_PYTHON_REQUIRED", "").strip() in ("1", "true", "yes"):
+        from .services import ndi_python_service as _ndi
+        if not _ndi.is_ndi_available():
+            raise RuntimeError(
+                "ndi_python_service.is_ndi_available() returned False at "
+                "startup but NDI_PYTHON_REQUIRED=1. The NDI-python stack "
+                "(vlt, ndicompress, ndi.ontology) failed to import. Check "
+                "the Dockerfile's pinned git SHAs and the install layer logs."
+            )
+        log.info("ndi_python.boot_ok")
+
+    # Sprint 1.5 dataset-binding service — singleton, lives on app.state.
+    # Always instantiated (cheap object — empty LRU). The router behind
+    # ``/api/datasets/{id}/ndi_overview`` calls into it; on internal
+    # failure (NDI-python missing, cloud unreachable, etc.) the service
+    # returns None and the router maps that to a 503. Frontend tool
+    # falls back to ndi_query gracefully.
+    app.state.dataset_binding_service = DatasetBindingService()
+
+    # Optional pre-warm of the 3 demo datasets. We fire-and-forget per
+    # dataset so a single failure doesn't block the others. Each task
+    # is parked on app.state so asyncio doesn't GC the reference
+    # mid-flight (RUF006). We DO NOT await them — they run in the
+    # background while the app starts serving requests immediately.
+    #
+    # If NDI-python isn't available, the service returns None on the
+    # first call and we skip the rest — costs essentially nothing.
+    async def _prewarm_dataset(dataset_id: str) -> None:
+        try:
+            log.info("dataset_binding.prewarm_start", dataset_id=dataset_id)
+            result = await app.state.dataset_binding_service.get_dataset(
+                dataset_id
+            )
+            if result is not None:
+                log.info(
+                    "dataset_binding.prewarm_done",
+                    dataset_id=dataset_id,
+                )
+            else:
+                # Service already logged the reason at WARN — keep this
+                # at INFO so the boot timeline is one-line-per-dataset.
+                log.info(
+                    "dataset_binding.prewarm_skipped",
+                    dataset_id=dataset_id,
+                )
+        except _asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # Truly defensive: get_dataset() is documented to never
+            # raise, but log loudly if that contract breaks so we know.
+            log.warning(
+                "dataset_binding.prewarm_unexpected_raise",
+                dataset_id=dataset_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+
+    # Three demo datasets surfaced by the experimental /ask chat:
+    # Dabrowska BNST (EPM behavior), Bhar (chemotaxis), Haley
+    # (patch-encounter). Order does not matter; tasks run concurrently.
+    # Pre-warm is gated to production-like environments so dev/test
+    # boots stay fast.
+    if settings.ENVIRONMENT in ("production", "preview"):
+        prewarm_ids = (
+            "67f723d574f5f79c6062389d",  # Dabrowska BNST
+            "69bc5ca11d547b1f6d083761",  # Bhar
+            "682e7772cdf3f24938176fac",  # Haley
+        )
+        app.state.dataset_binding_prewarm_tasks = [
+            _asyncio.create_task(_prewarm_dataset(did))
+            for did in prewarm_ids
+        ]
+        log.info(
+            "dataset_binding.prewarm_started",
+            count=len(prewarm_ids),
+        )
+
     log.info("app.startup", environment=settings.ENVIRONMENT)
     try:
         yield
@@ -272,6 +372,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: PLR0915  (sing
                 # so it surfaces in logs instead of disappearing.
                 with _contextlib.suppress(_asyncio.CancelledError):
                     await task
+        # Cancel any in-flight dataset-binding pre-warm tasks.
+        # downloadDataset is blocking I/O inside asyncio.to_thread — we
+        # can't actually interrupt it mid-thread, but cancellation
+        # prevents the post-download cache-write from running after
+        # teardown.
+        prewarm_tasks = getattr(app.state, "dataset_binding_prewarm_tasks", None) or []
+        for task in prewarm_tasks:
+            task.cancel()
+            with _contextlib.suppress(_asyncio.CancelledError, Exception):
+                await task
         await cloud_client.close()
         await ontology_service.close()
         # `redis.asyncio.Redis.aclose()` is the correct async-context
@@ -422,8 +532,16 @@ def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, i
     app.include_router(tables.router)
     app.include_router(query.router)
     app.include_router(query.facets_router)
+    # Stream 4.9 (2026-05-16) — heavy aggregate runs on Railway, not Vercel.
+    app.include_router(aggregate_documents.router)
     app.include_router(binary.router)
     app.include_router(signal.router)
+    app.include_router(image.router)
+    app.include_router(tabular_query.router)
+    app.include_router(treatment_timeline.router)
+    app.include_router(psth.router)
+    app.include_router(spike_summary.router)
+    app.include_router(ndi_dataset.router)
     app.include_router(ontology.router)
     app.include_router(visualize.router)
 

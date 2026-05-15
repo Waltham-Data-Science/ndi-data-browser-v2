@@ -497,6 +497,15 @@ class DatasetSummaryService:
         ) if probe_present else None
         probe_types = _extract_probe_types(element_docs) if probe_present else None
 
+        # Stream 5.6 diagnostic (2026-05-15) — see helper docstring.
+        _maybe_log_species_empty(
+            dataset_id=dataset_id,
+            subjects_present=subjects_present,
+            species=species,
+            subject_count=counts.subjects,
+            openminds_docs=openminds_docs,
+        )
+
         # Ontology resolution — delegate label enrichment. Dedupe by
         # ontologyId so we don't look up the same term twice.
         await self._enrich_ontology_labels(
@@ -722,19 +731,118 @@ def _counts_from_raw(raw: dict[str, Any]) -> DatasetSummaryCounts:
     # Sessions and probes: the cloud reports whichever class name the
     # dataset used. Fall back across `probe` / `element` and `session` /
     # `session_in_a_dataset` so older and newer datasets both reconcile.
+    #
+    # Epoch counting: NDI has at least four canonical epoch-bearing
+    # document classes depending on ingestion path and dataset vintage.
+    # The fallback chain (tried in priority order, first hit wins) is:
+    #
+    #   1. ``element_epoch`` — explicit per-element epoch documents
+    #      (newer NDI datasets, native MATLAB ingest)
+    #   2. ``epoch`` — legacy plain epoch documents
+    #   3. ``epochfiles_ingested`` — Phase-A ingest path emits one of
+    #      these per epoch file. Francesconi (BNST patch-clamp) uses
+    #      this exclusively — without this fallback the EPOCHS chip
+    #      reads 0 on the workspace even though the dataset has
+    #      thousands of recorded epochs (caught live during the
+    #      2026-05-14 tutorial-parity smoke).
+    #   4. ``daqreader_mfdaq_epochdata_ingested`` — alternate Phase-A
+    #      class for multi-function-DAQ ingest (covers some Van Hooser
+    #      lab datasets); 1:1 with epochs in datasets where it appears.
+    #
+    # First-non-zero-wins (not summed). When multiple classes are
+    # present (e.g. ``epochfiles_ingested`` and the mfdaq variant for
+    # the same epochs) the chain picks the most authoritative class
+    # and avoids double-counting.
+    epoch_classes = (
+        "element_epoch",
+        "epoch",
+        "epochfiles_ingested",
+        "daqreader_mfdaq_epochdata_ingested",
+    )
+    epochs = 0
+    for cls in epoch_classes:
+        n = int(class_counts.get(cls) or 0)
+        if n > 0:
+            epochs = n
+            break
+
+    sessions = int(
+        class_counts.get("session")
+        or class_counts.get("session_in_a_dataset")
+        or 0,
+    )
+    subject_count = int(class_counts.get("subject") or 0)
+    element_count = int(class_counts.get("element") or 0)
+    # Stream 5.5 diagnostic (2026-05-15): some datasets land with
+    # elements + subjects but zero session-class documents (Mukherjee
+    # `6546c509…` on 2026-05-15: 1 subject + 7 elements + sessions=0).
+    # Per NDI's data model you can't have elements without a recording
+    # session — so a true zero here usually means either (a) ingest is
+    # mid-pipeline and the session docs haven't landed yet, or (b) the
+    # dataset uses a session-class spelling we don't yet recognize.
+    # Emit a structured log so operators can grep Railway logs to find
+    # the offending datasets + see what session-shaped class names
+    # they actually emit. NOT a user-visible change.
+    if sessions == 0 and (element_count > 0 or subject_count > 0):
+        session_shaped_keys = sorted(
+            k for k in class_counts if "session" in k.lower()
+        )
+        log.info(
+            "summary.sessions_zero_with_elements",
+            element_count=element_count,
+            subject_count=subject_count,
+            total_documents=int(raw.get("totalDocuments") or 0),
+            session_shaped_class_keys=session_shaped_keys,
+        )
     return DatasetSummaryCounts(
-        sessions=int(
-            class_counts.get("session")
-            or class_counts.get("session_in_a_dataset")
-            or 0,
-        ),
-        subjects=int(class_counts.get("subject") or 0),
+        sessions=sessions,
+        subjects=subject_count,
         probes=int(class_counts.get("probe") or 0),
-        elements=int(class_counts.get("element") or 0),
-        epochs=int(
-            class_counts.get("element_epoch") or class_counts.get("epoch") or 0,
-        ),
+        elements=element_count,
+        epochs=epochs,
         totalDocuments=int(raw.get("totalDocuments") or 0),
+    )
+
+
+def _maybe_log_species_empty(
+    *,
+    dataset_id: str,
+    subjects_present: bool,
+    species: list[OntologyTerm] | None,
+    subject_count: int,
+    openminds_docs: list[dict[str, Any]],
+) -> None:
+    """Stream 5.6 (2026-05-15) — diagnostic for the species-empty
+    anomaly: some published datasets (Reikersdorfer carbon-fiber, Van
+    Hooser tree-shrew, Mukherjee gustatory per the 2026-05-15
+    cross-dataset smoke) land subjects-present + zero species. The
+    openminds_subject path requires each subject to have a Species
+    enrichment doc whose ``openminds_type`` URI ends in ``/Species``.
+    Datasets ingested under an older NDI version or via a non-canonical
+    pipeline may emit openminds_subject docs without the species
+    companion, OR with a ``openminds_type`` URI that doesn't follow
+    the canonical terminator convention.
+
+    Emit a structured log when subjects exist but species came back
+    empty, including the set of ``openminds_type`` suffixes actually
+    present in the dataset's openminds_subject docs. This lets an
+    operator grep Railway logs to find affected datasets and SEE
+    what type suffix names the dataset uses — which then drives the
+    future ``_openminds_type_suffix`` alias map without guessing.
+    """
+    if not subjects_present or species is None or len(species) > 0:
+        return
+    observed_suffixes: set[str] = set()
+    for om_doc in openminds_docs:
+        suffix = _openminds_type_suffix(om_doc)
+        if suffix:
+            observed_suffixes.add(suffix)
+    log.info(
+        "dataset_summary.species_empty_with_subjects",
+        dataset_id=dataset_id,
+        subjects=subject_count,
+        openminds_subject_doc_count=len(openminds_docs),
+        openminds_type_suffixes=sorted(observed_suffixes),
     )
 
 

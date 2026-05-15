@@ -160,6 +160,68 @@ async def test_two_case_identical_species_collapse_to_one_entry() -> None:
 
 
 @pytest.mark.asyncio
+async def test_labeled_and_unlabeled_species_with_same_label_merge() -> None:
+    """Visual-UX audit row #6 / a395 (2026-05-12): ``/datasets`` and
+    ``/query`` showed two ``Caenorhabditis elegans`` chips because one
+    contributing dataset reported the species with
+    ``ontologyId=NCBITaxon:6239`` and another reported it with
+    ``ontologyId=None``. Pre-fix the two dedupe keys (``oid::NCBITaxon:6239``
+    and ``norm::caenorhabditis elegans``) were disjoint so both
+    surfaced. Post-fix the asymmetric label-alias merge collapses
+    them into one chip; the merged entry keeps the ontologyId.
+    """
+    ds1 = _make_summary(
+        "ds1", species=[("Caenorhabditis elegans", "NCBITaxon:6239")],
+    )
+    ds2 = _make_summary(
+        "ds2", species=[("Caenorhabditis elegans", None)],
+    )
+    rows = [
+        _make_row("ds1", CompactDatasetSummary.from_full(ds1)),
+        _make_row("ds2", CompactDatasetSummary.from_full(ds2)),
+    ]
+    ds_svc = _fake_dataset_service({1: rows}, total_number=2)
+    sum_svc = _fake_summary_service({"ds1": ds1, "ds2": ds2})
+
+    svc = FacetService(ds_svc, sum_svc)
+    facets = await svc.build_facets()
+
+    assert len(facets.species) == 1, (
+        f"Labeled + unlabeled same-name species must merge. Got: "
+        f"{[(t.label, t.ontologyId) for t in facets.species]}"
+    )
+    assert facets.species[0].label == "Caenorhabditis elegans"
+    # The ontologyId from the labeled side wins — more authoritative.
+    assert facets.species[0].ontologyId == "NCBITaxon:6239"
+
+
+@pytest.mark.asyncio
+async def test_unlabeled_then_labeled_species_merge_promotes_ontology_id() -> None:
+    """Reverse-order variant of the audit bug: the unlabeled entry
+    arrives first, then the labeled one. The merge must still collapse
+    them and promote the ontologyId onto the surviving entry."""
+    ds1 = _make_summary(
+        "ds1", species=[("Caenorhabditis elegans", None)],
+    )
+    ds2 = _make_summary(
+        "ds2", species=[("Caenorhabditis elegans", "NCBITaxon:6239")],
+    )
+    rows = [
+        _make_row("ds1", CompactDatasetSummary.from_full(ds1)),
+        _make_row("ds2", CompactDatasetSummary.from_full(ds2)),
+    ]
+    ds_svc = _fake_dataset_service({1: rows}, total_number=2)
+    sum_svc = _fake_summary_service({"ds1": ds1, "ds2": ds2})
+
+    svc = FacetService(ds_svc, sum_svc)
+    facets = await svc.build_facets()
+
+    assert len(facets.species) == 1
+    assert facets.species[0].label == "Caenorhabditis elegans"
+    assert facets.species[0].ontologyId == "NCBITaxon:6239"
+
+
+@pytest.mark.asyncio
 async def test_whitespace_drift_in_species_collapses() -> None:
     """Trivial whitespace differences (trailing space, internal
     double-space) must dedupe — these are NOT distinct species, just

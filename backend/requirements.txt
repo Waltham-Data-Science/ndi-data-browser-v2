@@ -8,8 +8,26 @@ cachetools>=5.4.0
 cryptography>=43.0.0
 structlog>=24.4.0
 prometheus-client>=0.20.0
-python-multipart>=0.0.9
+# python-multipart bumped to >=0.0.27 (was >=0.0.9) to close CVE-2026-42561.
+# Surfaced 2026-05-15 via `pip-audit`. The 0.0.9 floor still resolved to a
+# vulnerable version when Docker rebuilt because the resolver picks the
+# latest compatible — but 0.0.9 itself is vulnerable.
+python-multipart>=0.0.27
 Pillow>=10.4.0
 numpy>=2.0.0
 scipy>=1.14.0
-# pandas removed in audit 2026-04-23 (#58) — never imported.
+# pandas was previously removed in audit 2026-04-23 (#58). RESTORED in Phase A
+# of the NDI-python integration: `vlt.file.__init__` and `ndi/__init__` both
+# eagerly import pandas via their submodule chains, so the NDI stack won't
+# import without it. Marginal image cost ~30 MB; runtime cost ~0 (lazy paths).
+pandas>=2.0.0
+# Direct deps of NDI-python and its git kin, hand-listed so the
+# `--no-deps` installs in the Dockerfile have everything they need at
+# runtime. Skipping matplotlib (~50-70 MB) and opencv-python-headless
+# (~80 MB) which are declared but never imported on our paths.
+networkx>=2.6
+jsonschema>=4.0.0
+requests>=2.28.0
+openMINDS>=0.2.0
+portalocker>=2.0.0
+h5py>=3.0.0

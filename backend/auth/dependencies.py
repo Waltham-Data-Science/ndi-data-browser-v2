@@ -44,9 +44,13 @@ async def get_current_session(
     # roam across networks, and hard-rejecting would shred UX.
     current_ip_hash, current_ua_hash = fingerprint(request)
     if current_ua_hash != session.user_agent_hash:
+        # Truncate session id to 8 chars in logs — the full id IS the
+        # session secret (whoever reads Railway logs could otherwise
+        # replay it by setting the `session` cookie). Matches the
+        # other callsites in this module + login.py.
         log.warning(
             "session.ua_changed",
-            session_id=session.session_id,
+            session_id=session.session_id[:8],
             stored_ua_hash=session.user_agent_hash,
             current_ua_hash=current_ua_hash,
         )
@@ -55,7 +59,7 @@ async def get_current_session(
     if current_ip_hash != session.ip_addr_hash:
         log.warning(
             "session.ip_changed",
-            session_id=session.session_id,
+            session_id=session.session_id[:8],
             stored_ip_hash=session.ip_addr_hash,
             current_ip_hash=current_ip_hash,
         )

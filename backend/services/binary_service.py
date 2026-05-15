@@ -156,22 +156,53 @@ class BinaryService:
             return _timeseries_error("download", f"Failed to download file: {e}")
 
         name = (ref.filename or "").lower()
-        # VH-Lab's VHSB files use a text metadata header ("This is a VHSB file,
-        # http://github.com/VH-Lab") followed by typed binary slots. The v1
-        # decoder used the DID-python `vlt` library for this. v2 doesn't bundle
-        # vlt today; we surface the same "vlt library not available" soft error
-        # the v1 TimeseriesChart already maps to a friendly message.
+        # Decoder dispatch order matters. We try the cheapest discriminators
+        # first and fall through:
+        #   1. NDI-compressed wrappers (gzip magic 0x1f 0x8b)  → ndicompress
+        #   2. VHSB text-tag header ("This is a VHSB file, ...")  → vlt
+        #   3. VHSB binary-magic (synthetic; rare/dead in practice)  → inline _parse_vhsb
+        #   4. Everything else  → inline _parse_nbf (the .nbf raw-binary case)
+        #
+        # Phase A swap (2026-05-13): paths #1 and #2 are NEW. Before, both
+        # short-circuited to soft errors because vlt and ndicompress were
+        # not installed. Paths #3 and #4 are unchanged. The audit at
+        # `apps/web/scripts/audit-public-api.mjs` exists to prove that
+        # the NBF (path #4) byte-shape is byte-identical before/after.
+        from backend.services import ndi_python_service as _ndi
+
+        # Path 1: NDI-compressed binary (.nbf.tgz wrapper)
+        if _ndi.is_ndi_compressed(payload):
+            shaped = _ndi.expand_ephys_from_bytes(payload)
+            if shaped is not None:
+                return shaped
+            # Fall through to soft error below if expansion failed.
+            return _timeseries_error(
+                "ndi_compressed_failed",
+                "This file looks NDI-compressed (.nbf.tgz) but the decoder "
+                "could not expand it. Format may be a non-Ephys variant.",
+            )
+
+        # Path 2: VHSB with the ASCII text-tag header
         head = payload[:5] if len(payload) >= 5 else b""
         if head.startswith(b"This "):
+            shaped = _ndi.read_vhsb_from_bytes(payload)
+            if shaped is not None:
+                return shaped
+            # NDI stack unavailable, or the file is malformed. Preserve the
+            # legacy soft-error code so the v1 TimeseriesChart's friendly
+            # message still surfaces if NDI-python isn't loaded.
             return _timeseries_error(
                 "vlt_library",
-                "vlt library is not available on this server — full VHSB "
-                "decoding requires the DID-python `vlt` extension. The raw "
-                "file is available in the document's Files section.",
+                "VHSB decoder unavailable on this server. The raw file is "
+                "still available in the document's Files section.",
             )
+
         try:
+            # Path 3: synthetic binary-magic VHSB. In practice rare; kept
+            # so test fixtures continue to work.
             if name.endswith(".vhsb") or (payload[:4] == b"VHSB"):
                 return _parse_vhsb(payload)
+            # Path 4: raw .nbf. Byte-shape under audit; do not modify.
             return _parse_nbf(payload)
         except Exception as e:
             log.warning("binary.decode_failed", kind="timeseries", error=str(e))

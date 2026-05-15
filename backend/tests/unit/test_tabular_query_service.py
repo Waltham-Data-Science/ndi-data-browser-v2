@@ -1,0 +1,589 @@
+"""Unit tests for TabularQueryService.
+
+Tests focus on the aggregation math + edge cases. The SummaryTableService
+dependency is stubbed — its own tests cover the ontologyTableRow
+projection logic.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+
+from backend.services.tabular_query_service import (
+    MAX_GROUPS,
+    MAX_VALUES_PER_GROUP,
+    TabularQueryService,
+    _percentile,
+    _stride_sample,
+    _summary_stats,
+)
+
+# ---------------------------------------------------------------------------
+# Stat-helper unit tests — pure functions, no IO
+# ---------------------------------------------------------------------------
+
+
+class TestSummaryStats:
+    def test_basic_stats(self):
+        vals = [1.0, 2.0, 3.0, 4.0, 5.0]
+        s = _summary_stats(vals)
+        assert s["count"] == 5
+        assert s["mean"] == 3.0
+        assert s["median"] == 3.0
+        assert s["min"] == 1.0
+        assert s["max"] == 5.0
+        assert abs(s["std"] - 1.5811) < 0.001
+        assert s["q1"] == 2.0
+        assert s["q3"] == 4.0
+
+    def test_single_value_zero_std(self):
+        s = _summary_stats([7.0])
+        assert s["count"] == 1
+        assert s["std"] == 0.0
+        assert s["mean"] == 7.0
+
+    def test_two_values(self):
+        s = _summary_stats([10.0, 20.0])
+        assert s["count"] == 2
+        assert s["mean"] == 15.0
+        assert s["median"] == 15.0
+
+
+class TestPercentile:
+    def test_quartiles(self):
+        assert _percentile([1, 2, 3, 4, 5], 25) == 2.0
+        assert _percentile([1, 2, 3, 4, 5], 50) == 3.0
+        assert _percentile([1, 2, 3, 4, 5], 75) == 4.0
+
+    def test_endpoints(self):
+        assert _percentile([1, 2, 3, 4, 5], 0) == 1.0
+        assert _percentile([1, 2, 3, 4, 5], 100) == 5.0
+
+    def test_empty_returns_zero(self):
+        assert _percentile([], 50) == 0.0
+
+    def test_single_value(self):
+        assert _percentile([42.0], 50) == 42.0
+
+
+class TestStrideSample:
+    def test_under_cap_returns_all(self):
+        assert _stride_sample([1.0, 2.0, 3.0], cap=10) == [1.0, 2.0, 3.0]
+
+    def test_over_cap_preserves_endpoints(self):
+        vals = [float(i) for i in range(100)]
+        out = _stride_sample(vals, cap=10)
+        assert len(out) == 10
+        assert out[0] == 0.0
+        assert out[-1] == 99.0
+
+
+# ---------------------------------------------------------------------------
+# Service-level: stub SummaryTableService with the real ontology_tables
+# response shape (one group per distinct variableNames schema, rows are
+# dicts keyed by variableName).
+# ---------------------------------------------------------------------------
+
+
+def _make_ontology_response(
+    columns: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+    *,
+    doc_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build a one-group ontology_tables response matching the real
+    shape returned by SummaryTableService.ontology_tables.
+    """
+    return {
+        "groups": [
+            {
+                "variableNames": [c["key"] for c in columns],
+                "names": [c.get("label", c["key"]) for c in columns],
+                "ontologyNodes": [c.get("ontologyTerm") for c in columns],
+                "table": {"columns": columns, "rows": rows},
+                "docIds": doc_ids or [],
+                "rowCount": len(rows),
+            },
+        ],
+    }
+
+
+class _FakeSummaryService:
+    """Stub for SummaryTableService — returns a canned ontology_tables payload."""
+
+    def __init__(self, response: dict[str, Any]) -> None:
+        self._response = response
+
+    async def ontology_tables(
+        self,
+        dataset_id: str,  # noqa: ARG002 — stub mirrors the real signature
+        *,
+        session: Any,  # noqa: ARG002 — stub mirrors the real signature
+    ) -> dict[str, Any]:
+        return self._response
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_basic():
+    """Two-group violin keyed on a column label substring."""
+    columns = [
+        {"key": "treatment_group", "label": "treatment_group"},
+        {"key": "EPM_OpenArm_Entries", "label": "EPM Open Arm Entries"},
+    ]
+    rows = [
+        {"treatment_group": "Saline", "EPM_OpenArm_Entries": 5.0},
+        {"treatment_group": "Saline", "EPM_OpenArm_Entries": 7.0},
+        {"treatment_group": "Saline", "EPM_OpenArm_Entries": 6.0},
+        {"treatment_group": "CNO", "EPM_OpenArm_Entries": 2.0},
+        {"treatment_group": "CNO", "EPM_OpenArm_Entries": 3.0},
+        {"treatment_group": "CNO", "EPM_OpenArm_Entries": 1.0},
+    ]
+    # One docId per row, parallel to `rows` per the ontology_tables
+    # projection contract. This lets the service route each row's
+    # docId to its bucket so the frontend can build per-group
+    # sample-row references.
+    doc_ids = [
+        "doc_saline_1",
+        "doc_saline_2",
+        "doc_saline_3",
+        "doc_cno_1",
+        "doc_cno_2",
+        "doc_cno_3",
+    ]
+    response = _make_ontology_response(columns, rows, doc_ids=doc_ids)
+    svc = TabularQueryService(_FakeSummaryService(response))  # type: ignore[arg-type]
+    result = await svc.violin_groups(
+        "dataset_xyz",
+        "OpenArm",
+        group_by="treatment_group",
+        group_order=None,
+        session=None,
+    )
+    assert len(result["groups"]) == 2
+    by_name = {g["name"]: g for g in result["groups"]}
+    assert by_name["Saline"]["mean"] == 6.0
+    assert by_name["CNO"]["mean"] == 2.0
+    assert by_name["Saline"]["count"] == 3
+    # Per-group docIds are surfaced so the frontend can build
+    # per-bucket sample-row references — capped at 3 per group.
+    assert by_name["Saline"]["docIds"] == [
+        "doc_saline_1",
+        "doc_saline_2",
+        "doc_saline_3",
+    ]
+    assert by_name["CNO"]["docIds"] == [
+        "doc_cno_1",
+        "doc_cno_2",
+        "doc_cno_3",
+    ]
+    assert by_name["Saline"]["totalRows"] == 3
+    assert by_name["CNO"]["totalRows"] == 3
+    # `source` is preserved for backwards-compat but is no longer the
+    # primary citation path.
+    assert result["source"]["document_id"] == "doc_saline_1"
+    assert result["xLabel"] == "treatment_group"
+    # Label comes from the human-readable column label, not the raw key.
+    assert "Open Arm Entries" in result["yLabel"]
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_per_group_doc_id_cap():
+    """Per-group docId list capped at MAX_DOC_IDS_PER_GROUP (3) even
+    when the underlying group has dozens of contributing rows."""
+    columns = [
+        {"key": "treatment_group", "label": "treatment_group"},
+        {"key": "EPM_OpenArm_Entries", "label": "EPM Open Arm Entries"},
+    ]
+    # 10 Saline rows, 2 CNO rows — the cap should clip Saline to 3 docs
+    # while CNO is left as-is.
+    rows = (
+        [{"treatment_group": "Saline", "EPM_OpenArm_Entries": float(i)} for i in range(10)]
+        + [{"treatment_group": "CNO", "EPM_OpenArm_Entries": float(i)} for i in range(2)]
+    )
+    doc_ids = [f"doc_saline_{i}" for i in range(10)] + ["doc_cno_0", "doc_cno_1"]
+    response = _make_ontology_response(columns, rows, doc_ids=doc_ids)
+    svc = TabularQueryService(_FakeSummaryService(response))  # type: ignore[arg-type]
+    result = await svc.violin_groups(
+        "dataset_xyz",
+        "OpenArm",
+        group_by="treatment_group",
+        group_order=None,
+        session=None,
+    )
+    by_name = {g["name"]: g for g in result["groups"]}
+    # Saline contributes 10 rows but only 3 docIds surface — the
+    # frontend doesn't need all 10 as chips; the table-view citation
+    # already covers the full set.
+    assert by_name["Saline"]["docIds"] == [
+        "doc_saline_0",
+        "doc_saline_1",
+        "doc_saline_2",
+    ]
+    assert by_name["Saline"]["totalRows"] == 10
+    # CNO has only 2 — no cap kicks in.
+    assert by_name["CNO"]["docIds"] == ["doc_cno_0", "doc_cno_1"]
+    assert by_name["CNO"]["totalRows"] == 2
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_missing_doc_ids_tolerated():
+    """When the projection desynchronizes (rows longer than docIds),
+    surface what's available without faking ids."""
+    columns = [
+        {"key": "treatment_group", "label": "treatment_group"},
+        {"key": "EPM_OpenArm_Entries", "label": "EPM Open Arm Entries"},
+    ]
+    rows = [
+        {"treatment_group": "Saline", "EPM_OpenArm_Entries": 5.0},
+        {"treatment_group": "Saline", "EPM_OpenArm_Entries": 7.0},
+        {"treatment_group": "CNO", "EPM_OpenArm_Entries": 2.0},
+    ]
+    # Only one docId for three rows. The service must NOT crash or
+    # invent IDs — Saline gets its one real id, CNO gets nothing.
+    response = _make_ontology_response(columns, rows, doc_ids=["doc_only_one"])
+    svc = TabularQueryService(_FakeSummaryService(response))  # type: ignore[arg-type]
+    result = await svc.violin_groups(
+        "dataset_xyz",
+        "OpenArm",
+        group_by="treatment_group",
+        group_order=None,
+        session=None,
+    )
+    by_name = {g["name"]: g for g in result["groups"]}
+    assert by_name["Saline"]["docIds"] == ["doc_only_one"]
+    assert by_name["CNO"]["docIds"] == []
+    # Values + stats still computed correctly on the full row set.
+    assert by_name["Saline"]["totalRows"] == 2
+    assert by_name["CNO"]["totalRows"] == 1
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_no_match_returns_empty_with_meta():
+    columns = [{"key": "unrelated", "label": "Unrelated Variable"}]
+    rows = [{"unrelated": 1.0}]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    result = await svc.violin_groups(
+        "ds", "ElevatedPlusMaze", group_by="g", group_order=None, session=None,
+    )
+    assert result["groups"] == []
+    assert "no ontologyTableRow column matched" in result["_meta"]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_respects_group_order():
+    columns = [
+        {"key": "group", "label": "group"},
+        {"key": "y", "label": "y"},
+    ]
+    rows = [
+        {"group": "A", "y": 1.0},
+        {"group": "B", "y": 2.0},
+        {"group": "C", "y": 3.0},
+    ]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    result = await svc.violin_groups(
+        "ds", "y", group_by="group", group_order=["C", "A"], session=None,
+    )
+    names = [g["name"] for g in result["groups"]]
+    # C and A specified first; B (unspecified) appears after.
+    assert names == ["C", "A", "B"]
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_no_group_by_makes_single_group():
+    columns = [{"key": "y", "label": "Value"}]
+    rows = [{"y": 1.0}, {"y": 2.0}, {"y": 3.0}, {"y": 4.0}]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    result = await svc.violin_groups(
+        "ds", "Value", group_by=None, group_order=None, session=None,
+    )
+    assert len(result["groups"]) == 1
+    assert result["groups"][0]["name"] == "all"
+    assert result["groups"][0]["count"] == 4
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_caps_group_count():
+    columns = [{"key": "g", "label": "g"}, {"key": "y", "label": "y"}]
+    rows = [
+        {"g": f"g{i}", "y": float(i)} for i in range(MAX_GROUPS + 5)
+    ]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    result = await svc.violin_groups(
+        "ds", "y", group_by="g", group_order=None, session=None,
+    )
+    assert len(result["groups"]) == MAX_GROUPS
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_caps_values_per_group_but_stats_use_full():
+    """Stats are computed BEFORE the value-list sampling so they remain accurate."""
+    columns = [{"key": "g", "label": "g"}, {"key": "y", "label": "Value"}]
+    n = MAX_VALUES_PER_GROUP + 200
+    rows = [{"g": "all", "y": float(i)} for i in range(n)]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    result = await svc.violin_groups(
+        "ds", "Value", group_by="g", group_order=None, session=None,
+    )
+    g = result["groups"][0]
+    assert len(g["values"]) <= MAX_VALUES_PER_GROUP
+    expected_mean = (n - 1) / 2
+    assert abs(g["mean"] - expected_mean) < 0.001
+    assert g["count"] == n
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_skips_nonfinite_values():
+    """NaN / inf rows shouldn't blow up the aggregation."""
+    columns = [{"key": "g", "label": "g"}, {"key": "y", "label": "y"}]
+    rows = [
+        {"g": "A", "y": 1.0},
+        {"g": "A", "y": 2.0},
+        {"g": "A", "y": float("nan")},
+        {"g": "A", "y": float("inf")},
+        {"g": "B", "y": 5.0},
+    ]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    result = await svc.violin_groups(
+        "ds", "y", group_by="g", group_order=None, session=None,
+    )
+    by_name = {g["name"]: g for g in result["groups"]}
+    assert by_name["A"]["count"] == 2
+    assert by_name["A"]["mean"] == 1.5
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_empty_substring_returns_empty():
+    columns = [{"key": "y", "label": "y"}]
+    rows = [{"y": 1.0}]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    result = await svc.violin_groups(
+        "ds", "", group_by=None, group_order=None, session=None,
+    )
+    assert result["groups"] == []
+    assert "empty" in result["_meta"]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_prefers_numeric_column_over_identifier():
+    """Real ontologyTableRow tables often have multiple columns sharing
+    a topic prefix (e.g. an identifier column + measurement columns).
+    The matcher must skip the non-numeric identifier and pick the
+    numeric measurement.
+    """
+    columns = [
+        {"key": "EPM_TestIdentifier", "label": "EPM: Test Identifier"},
+        {"key": "EPM_OpenArmEntries", "label": "EPM: Open Arm Entries"},
+        {"key": "treatment", "label": "treatment"},
+    ]
+    rows = [
+        {"EPM_TestIdentifier": "EPM-001", "EPM_OpenArmEntries": 5.0, "treatment": "Saline"},
+        {"EPM_TestIdentifier": "EPM-002", "EPM_OpenArmEntries": 7.0, "treatment": "Saline"},
+        {"EPM_TestIdentifier": "EPM-003", "EPM_OpenArmEntries": 3.0, "treatment": "CNO"},
+        {"EPM_TestIdentifier": "EPM-004", "EPM_OpenArmEntries": 2.0, "treatment": "CNO"},
+    ]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    # Search "EPM" matches BOTH identifier and entries; should pick
+    # the numeric one.
+    result = await svc.violin_groups(
+        "ds", "EPM", group_by="treatment", group_order=None, session=None,
+    )
+    assert len(result["groups"]) == 2  # Saline + CNO
+    by_name = {g["name"]: g for g in result["groups"]}
+    assert by_name["Saline"]["mean"] == 6.0  # (5+7)/2
+    assert by_name["CNO"]["mean"] == 2.5  # (3+2)/2
+    # And the label should be the numeric column's label.
+    assert "Open Arm Entries" in result["yLabel"]
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_substring_groupby_resolves_to_column():
+    """LLM rarely knows the exact column key. A `groupBy='Treatment'`
+    should resolve to `Treatment_CNOOrSalineAdministration` via
+    substring match.
+    """
+    columns = [
+        {"key": "value", "label": "Measurement"},
+        {"key": "Treatment_CNOOrSalineAdministration", "label": "treatment: CNO or saline"},
+    ]
+    rows = [
+        {"value": 1.0, "Treatment_CNOOrSalineAdministration": "Saline"},
+        {"value": 2.0, "Treatment_CNOOrSalineAdministration": "Saline"},
+        {"value": 3.0, "Treatment_CNOOrSalineAdministration": "CNO"},
+        {"value": 4.0, "Treatment_CNOOrSalineAdministration": "CNO"},
+    ]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    result = await svc.violin_groups(
+        "ds", "Measurement", group_by="Treatment", group_order=None, session=None,
+    )
+    assert len(result["groups"]) == 2
+    by_name = {g["name"]: g for g in result["groups"]}
+    assert by_name["Saline"]["mean"] == 1.5
+    assert by_name["CNO"]["mean"] == 3.5
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_fuzzy_substring_matches_across_underscores():
+    """Stream 5.1 (2026-05-15): the column-key matcher should ignore
+    underscores so a query for ``OpenArmNorthEntries`` resolves the real
+    column ``ElevatedPlusMaze_OpenArmNorth_Entries``. Pre-fix this
+    returned an empty result because the contiguous-substring match
+    didn't bridge the underscore between "North" and "Entries".
+    """
+    columns = [
+        {
+            "key": "ElevatedPlusMaze_OpenArmNorth_Entries",
+            "label": "Elevated Plus Maze: Open Arm (North) Entries",
+        },
+        {"key": "Treatment_CNOOrSalineAdministration", "label": "treatment"},
+    ]
+    rows = [
+        {
+            "ElevatedPlusMaze_OpenArmNorth_Entries": 5.0,
+            "Treatment_CNOOrSalineAdministration": "Saline",
+        },
+        {
+            "ElevatedPlusMaze_OpenArmNorth_Entries": 7.0,
+            "Treatment_CNOOrSalineAdministration": "Saline",
+        },
+        {
+            "ElevatedPlusMaze_OpenArmNorth_Entries": 3.0,
+            "Treatment_CNOOrSalineAdministration": "CNO",
+        },
+        {
+            "ElevatedPlusMaze_OpenArmNorth_Entries": 2.0,
+            "Treatment_CNOOrSalineAdministration": "CNO",
+        },
+    ]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    # The needle uses no underscores; the column has underscores
+    # between every word. Direct case-insensitive substring fails;
+    # alphanumeric-stripped fallback must catch it.
+    result = await svc.violin_groups(
+        "ds",
+        "OpenArmNorthEntries",
+        group_by="Treatment",
+        group_order=None,
+        session=None,
+    )
+    assert len(result["groups"]) == 2
+    by_name = {g["name"]: g for g in result["groups"]}
+    assert by_name["Saline"]["mean"] == 6.0  # (5+7)/2
+    assert by_name["CNO"]["mean"] == 2.5  # (3+2)/2
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_groupby_fuzzy_matches_across_underscores():
+    """Stream 5.1 (2026-05-15) — groupBy resolution also uses the
+    alphanumeric-stripped fallback. ``CNOorSaline`` (no underscore)
+    resolves to ``Treatment_CNOOrSalineAdministration``.
+    """
+    columns = [
+        {"key": "ElevatedPlusMaze_OpenArmEntries", "label": "EPM entries"},
+        {"key": "Treatment_CNOOrSalineAdministration", "label": "treatment"},
+    ]
+    rows = [
+        {"ElevatedPlusMaze_OpenArmEntries": 1.0, "Treatment_CNOOrSalineAdministration": "Saline"},
+        {"ElevatedPlusMaze_OpenArmEntries": 2.0, "Treatment_CNOOrSalineAdministration": "Saline"},
+        {"ElevatedPlusMaze_OpenArmEntries": 3.0, "Treatment_CNOOrSalineAdministration": "CNO"},
+    ]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    result = await svc.violin_groups(
+        "ds",
+        "OpenArmEntries",
+        group_by="CNOorSaline",
+        group_order=None,
+        session=None,
+    )
+    # Did we resolve to the right grouping column? Two groups land.
+    assert len(result["groups"]) == 2
+    names = {g["name"] for g in result["groups"]}
+    assert names == {"Saline", "CNO"}
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_precise_match_wins_over_fuzzy_when_both_present():
+    """Stream 5.1 (2026-05-15) — when one column matches case-
+    insensitively AND another matches only via alphanumeric strip, the
+    precise match wins. Preserves existing semantics for direct hits.
+    """
+    columns = [
+        # Precise match for "EPM_Entries".
+        {"key": "EPM_Entries", "label": "EPM Entries"},
+        # Fuzzy-only match — `EPMEntries` is a substring after stripping.
+        {"key": "EPM_Other_Entries", "label": "EPM Other Entries"},
+    ]
+    rows = [
+        {"EPM_Entries": 100.0, "EPM_Other_Entries": 999.0},
+        {"EPM_Entries": 200.0, "EPM_Other_Entries": 999.0},
+    ]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    # Query is the precise key — must resolve to it, not the fuzzy
+    # sibling. yLabel should be "EPM Entries" (precise label).
+    result = await svc.violin_groups(
+        "ds",
+        "EPM_Entries",
+        group_by=None,
+        group_order=None,
+        session=None,
+    )
+    assert result["yLabel"] == "EPM Entries"
+    # Single 'all' group with the precise column's values.
+    assert result["groups"][0]["mean"] == 150.0
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_unresolvable_groupby_returns_empty_with_available():
+    """When groupBy doesn't match any column, return empty + the list
+    of available columns so the caller can retry."""
+    columns = [
+        {"key": "value", "label": "Measurement"},
+        {"key": "strain", "label": "strain"},
+    ]
+    rows = [{"value": 1.0, "strain": "N2"}]
+    svc = TabularQueryService(
+        _FakeSummaryService(_make_ontology_response(columns, rows)),  # type: ignore[arg-type]
+    )
+    result = await svc.violin_groups(
+        "ds", "Measurement", group_by="NotAColumn", group_order=None, session=None,
+    )
+    assert result["groups"] == []
+    assert "no column matched groupBy" in result["_meta"]["reason"]
+    assert "strain" in result["_meta"]["columns"]
+
+
+@pytest.mark.asyncio
+async def test_violin_groups_no_ontology_docs_returns_empty():
+    svc = TabularQueryService(
+        _FakeSummaryService({"groups": []}),  # type: ignore[arg-type]
+    )
+    result = await svc.violin_groups(
+        "ds", "anything", group_by=None, group_order=None, session=None,
+    )
+    assert result["groups"] == []
+    assert "no ontologyTableRow docs" in result["_meta"]["reason"]

@@ -53,6 +53,43 @@ log = get_logger(__name__)
 # 6 comfortably — confirm with Steve before raising further.
 MAX_CONCURRENT_BULK_FETCH = 6
 
+# distinct_summary caps — keep work bounded for very large tables.
+# Smoke-tested 2026-05-13 (Dabrowska BNST): `query_documents(class=treatment)`
+# returned 49 rows, all named "Optogenetic Tetanus Stimulation Target Location"
+# — the LLM didn't realize all rows were duplicates and assumed the dataset had
+# only optogenetic treatments. distinct_summary surfaces that collapse so the
+# model can say "9 distinct strains across 215 subjects" without sampling.
+#
+# Skip the computation entirely above this row count — the table is too big to
+# scan in-memory affordably (>10K rows x ~15 columns = 150K cell reads).
+DISTINCT_SUMMARY_MAX_ROWS = 10_000
+# How many top values per column to surface. Beyond ~5 the LLM's context
+# bloats without adding signal; "top-5 + counts + distinct_count" is the
+# tight summary the prompt is tuned against.
+DISTINCT_SUMMARY_TOP_K = 5
+
+# Aliases for the canonical NDI class names. The cloud's `isa` operator
+# walks ``classLineage`` so a query for the BASE class returns docs of
+# any subclass — but the cloud (as deployed) does NOT walk the LINEAGE
+# in the OTHER direction. Datasets ingested under the modern schema
+# emit ``element`` rather than the legacy ``probe`` class name; an `isa
+# probe` query against those datasets returns 0 IDs even though the
+# user-facing concept ("the probes") is fully represented.
+#
+# When the caller requests one of the entries in this map and the
+# literal query returns 0 IDs, ``_build_single_class`` retries with the
+# fallback. Logged so the alias hit shows up in observability.
+#
+# Smoke-tested 2026-05-14 against Dabrowska BNST (id 67f723d574f5f79c
+# 6062389d, 0 probes / 606 elements): ``query_documents(className=probe)``
+# returned 0 rows pre-fix; with the fallback it returns the 606
+# element rows (which IS what summary.probeTypes computes its values
+# from).
+_CLASS_ALIASES: dict[str, list[str]] = {
+    "probe": ["element"],
+    "epoch": ["element_epoch"],
+}
+
 # Enrichment plan per primary class. Each listed class is fetched dataset-
 # wide in parallel and its docs indexed by the `depends_on` edge the
 # projection needs. `subject` and `openminds_subject` are always pulled when
@@ -103,21 +140,51 @@ class SummaryTableService:
         class_name: str,
         *,
         session: SessionData | None,
+        page: int | None = None,
+        page_size: int | None = None,
     ) -> dict[str, Any]:
+        """Build (or read from cache) the full per-class table, then optionally
+        slice for pagination.
+
+        Pagination semantics (Stream 5.8, 2026-05-16):
+
+        - When BOTH ``page`` and ``page_size`` are ``None`` the response is the
+          backward-compatible envelope ``{columns, rows, distinct_summary}``
+          carrying every row. Existing callers (Document Explorer's full-set
+          fetch, the cron warm-cache) stay on this path.
+
+        - When EITHER is provided the response adds ``page``, ``pageSize``,
+          ``totalRows``, and ``hasMore`` fields, and ``rows`` is sliced
+          server-side. Default page=1, page_size=200 when only one is given.
+
+        The cache stays keyed by ``(dataset_id, class_name, user_scope)`` —
+        the FULL row set is cached, never per-page. Slicing happens in-memory
+        after the cache get/compute, so the warm-cache cron (which fetches
+        unpaged) still hydrates every page for downstream paged readers.
+        Egress savings come entirely from the smaller response body; the
+        cloud-fetch work is unchanged.
+        """
         access_token = session.access_token if session else None
         if self.cache is not None:
             key = RedisTableCache.table_key(
                 dataset_id, class_name, user_scope=user_scope_for(session),
             )
-            return await self.cache.get_or_compute(
+            full = await self.cache.get_or_compute(
                 key,
                 lambda: self._build_single_class(
                     dataset_id, class_name, access_token=access_token,
                 ),
             )
-        return await self._build_single_class(
-            dataset_id, class_name, access_token=access_token,
-        )
+        else:
+            full = await self._build_single_class(
+                dataset_id, class_name, access_token=access_token,
+            )
+
+        if page is None and page_size is None:
+            # Backward-compatible unpaged envelope.
+            return full
+
+        return _paginate(full, page=page or 1, page_size=page_size or 200)
 
     async def _build_single_class(
         self,
@@ -127,12 +194,37 @@ class SummaryTableService:
         access_token: str | None,
     ) -> dict[str, Any]:
         t0 = time.perf_counter()
+        # Try the literal class first; if it returns 0 IDs and we have a
+        # canonical alias (probe→element, epoch→element_epoch), retry on
+        # the alias. The projection key stays the literal so PROBE_COLUMNS
+        # are emitted regardless — the LLM and the document-explorer
+        # client both render rows under the user-requested class label.
         body = await self.cloud.ndiquery(
             searchstructure=[{"operation": "isa", "param1": class_name}],
             scope=dataset_id,
             access_token=access_token,
         )
         ids = _extract_ids(body)
+        resolved_class = class_name
+        if not ids:
+            for alias in _CLASS_ALIASES.get(class_name, []):
+                alt_body = await self.cloud.ndiquery(
+                    searchstructure=[{"operation": "isa", "param1": alias}],
+                    scope=dataset_id,
+                    access_token=access_token,
+                )
+                alt_ids = _extract_ids(alt_body)
+                if alt_ids:
+                    log.info(
+                        "table.single.alias_hit",
+                        dataset_id=dataset_id,
+                        requested_class=class_name,
+                        resolved_class=alias,
+                        ids=len(alt_ids),
+                    )
+                    ids = alt_ids
+                    resolved_class = alias
+                    break
         docs = await self._bulk_fetch_all(dataset_id, ids, access_token=access_token)
 
         # Fetch all enrichment classes in parallel. If any REQUIRED enrichment
@@ -140,7 +232,11 @@ class SummaryTableService:
         # transient cloud failure doesn't pin a broken empty-enrichment table
         # into Redis for the full TTL window. Plan §M4a step 3: "Skip cache
         # if cloud call fails."
-        enrich_classes = _ENRICHMENTS_FOR.get(class_name, [])
+        # Enrichment plan keys off the RESOLVED class (so an aliased
+        # probe→element fetch still pulls subject + openminds_subject +
+        # probe_location, which `_row_probe` needs to populate location +
+        # cell-type columns).
+        enrich_classes = _ENRICHMENTS_FOR.get(resolved_class, [])
         enriched: dict[str, list[dict[str, Any]]] = {}
         if enrich_classes and docs:
             results = await asyncio.gather(
@@ -154,23 +250,34 @@ class SummaryTableService:
                 if isinstance(r, BaseException):
                     log.warning(
                         "table.enrichment_failed",
-                        primary=class_name,
+                        primary=resolved_class,
                         enrichment=ec,
                         error=str(r),
                     )
                     # Required enrichment failed — propagate so the cache
                     # doesn't pin a broken build. The caller re-tries on the
                     # next request, which may succeed against a healthy cloud.
-                    if ec in _REQUIRED_ENRICHMENTS.get(class_name, set()):
+                    if ec in _REQUIRED_ENRICHMENTS.get(resolved_class, set()):
                         raise RuntimeError(
                             f"Required enrichment {ec!r} failed while building "
-                            f"{class_name} table: {r}",
+                            f"{resolved_class} table: {r}",
                         )
                     enriched[ec] = []
                 else:
                     enriched[ec] = r
 
-        columns, rows = _project_for_class(class_name, docs, enriched)
+        # Project under the RESOLVED class so the probe→element alias
+        # picks PROBE_COLUMNS (the projection table treats probe and
+        # element identically). The user-requested class_name is
+        # preserved in the log line for cache-hit forensics.
+        columns, rows = _project_for_class(resolved_class, docs, enriched)
+        # distinct_summary is computed over ALL projected rows (not the
+        # client-side paged slice), so consumers (notably the /ask chat's
+        # query_documents tool, which limits to 10-30 rows) can still see
+        # "9 distinct strains across 215 subjects" without sampling. The
+        # work is bounded by DISTINCT_SUMMARY_MAX_ROWS; cached alongside
+        # rows so a Redis hit returns it for free.
+        distinct_summary = _build_distinct_summary(columns, rows)
         table_build_duration_seconds.labels(class_name=class_name).observe(
             time.perf_counter() - t0,
         )
@@ -178,11 +285,16 @@ class SummaryTableService:
             "table.build.single",
             dataset_id=dataset_id,
             class_name=class_name,
+            resolved_class=resolved_class,
             ids=len(ids),
             rows=len(rows),
             ms=int((time.perf_counter() - t0) * 1000),
         )
-        return {"columns": columns, "rows": rows}
+        return {
+            "columns": columns,
+            "rows": rows,
+            "distinct_summary": distinct_summary,
+        }
 
     async def combined(
         self,
@@ -314,6 +426,27 @@ class SummaryTableService:
                 "epochId": _ndi_id(epoch),
             })
 
+        combined_columns = [
+            {"key": "subject", "label": "Subject"},
+            {"key": "species", "label": "Species"},
+            {"key": "speciesOntology", "label": "Species Ontology"},
+            {"key": "strain", "label": "Strain"},
+            {"key": "strainOntology", "label": "Strain Ontology"},
+            {"key": "sex", "label": "Sex"},
+            {"key": "probe", "label": "Probe"},
+            {"key": "probeLocationName", "label": "Probe Location"},
+            {"key": "probeLocationOntology", "label": "Probe Location Ontology"},
+            {"key": "type", "label": "Probe type"},
+            {"key": "epoch", "label": "Epoch"},
+            {"key": "approachName", "label": "Approach"},
+            {"key": "approachOntology", "label": "Approach Ontology"},
+            {"key": "start", "label": "Start"},
+            {"key": "stop", "label": "Stop"},
+        ]
+        # Same distinct_summary rationale as single_class: surfaces per-column
+        # cardinality so the LLM can answer "how many distinct strains" without
+        # paging the full table.
+        distinct_summary = _build_distinct_summary(combined_columns, rows)
         elapsed = time.perf_counter() - build_start
         table_build_duration_seconds.labels(class_name="combined").observe(elapsed)
         log.info(
@@ -325,24 +458,9 @@ class SummaryTableService:
             ms=int(elapsed * 1000),
         )
         return {
-            "columns": [
-                {"key": "subject", "label": "Subject"},
-                {"key": "species", "label": "Species"},
-                {"key": "speciesOntology", "label": "Species Ontology"},
-                {"key": "strain", "label": "Strain"},
-                {"key": "strainOntology", "label": "Strain Ontology"},
-                {"key": "sex", "label": "Sex"},
-                {"key": "probe", "label": "Probe"},
-                {"key": "probeLocationName", "label": "Probe Location"},
-                {"key": "probeLocationOntology", "label": "Probe Location Ontology"},
-                {"key": "type", "label": "Probe type"},
-                {"key": "epoch", "label": "Epoch"},
-                {"key": "approachName", "label": "Approach"},
-                {"key": "approachOntology", "label": "Approach Ontology"},
-                {"key": "start", "label": "Start"},
-                {"key": "stop", "label": "Stop"},
-            ],
+            "columns": combined_columns,
             "rows": rows,
+            "distinct_summary": distinct_summary,
         }
 
     async def ontology_tables(
@@ -512,6 +630,41 @@ class SummaryTableService:
         for r in results:
             flat.extend(r)
         return flat
+
+
+# ---------------------------------------------------------------------------
+# Pagination helper (Stream 5.8, 2026-05-16)
+# ---------------------------------------------------------------------------
+
+def _paginate(
+    full: dict[str, Any], *, page: int, page_size: int,
+) -> dict[str, Any]:
+    """Slice a full single-class table envelope into a paged envelope.
+
+    Carries over ``columns`` and ``distinct_summary`` verbatim — the latter
+    is computed over the FULL row set (capped by ``DISTINCT_SUMMARY_MAX_ROWS``)
+    so consumers can still answer "how many distinct strains across all 215
+    rows" without paging the whole table. ``rows`` is sliced to the requested
+    page.
+
+    Inputs are validated by the FastAPI Query layer (``page >= 1``,
+    ``1 <= page_size <= 1000``); this helper assumes those bounds.
+    """
+    rows = full.get("rows", []) or []
+    total = len(rows)
+    start = (page - 1) * page_size
+    end = start + page_size
+    out: dict[str, Any] = {
+        "columns": full.get("columns", []),
+        "rows": rows[start:end],
+        "page": page,
+        "pageSize": page_size,
+        "totalRows": total,
+        "hasMore": end < total,
+    }
+    if "distinct_summary" in full:
+        out["distinct_summary"] = full["distinct_summary"]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1211,3 +1364,68 @@ def _row_treatment(d: dict[str, Any]) -> dict[str, Any]:
         "stringValue":               _clean(tdata.get("string_value")),
         "subjectDocumentIdentifier": _depends_on_value_by_name(d, "subject_id"),
     }
+
+
+# ---------------------------------------------------------------------------
+# distinct_summary — per-column cardinality + top values
+# ---------------------------------------------------------------------------
+
+def _hashable(value: Any) -> Any:
+    """Convert a cell value into something usable as a dict key.
+
+    Most projected cells are scalars (str, int, float, bool, None). A few
+    columns (e.g. element_epoch.epochStart) project as small dicts like
+    `{"devTime": 0, "globalTime": None}`. Those still need to be countable,
+    so we JSON-serialize the unhashables into stable string keys.
+    """
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    # dict / list / tuple — stringify deterministically.
+    try:
+        import json as _json
+        return _json.dumps(value, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        return repr(value)
+
+
+def _build_distinct_summary(
+    columns: list[dict[str, str]],
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """For each column compute {distinct_count, top_values} across ALL rows.
+
+    `top_values` is a list of `{value, count}` ordered by descending count,
+    capped at `DISTINCT_SUMMARY_TOP_K`. Empty/None cells are tallied as
+    `None` so the LLM can still see "5/49 rows had a null treatmentName".
+
+    Returns `{"_meta": "skipped due to large row count"}` shape when there
+    are more than `DISTINCT_SUMMARY_MAX_ROWS` rows — the table is too big
+    to scan affordably and the LLM doesn't need per-cell stats at that
+    point (it should pivot to ndi_query or get_facets).
+
+    The function is pure: no I/O, no mutation. Folded into the cached
+    table response so a Redis hit returns it for free.
+    """
+    if len(rows) > DISTINCT_SUMMARY_MAX_ROWS:
+        return {"_meta": "skipped due to large row count"}
+
+    out: dict[str, Any] = {}
+    for col in columns:
+        key = col.get("key")
+        if not isinstance(key, str):
+            continue
+        counts: dict[Any, int] = {}
+        for row in rows:
+            cell = row.get(key)
+            counts[_hashable(cell)] = counts.get(_hashable(cell), 0) + 1
+        # Sort by count desc, then by string-form of the value for deterministic
+        # tie-break (matters for test snapshots and cache key stability).
+        ordered = sorted(
+            counts.items(), key=lambda kv: (-kv[1], str(kv[0])),
+        )
+        top = [{"value": v, "count": c} for v, c in ordered[:DISTINCT_SUMMARY_TOP_K]]
+        out[key] = {
+            "distinct_count": len(counts),
+            "top_values": top,
+        }
+    return out
