@@ -561,6 +561,147 @@ def test_single_class_table_is_redis_cached(app_and_cloud) -> None:  # type: ign
     assert r1.json() == r2.json()
 
 
+def test_single_class_pagination_via_query_params(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
+    """Stream 5.8 (2026-05-16) — server-side pagination on /tables/{class}.
+
+    Verifies the new envelope ``{page, pageSize, totalRows, hasMore}`` is
+    returned when ``?page`` and ``?pageSize`` are provided, AND that page 2
+    is served from the same cached full row set as page 1 (zero extra
+    cloud calls). This is the 95%-egress-saving invariant.
+    """
+    client, router = app_and_cloud
+
+    # Build a synthetic 5-subject result so we can paginate page_size=2
+    # → 3 pages (rows 0..1, 2..3, 4).
+    five_ids = [f"sub{i}" for i in range(5)]
+    ndiquery_route = router.post("/ndiquery").respond(
+        200,
+        json={
+            "number_matches": 5,
+            "pageSize": 1000,
+            "page": 1,
+            "documents": [{"id": sid} for sid in five_ids],
+        },
+    )
+    router.post("/datasets/DS1/documents/bulk-fetch").respond(
+        200,
+        json={
+            "documents": [
+                {
+                    "id": sid,
+                    "ndiId": f"ndi-{sid}",
+                    "data": {
+                        "base": {"id": f"ndi-{sid}", "session_id": "sess"},
+                        "subject": {"local_identifier": f"local-{sid}"},
+                        "document_class": {"class_name": "subject"},
+                    },
+                }
+                for sid in five_ids
+            ],
+        },
+    )
+
+    # Page 1 — top of the table.
+    r1 = client.get("/api/datasets/DS1/tables/subject?page=1&pageSize=2")
+    assert r1.status_code == 200, r1.json()
+    body1 = r1.json()
+    assert body1["page"] == 1
+    assert body1["pageSize"] == 2
+    assert body1["totalRows"] == 5
+    assert body1["hasMore"] is True
+    assert len(body1["rows"]) == 2
+    # distinct_summary is carried through verbatim (computed on the FULL
+    # row set, not the page slice).
+    assert "distinct_summary" in body1
+
+    first_call_count = ndiquery_route.call_count
+
+    # Page 2 — middle of the table. Served from cache, no extra cloud hit.
+    r2 = client.get("/api/datasets/DS1/tables/subject?page=2&pageSize=2")
+    assert r2.status_code == 200
+    body2 = r2.json()
+    assert body2["page"] == 2
+    assert body2["totalRows"] == 5
+    assert body2["hasMore"] is True
+    assert len(body2["rows"]) == 2
+    assert ndiquery_route.call_count == first_call_count, (
+        "Page 2 should slice the cached full envelope — no new cloud calls"
+    )
+
+    # Page 3 — last (partial) page.
+    r3 = client.get("/api/datasets/DS1/tables/subject?page=3&pageSize=2")
+    assert r3.status_code == 200
+    body3 = r3.json()
+    assert body3["page"] == 3
+    assert body3["totalRows"] == 5
+    assert body3["hasMore"] is False
+    assert len(body3["rows"]) == 1
+
+
+def test_single_class_unpaged_request_keeps_legacy_envelope(
+    app_and_cloud,  # type: ignore[no-untyped-def]
+) -> None:
+    """BC check: unpaged call (no page/pageSize) returns the legacy
+    ``{columns, rows, distinct_summary}`` envelope so existing callers
+    (Document Explorer's full-set fetch, cron warm-cache) don't break."""
+    client, router = app_and_cloud
+
+    router.post("/ndiquery").respond(
+        200,
+        json={
+            "number_matches": 1, "pageSize": 1000, "page": 1,
+            "documents": [{"id": "sub1"}],
+        },
+    )
+    router.post("/datasets/DS1/documents/bulk-fetch").respond(
+        200,
+        json={"documents": [{
+            "id": "sub1", "ndiId": "ndi-sub1",
+            "data": {
+                "base": {"id": "ndi-sub1", "session_id": "sess1"},
+                "subject": {"local_identifier": "local-id"},
+                "document_class": {"class_name": "subject"},
+            },
+        }]},
+    )
+
+    r = client.get("/api/datasets/DS1/tables/subject")
+    assert r.status_code == 200
+    body = r.json()
+    # Paged fields MUST NOT be present on the unpaged response.
+    assert "page" not in body
+    assert "pageSize" not in body
+    assert "totalRows" not in body
+    assert "hasMore" not in body
+    # Legacy fields still there.
+    assert "columns" in body
+    assert "rows" in body
+
+
+def test_single_class_pagination_rejects_out_of_range_inputs(
+    app_and_cloud,  # type: ignore[no-untyped-def]
+) -> None:
+    """FastAPI Query bounds rejection: page<1, pageSize<1, pageSize>1000
+    all surface as 400 Bad Request (the app's request-validation
+    middleware remaps pydantic 422 → 400 for consistency with auth +
+    body-shape rejections — see existing 400-asserting tests in
+    test_auth_proxy.py). Prevents pathological queries from sneaking
+    past the safety guard."""
+    client, _ = app_and_cloud
+
+    # page=0 violates ge=1.
+    r = client.get("/api/datasets/DS1/tables/subject?page=0&pageSize=10")
+    assert r.status_code == 400
+
+    # pageSize=0 violates ge=1.
+    r = client.get("/api/datasets/DS1/tables/subject?page=1&pageSize=0")
+    assert r.status_code == 400
+
+    # pageSize=1001 violates le=1000.
+    r = client.get("/api/datasets/DS1/tables/subject?page=1&pageSize=1001")
+    assert r.status_code == 400
+
+
 def test_ontology_endpoint_is_redis_cached(app_and_cloud) -> None:  # type: ignore[no-untyped-def]
     """Ontology table grouping is cached under table:{ds}:ontology:{mode}."""
     client, router = app_and_cloud

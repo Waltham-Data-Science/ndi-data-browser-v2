@@ -140,21 +140,51 @@ class SummaryTableService:
         class_name: str,
         *,
         session: SessionData | None,
+        page: int | None = None,
+        page_size: int | None = None,
     ) -> dict[str, Any]:
+        """Build (or read from cache) the full per-class table, then optionally
+        slice for pagination.
+
+        Pagination semantics (Stream 5.8, 2026-05-16):
+
+        - When BOTH ``page`` and ``page_size`` are ``None`` the response is the
+          backward-compatible envelope ``{columns, rows, distinct_summary}``
+          carrying every row. Existing callers (Document Explorer's full-set
+          fetch, the cron warm-cache) stay on this path.
+
+        - When EITHER is provided the response adds ``page``, ``pageSize``,
+          ``totalRows``, and ``hasMore`` fields, and ``rows`` is sliced
+          server-side. Default page=1, page_size=200 when only one is given.
+
+        The cache stays keyed by ``(dataset_id, class_name, user_scope)`` —
+        the FULL row set is cached, never per-page. Slicing happens in-memory
+        after the cache get/compute, so the warm-cache cron (which fetches
+        unpaged) still hydrates every page for downstream paged readers.
+        Egress savings come entirely from the smaller response body; the
+        cloud-fetch work is unchanged.
+        """
         access_token = session.access_token if session else None
         if self.cache is not None:
             key = RedisTableCache.table_key(
                 dataset_id, class_name, user_scope=user_scope_for(session),
             )
-            return await self.cache.get_or_compute(
+            full = await self.cache.get_or_compute(
                 key,
                 lambda: self._build_single_class(
                     dataset_id, class_name, access_token=access_token,
                 ),
             )
-        return await self._build_single_class(
-            dataset_id, class_name, access_token=access_token,
-        )
+        else:
+            full = await self._build_single_class(
+                dataset_id, class_name, access_token=access_token,
+            )
+
+        if page is None and page_size is None:
+            # Backward-compatible unpaged envelope.
+            return full
+
+        return _paginate(full, page=page or 1, page_size=page_size or 200)
 
     async def _build_single_class(
         self,
@@ -600,6 +630,41 @@ class SummaryTableService:
         for r in results:
             flat.extend(r)
         return flat
+
+
+# ---------------------------------------------------------------------------
+# Pagination helper (Stream 5.8, 2026-05-16)
+# ---------------------------------------------------------------------------
+
+def _paginate(
+    full: dict[str, Any], *, page: int, page_size: int,
+) -> dict[str, Any]:
+    """Slice a full single-class table envelope into a paged envelope.
+
+    Carries over ``columns`` and ``distinct_summary`` verbatim — the latter
+    is computed over the FULL row set (capped by ``DISTINCT_SUMMARY_MAX_ROWS``)
+    so consumers can still answer "how many distinct strains across all 215
+    rows" without paging the whole table. ``rows`` is sliced to the requested
+    page.
+
+    Inputs are validated by the FastAPI Query layer (``page >= 1``,
+    ``1 <= page_size <= 1000``); this helper assumes those bounds.
+    """
+    rows = full.get("rows", []) or []
+    total = len(rows)
+    start = (page - 1) * page_size
+    end = start + page_size
+    out: dict[str, Any] = {
+        "columns": full.get("columns", []),
+        "rows": rows[start:end],
+        "page": page,
+        "pageSize": page_size,
+        "totalRows": total,
+        "hasMore": end < total,
+    }
+    if "distinct_summary" in full:
+        out["distinct_summary"] = full["distinct_summary"]
+    return out
 
 
 # ---------------------------------------------------------------------------
