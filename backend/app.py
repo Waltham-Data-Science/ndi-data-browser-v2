@@ -36,6 +36,7 @@ from .middleware.security_headers import SecurityHeadersMiddleware
 from .observability.logging import configure_logging, get_logger, request_id_ctx
 from .observability.tracing import init_tracing
 from .routers import (
+    aggregate_documents,
     auth,
     binary,
     datasets,
@@ -531,6 +532,8 @@ def create_app() -> FastAPI:  # noqa: PLR0915  (single orchestration function, i
     app.include_router(tables.router)
     app.include_router(query.router)
     app.include_router(query.facets_router)
+    # Stream 4.9 (2026-05-16) — heavy aggregate runs on Railway, not Vercel.
+    app.include_router(aggregate_documents.router)
     app.include_router(binary.router)
     app.include_router(signal.router)
     app.include_router(image.router)

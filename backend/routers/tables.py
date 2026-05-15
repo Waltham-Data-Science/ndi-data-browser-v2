@@ -83,7 +83,7 @@ async def single(
     the legacy unpaged envelope ``{columns, rows, distinct_summary}`` —
     backward-compatible with the Document Explorer + cron warm-cache.
 
-    Egress impact: Bhar's ``ontologyTableRow`` is ~5.3k rows × ~15 cols ≈
+    Egress impact: Bhar's ``ontologyTableRow`` is ~5.3k rows x ~15 cols ~=
     6 MB unpaged; with ``pageSize=200`` the first request drops to ~250 KB.
     The cache stays keyed by (dataset_id, class_name, user_scope) — full row
     set is cached once, every page slices in-memory from the same cached

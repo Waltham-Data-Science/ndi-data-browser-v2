@@ -9,6 +9,7 @@ from ..auth.session import SessionStore
 from ..cache.redis_table import RedisTableCache
 from ..clients.ndi_cloud import NdiCloudClient
 from ..middleware.rate_limit import Limit, RateLimiter
+from ..services.aggregate_documents_service import AggregateDocumentsService
 from ..services.binary_service import BinaryService
 from ..services.dataset_binding_service import DatasetBindingService
 from ..services.dataset_provenance_service import DatasetProvenanceService
@@ -51,6 +52,15 @@ def document_service(request: Request) -> DocumentService:
 
 def query_service(request: Request) -> QueryService:
     return QueryService(cloud(request))
+
+
+def aggregate_documents_service(request: Request) -> AggregateDocumentsService:
+    """Stream 4.9 (2026-05-16) — POST /api/aggregate-documents handler.
+
+    Stateless per-request, mirrors `query_service` shape. The cloud client
+    is the only collaborator; nothing held on app.state.
+    """
+    return AggregateDocumentsService(cloud(request))
 
 
 def table_cache(request: Request) -> RedisTableCache | None:

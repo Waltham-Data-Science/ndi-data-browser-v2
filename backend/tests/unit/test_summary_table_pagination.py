@@ -25,7 +25,6 @@ from backend.services.summary_table_service import (
     _paginate,
 )
 
-
 # ---------------------------------------------------------------------------
 # Pure helper: _paginate
 # ---------------------------------------------------------------------------
@@ -124,13 +123,17 @@ class _StubService(SummaryTableService):
     is mocked to return a fixed envelope.
     """
 
-    def __init__(self, full_envelope: dict[str, Any]) -> None:  # noqa: D401
+    def __init__(self, full_envelope: dict[str, Any]) -> None:
         self._envelope = full_envelope
         self.cache = _FakeCache()
         self.cloud = None  # type: ignore[assignment]
 
     async def _build_single_class(  # type: ignore[override]
-        self, dataset_id: str, class_name: str, *, access_token: str | None,
+        self,
+        dataset_id: str,  # noqa: ARG002 — args required by parent signature; test ignores them
+        class_name: str,  # noqa: ARG002
+        *,
+        access_token: str | None,  # noqa: ARG002
     ) -> dict[str, Any]:
         return self._envelope
 
